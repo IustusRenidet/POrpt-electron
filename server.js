@@ -384,7 +384,22 @@ app.post('/report', (req, res) => {
       },
       {
         layout: 'noBorders',
-        table: { body: [[{ text: `Consumido: $${totalConsumo.toLocaleString()} (${((totalConsumo / totalPO * 100).toFixed(1)}%)`, colSpan: 2 }, { text: `Restante: $${(totalPO - totalConsumo).toLocaleString()} (${porcRest}%)`, colSpan: 2 }]] }
+        table: {
+  body: [[
+    {
+      text: `Consumido: $${totalConsumo.toLocaleString()} (${((totalConsumo / totalPO) * 100).toFixed(1)}%)`,
+      colSpan: 2
+    },
+    // si usas colSpan en pdfmake, agrega una celda vacía como “placeholder”
+    {},
+    {
+      text: `Restante: $${(totalPO - totalConsumo).toLocaleString()} (${(100 - ((totalConsumo / totalPO) * 100)).toFixed(1)}%)`,
+      colSpan: 2
+    },
+    {}
+  ]]
+}
+
       },
       // Barra apilada (canvas)
       { canvas: [{ type: 'rect', x: 40, y: 50, w: 520, h: 36, r: 0, lineWidth: 1, lineColor: '#ddd' }] },
