@@ -5,6 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
+const { format } = require('date-fns');
+const jasperManager = require('./reports/jasper');
 let sqliteDb;
 let serverInstance;
 let initPromise;
@@ -24,6 +26,15 @@ function getEnvVar(name, defaultValue) {
     throw new Error(`Variable de entorno obligatoria faltante: ${name}`);
   }
   return value;
+}
+
+function formatFirebirdDate(value) {
+  if (!value) return '';
+  try {
+    return format(value, 'yyyy-MM-dd');
+  } catch (err) {
+    return new Date(value).toISOString().slice(0, 10);
+  }
 }
 
 app.use(express.json());
@@ -116,6 +127,12 @@ app.post('/login', async (req, res) => {
     } else {
       try {
         empresas = user.empresas ? JSON.parse(user.empresas) : [];
+        if (Array.isArray(empresas) && empresas.includes('*')) {
+          const dirs = await fs.promises.readdir(baseDir);
+          empresas = dirs
+            .filter(dir => dir.match(/^Empresa\d+$/))
+            .sort((a, b) => parseInt(a.replace('Empresa', '')) - parseInt(b.replace('Empresa', '')));
+        }
       } catch {
         empresas = [];
       }
@@ -144,7 +161,12 @@ app.get('/users', async (req, res) => {
 
 app.post('/users', async (req, res) => {
   const { usuario, password, nombre, empresas } = req.body;
-  if (!usuario || !password || !Array.isArray(empresas)) {
+  const empresasPayload = empresas === '*'
+    ? '*'
+    : Array.isArray(empresas)
+      ? JSON.stringify(empresas)
+      : null;
+  if (!usuario || !password || empresasPayload === null) {
     return res.status(400).json({ success: false, message: 'Datos inválidos' });
   }
   try {
@@ -153,7 +175,7 @@ app.post('/users', async (req, res) => {
       usuario,
       hash,
       nombre || null,
-      JSON.stringify(empresas)
+      empresasPayload
     ]);
     res.json({ success: true, id: result.lastID });
   } catch (err) {
@@ -169,7 +191,11 @@ app.put('/users/:id', async (req, res) => {
     if (!existing) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     const newUsuario = usuario || existing.usuario;
     const newNombre = nombre !== undefined ? nombre : existing.nombre;
-    const newEmpresas = Array.isArray(empresas) ? JSON.stringify(empresas) : existing.empresas;
+    const newEmpresas = empresas === '*'
+      ? '*'
+      : Array.isArray(empresas)
+        ? JSON.stringify(empresas)
+        : existing.empresas;
     const newPassword = password ? await bcrypt.hash(password, 10) : existing.password;
     await runAsync(sqliteDb, 'UPDATE usuarios SET usuario = ?, password = ?, nombre = ?, empresas = ? WHERE id = ?', [
       newUsuario,
@@ -232,6 +258,229 @@ function getCompanyTables(empresa) {
   };
 }
 
+function basePoId(poId) {
+  if (!poId) return '';
+  return poId.replace(/-\d+$/u, '');
+}
+
+async function withFirebirdConnection(empresa, handler) {
+  const { fsPath, fbPath } = getDatabasePaths(empresa);
+  if (!fs.existsSync(fsPath)) {
+    throw new Error(`Base de datos no encontrada para ${empresa}`);
+  }
+  const options = { ...baseOptions, database: fbPath };
+  return await new Promise((resolve, reject) => {
+    Firebird.attach(options, async (err, db) => {
+      if (err) {
+        return reject(err);
+      }
+      try {
+        const tables = getCompanyTables(empresa);
+        const result = await handler(db, tables);
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      } finally {
+        try {
+          db.detach();
+        } catch (detachError) {
+          console.warn('Error al cerrar conexión Firebird:', detachError.message);
+        }
+      }
+    });
+  });
+}
+
+async function getEmpresaNombre(db, tables) {
+  try {
+    const exists = await tableExists(db, tables.CLIE);
+    if (!exists) return 'SSITEL';
+    const rows = await queryWithTimeout(
+      db,
+      `SELECT FIRST 1 TRIM(NOMBRE) AS nombre FROM ${tables.CLIE} WHERE TRIM(NOMBRE) <> '' ORDER BY TRIM(CLAVE)`
+    );
+    if (rows.length === 0) return 'SSITEL';
+    return rows[0].NOMBRE || rows[0].nombre || 'SSITEL';
+  } catch (err) {
+    console.warn('No se pudo obtener nombre de empresa:', err.message);
+    return 'SSITEL';
+  }
+}
+
+function buildAlert(message, type = 'info') {
+  return { message, type };
+}
+
+function calculateTotals(total, totalRem, totalFac) {
+  const consumo = totalRem + totalFac;
+  const restante = Math.max(total - consumo, 0);
+  const porcRem = total > 0 ? (totalRem / total) * 100 : 0;
+  const porcFac = total > 0 ? (totalFac / total) * 100 : 0;
+  const porcRest = Math.max(100 - (porcRem + porcFac), 0);
+  return {
+    total,
+    totalRem,
+    totalFac,
+    totalConsumo: consumo,
+    restante,
+    porcRem,
+    porcFac,
+    porcRest
+  };
+}
+
+async function getPoSummary(empresa, poId) {
+  const targetPo = (poId || '').trim();
+  if (!targetPo) {
+    throw new Error('PO inválida');
+  }
+  return await withFirebirdConnection(empresa, async (db, tables) => {
+    const baseId = basePoId(targetPo);
+    const poRows = await queryWithTimeout(
+      db,
+      `SELECT TRIM(f.CVE_DOC) AS id, f.FECHA_DOC AS fecha, COALESCE(SUM(p.TOT_PARTIDA), 0) AS total
+       FROM ${tables.FACTP} f
+       LEFT JOIN ${tables.PAR_FACTP} p ON f.CVE_DOC = p.CVE_DOC
+       WHERE f.STATUS <> 'C' AND (TRIM(f.CVE_DOC) = ? OR TRIM(f.CVE_DOC) LIKE ?)
+       GROUP BY f.CVE_DOC, f.FECHA_DOC
+       ORDER BY TRIM(f.CVE_DOC)`,
+      [targetPo, `${baseId}-%`]
+    );
+    if (poRows.length === 0) {
+      throw new Error(`No se encontró información para el PO ${targetPo}`);
+    }
+    const poIds = [...new Set(poRows.map(row => (row.ID || row.id || '').trim()))];
+    const placeholders = poIds.map(() => '?').join(',');
+    let remRows = [];
+    let factRows = [];
+    if (poIds.length > 0) {
+      remRows = await queryWithTimeout(
+        db,
+        `SELECT TRIM(r.CVE_DOC) AS id, TRIM(r.CVE_PEDI) AS po, r.FECHA_DOC AS fecha, COALESCE(SUM(pr.TOT_PARTIDA), 0) AS monto
+         FROM ${tables.FACTR} r
+         LEFT JOIN ${tables.PAR_FACTR} pr ON r.CVE_DOC = pr.CVE_DOC
+         WHERE r.STATUS <> 'C' AND TRIM(r.CVE_PEDI) IN (${placeholders})
+         GROUP BY r.CVE_DOC, r.CVE_PEDI, r.FECHA_DOC
+         ORDER BY TRIM(r.CVE_DOC)`,
+        poIds
+      );
+      factRows = await queryWithTimeout(
+        db,
+        `SELECT TRIM(f.CVE_DOC) AS id, TRIM(f.CVE_PEDI) AS po, f.FECHA_DOC AS fecha, COALESCE(SUM(pf.TOT_PARTIDA), 0) AS monto
+         FROM ${tables.FACTF} f
+         LEFT JOIN ${tables.PAR_FACTF} pf ON f.CVE_DOC = pf.CVE_DOC
+         WHERE f.STATUS <> 'C' AND TRIM(f.CVE_PEDI) IN (${placeholders})
+         GROUP BY f.CVE_DOC, f.CVE_PEDI, f.FECHA_DOC
+         ORDER BY TRIM(f.CVE_DOC)`,
+        poIds
+      );
+    }
+
+    const remisionesMap = remRows.reduce((acc, row) => {
+      const key = (row.PO || row.po || '').trim();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push({
+        id: (row.ID || row.id || '').trim(),
+        fecha: formatFirebirdDate(row.FECHA || row.fecha),
+        monto: Number(row.MONTO ?? row.monto ?? 0)
+      });
+      return acc;
+    }, {});
+
+    const facturasMap = factRows.reduce((acc, row) => {
+      const key = (row.PO || row.po || '').trim();
+      if (!acc[key]) acc[key] = [];
+      acc[key].push({
+        id: (row.ID || row.id || '').trim(),
+        fecha: formatFirebirdDate(row.FECHA || row.fecha),
+        monto: Number(row.MONTO ?? row.monto ?? 0)
+      });
+      return acc;
+    }, {});
+
+    const items = poRows.map(row => {
+      const id = (row.ID || row.id || '').trim();
+      const fecha = formatFirebirdDate(row.FECHA || row.fecha);
+      const total = Number(row.TOTAL ?? row.total ?? 0);
+      const remisiones = (remisionesMap[id] || []).map(rem => ({
+        ...rem,
+        porcentaje: total > 0 ? (rem.monto / total) * 100 : 0
+      }));
+      const facturas = (facturasMap[id] || []).map(fac => ({
+        ...fac,
+        porcentaje: total > 0 ? (fac.monto / total) * 100 : 0
+      }));
+      const totalRem = remisiones.reduce((sum, item) => sum + item.monto, 0);
+      const totalFac = facturas.reduce((sum, item) => sum + item.monto, 0);
+      const totals = calculateTotals(total, totalRem, totalFac);
+      const alerts = [];
+      if (totals.totalConsumo >= total * 0.1 && total > 0) {
+        alerts.push(buildAlert(`El consumo del PO ${id} ha alcanzado el ${(totals.totalConsumo / total * 100).toFixed(2)}%`, 'warning'));
+      }
+      const remisionesTexto = remisiones.length
+        ? remisiones
+            .map(rem => `${rem.id} • ${formatFirebirdDate(rem.fecha)} • $${rem.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${rem.porcentaje.toFixed(2)}%)`)
+            .join('\n')
+        : 'Sin remisiones registradas';
+      const facturasTexto = facturas.length
+        ? facturas
+            .map(fac => `${fac.id} • ${formatFirebirdDate(fac.fecha)} • $${fac.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${fac.porcentaje.toFixed(2)}%)`)
+            .join('\n')
+        : 'Sin facturas registradas';
+      const alertasTexto = alerts.length
+        ? alerts.map(alerta => `[${alerta.type.toUpperCase()}] ${alerta.message}`).join('\n')
+        : 'Sin alertas';
+      return {
+        id,
+        baseId: basePoId(id),
+        fecha,
+        total,
+        remisiones,
+        facturas,
+        remisionesTexto,
+        facturasTexto,
+        alertasTexto,
+        totals,
+        alerts
+      };
+    });
+
+    const aggregatedTotals = items.reduce(
+      (acc, item) => {
+        acc.total += item.total;
+        acc.totalRem += item.totals.totalRem;
+        acc.totalFac += item.totals.totalFac;
+        return acc;
+      },
+      { total: 0, totalRem: 0, totalFac: 0 }
+    );
+    const totals = calculateTotals(aggregatedTotals.total, aggregatedTotals.totalRem, aggregatedTotals.totalFac);
+    const totalsTexto = `Total grupo: $${totals.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n` +
+      `Remisiones: $${totals.totalRem.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRem.toFixed(2)}%)\n` +
+      `Facturas: $${totals.totalFac.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcFac.toFixed(2)}%)\n` +
+      `Restante: $${totals.restante.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRest.toFixed(2)}%)`;
+    const alerts = items.flatMap(item => item.alerts);
+    if (totals.totalConsumo >= totals.total * 0.1 && totals.total > 0) {
+      alerts.push(buildAlert(`El consumo total del grupo ${baseId} supera el 10% (${(totals.totalConsumo / totals.total * 100).toFixed(2)}%)`, 'warning'));
+    }
+    const alertasTexto = alerts.length
+      ? alerts.map(alerta => `[${alerta.type.toUpperCase()}] ${alerta.message}`).join('\n')
+      : 'Sin alertas generales';
+    const companyName = await getEmpresaNombre(db, tables);
+    return {
+      empresa,
+      companyName,
+      baseId,
+      selectedId: targetPo,
+      totals,
+      totalsTexto,
+      items,
+      alerts,
+      alertasTexto
+    };
+  });
+}
+
 async function tableExists(db, tableName) {
   try {
     const rows = await queryWithTimeout(
@@ -251,33 +500,29 @@ app.get('/pos/:empresa', async (req, res) => {
   if (!empresa.match(/^Empresa\d+$/)) {
     return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
   }
-  const tables = getCompanyTables(empresa);
-  const { fsPath, fbPath } = getDatabasePaths(empresa);
-  if (!fs.existsSync(fsPath)) {
-    return res.status(404).json({ success: false, message: `Base de datos no encontrada para ${empresa}` });
-  }
-  const options = { ...baseOptions, database: fbPath };
-  Firebird.attach(options, async (err, db) => {
-    if (err) {
-      console.error('Error conectando a la BD:', err);
-      return res.status(500).json({ success: false, message: 'Error conectando a la BD: ' + err.message });
-    }
-    try {
-      const rows = await queryWithTimeout(db, `
-        SELECT TRIM(f.CVE_DOC) AS id, f.FECHA_DOC as fecha, COALESCE(SUM(p.TOT_PARTIDA), 0) as total
+  try {
+    const rows = await withFirebirdConnection(empresa, async (db, tables) => {
+      const result = await queryWithTimeout(db, `
+        SELECT TRIM(f.CVE_DOC) AS id, f.FECHA_DOC AS fecha, COALESCE(SUM(p.TOT_PARTIDA), 0) AS total
         FROM ${tables.FACTP} f
         LEFT JOIN ${tables.PAR_FACTP} p ON f.CVE_DOC = p.CVE_DOC
         WHERE f.STATUS <> 'C'
         GROUP BY f.CVE_DOC, f.FECHA_DOC
         ORDER BY f.FECHA_DOC DESC
       `);
-      res.json({ success: true, pos: rows });
-    } catch (e) {
-      res.status(500).json({ success: false, message: 'Error consultando POs: ' + e.message });
-    } finally {
-      db.detach();
-    }
-  });
+      return result.map(row => ({
+        id: (row.ID || row.id || '').trim(),
+        fecha: formatFirebirdDate(row.FECHA || row.fecha),
+        total: Number(row.TOTAL ?? row.total ?? 0),
+        baseId: basePoId((row.ID || row.id || '').trim()),
+        isExtension: basePoId((row.ID || row.id || '').trim()) !== (row.ID || row.id || '').trim()
+      }));
+    });
+    res.json({ success: true, pos: rows });
+  } catch (err) {
+    const status = err.message && err.message.includes('Base de datos no encontrada') ? 404 : 500;
+    res.status(status).json({ success: false, message: 'Error consultando POs: ' + err.message });
+  }
 });
 
 app.get('/rems/:empresa/:poId', async (req, res) => {
@@ -285,33 +530,17 @@ app.get('/rems/:empresa/:poId', async (req, res) => {
   if (!empresa.match(/^Empresa\d+$/)) {
     return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
   }
-  const tables = getCompanyTables(empresa);
-  const { fsPath, fbPath } = getDatabasePaths(empresa);
-  if (!fs.existsSync(fsPath)) {
-    return res.status(404).json({ success: false, message: `Base de datos no encontrada para ${empresa}` });
+  try {
+    const summary = await getPoSummary(empresa, poId);
+    const rems = summary.items.flatMap(item => item.remisiones.map(rem => ({
+      ...rem,
+      poId: item.id
+    })));
+    res.json({ success: true, rems });
+  } catch (err) {
+    const status = err.message && err.message.includes('No se encontró') ? 404 : 500;
+    res.status(status).json({ success: false, message: 'Error consultando remisiones: ' + err.message });
   }
-  const options = { ...baseOptions, database: fbPath };
-  Firebird.attach(options, async (err, db) => {
-    if (err) {
-      console.error('Error conectando a la BD:', err);
-      return res.status(500).json({ success: false, message: 'Error conectando a la BD: ' + err.message });
-    }
-    try {
-      const rows = await queryWithTimeout(db, `
-        SELECT TRIM(r.CVE_DOC) AS id, COALESCE(SUM(pr.TOT_PARTIDA), 0) as monto
-        FROM ${tables.FACTR} r
-        LEFT JOIN ${tables.PAR_FACTR} pr ON r.CVE_DOC = pr.CVE_DOC
-        WHERE r.CVE_PEDI LIKE ?
-        AND r.STATUS <> 'C'
-        GROUP BY r.CVE_DOC
-      `, [poId + '%']);
-      res.json({ success: true, rems: rows });
-    } catch (e) {
-      res.status(500).json({ success: false, message: 'Error consultando remisiones: ' + e.message });
-    } finally {
-      db.detach();
-    }
-  });
 });
 
 app.get('/facts/:empresa/:poId', async (req, res) => {
@@ -319,107 +548,56 @@ app.get('/facts/:empresa/:poId', async (req, res) => {
   if (!empresa.match(/^Empresa\d+$/)) {
     return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
   }
-  const tables = getCompanyTables(empresa);
-  const { fsPath, fbPath } = getDatabasePaths(empresa);
-  if (!fs.existsSync(fsPath)) {
-    return res.status(404).json({ success: false, message: `Base de datos no encontrada para ${empresa}` });
+  try {
+    const summary = await getPoSummary(empresa, poId);
+    const facts = summary.items.flatMap(item => item.facturas.map(fac => ({
+      ...fac,
+      poId: item.id
+    })));
+    res.json({ success: true, facts });
+  } catch (err) {
+    const status = err.message && err.message.includes('No se encontró') ? 404 : 500;
+    res.status(status).json({ success: false, message: 'Error consultando facturas: ' + err.message });
   }
-  const options = { ...baseOptions, database: fbPath };
-  Firebird.attach(options, async (err, db) => {
-    if (err) {
-      console.error('Error conectando a la BD:', err);
-      return res.status(500).json({ success: false, message: 'Error conectando a la BD: ' + err.message });
-    }
-    try {
-      const rows = await queryWithTimeout(db, `
-        SELECT TRIM(f.CVE_DOC) AS id, COALESCE(SUM(pf.TOT_PARTIDA), 0) as monto
-        FROM ${tables.FACTF} f
-        LEFT JOIN ${tables.PAR_FACTF} pf ON f.CVE_DOC = pf.CVE_DOC
-        WHERE f.CVE_PEDI LIKE ?
-        AND f.STATUS <> 'C'
-        GROUP BY f.CVE_DOC
-      `, [poId + '%']);
-      res.json({ success: true, facts: rows });
-    } catch (e) {
-      res.status(500).json({ success: false, message: 'Error consultando facturas: ' + e.message });
-    } finally {
-      db.detach();
-    }
-  });
 });
 
-app.post('/report', (req, res) => {
-  const { ssitel, po, rems, facts } = req.body;
-  const pdfMake = require('pdfmake/build/pdfmake');
-  const pdfFonts = require('pdfmake/build/vfs_fonts');
-  pdfMake.vfs = pdfFonts.pdfMake.vfs;
+app.get('/po-summary/:empresa/:poId', async (req, res) => {
+  const { empresa, poId } = req.params;
+  if (!empresa.match(/^Empresa\d+$/)) {
+    return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
+  }
+  try {
+    const summary = await getPoSummary(empresa, poId);
+    res.json({ success: true, summary });
+  } catch (err) {
+    const status = err.message && err.message.includes('No se encontró') ? 404 : 500;
+    res.status(status).json({ success: false, message: err.message });
+  }
+});
 
-  const totalPO = po.total;
-  const totalRem = rems.reduce((sum, r) => sum + r.monto, 0);
-  const totalFac = facts.reduce((sum, f) => sum + f.monto, 0);
-  const totalConsumo = totalRem + totalFac;
-  const porcRem = (totalRem / totalPO * 100).toFixed(1);
-  const porcFac = (totalFac / totalPO * 100).toFixed(1);
-  const porcRest = (100 - parseFloat(porcRem) - parseFloat(porcFac)).toFixed(1);
-
-  rems.forEach(r => r.porcentaje = (r.monto / totalPO * 100).toFixed(1));
-  facts.forEach(f => f.porcentaje = (f.monto / totalPO * 100).toFixed(1));
-
-  const docDefinition = {
-    content: [
-      { text: `Reporte de POs - Consumo (${ssitel})`, style: 'header' },
-      {
-        table: { body: [['PO ID', 'Fecha', 'Total'], [po.id, po.fecha, `$${totalPO.toLocaleString()}`]] },
-        layout: 'lightHorizontalLines'
-      },
-      { text: 'Remisiones', style: 'subheader', color: 'blue' },
-      {
-        table: { body: [['ID', 'Monto (%)'], ...rems.map(r => [r.id, `$${r.monto.toLocaleString()} (${r.porcentaje}%)`])] },
-        layout: { fillColor: rowIndex => (rowIndex === 0 ? '#e3f2fd' : null) }
-      },
-      { text: 'Facturas', style: 'subheader', color: 'red' },
-      {
-        table: { body: [['ID', 'Monto (%)'], ...facts.map(f => [f.id, `$${f.monto.toLocaleString()} (${f.porcentaje}%)`])] },
-        layout: { fillColor: rowIndex => (rowIndex === 0 ? '#ffebee' : null) }
-      },
-      {
-        layout: 'noBorders',
-        table: {
-  body: [[
-    {
-      text: `Consumido: $${totalConsumo.toLocaleString()} (${((totalConsumo / totalPO) * 100).toFixed(1)}%)`,
-      colSpan: 2
-    },
-    // si usas colSpan en pdfmake, agrega una celda vacía como “placeholder”
-    {},
-    {
-      text: `Restante: $${(totalPO - totalConsumo).toLocaleString()} (${(100 - ((totalConsumo / totalPO) * 100)).toFixed(1)}%)`,
-      colSpan: 2
-    },
-    {}
-  ]]
-}
-
-      },
-      // Barra apilada (canvas)
-      { canvas: [{ type: 'rect', x: 40, y: 50, w: 520, h: 36, r: 0, lineWidth: 1, lineColor: '#ddd' }] },
-      { canvas: [{ type: 'rect', x: 40, y: 50, w: (porcRem / 100 * 520), h: 36, color: 'blue' }] },
-      { canvas: [{ type: 'rect', x: 40 + (porcRem / 100 * 520), y: 50, w: (porcFac / 100 * 520), h: 36, color: 'red' }] },
-      { canvas: [{ type: 'rect', x: 40 + ((parseFloat(porcRem) + parseFloat(porcFac)) / 100 * 520), y: 50, w: (porcRest / 100 * 520), h: 36, color: 'green' }] },
-      { text: `Rem: ${porcRem}% ($${totalRem.toLocaleString()})`, color: 'blue' },
-      { text: `Fac: ${porcFac}% ($${totalFac.toLocaleString()})`, color: 'red' },
-      { text: `Restante: ${porcRest}% ($${(totalPO - totalConsumo).toLocaleString()})`, color: 'green' },
-      { text: 'Observaciones: *Sin extensiones. Para "-2", ver gráfico adicional.', italics: true },
-      { text: 'POrpt • Aspel SAE 9', style: 'footer' }
-    ],
-    styles: { header: { fontSize: 20, bold: true }, subheader: { fontSize: 14, bold: true }, footer: { fontSize: 10, alignment: 'center' } }
-  };
-
-  pdfMake.createPdf(docDefinition).getBuffer((buffer) => {
+app.post('/report', async (req, res) => {
+  const { empresa, poId } = req.body;
+  if (!empresa || !poId) {
+    return res.status(400).json({ success: false, message: 'Empresa y PO son obligatorios para el reporte' });
+  }
+  try {
+    const summary = await getPoSummary(empresa, poId);
+    const jasper = jasperManager.getInstance();
+    if (!jasper) {
+      return res.status(503).json({
+        success: false,
+        message: 'JasperReports no se inicializó. Verifica la configuración en reports/jasper.config.js.'
+      });
+    }
+    const buffer = await jasperManager.generatePoSummary(jasper, summary);
     res.set('Content-Type', 'application/pdf');
-    res.set('Content-Disposition', 'attachment; filename=reporte.pdf');
+    res.set('Content-Disposition', `attachment; filename=${summary.baseId || 'reporte'}.pdf`);
     res.send(buffer);
-  });
+  } catch (err) {
+    console.error('Error generando reporte Jasper:', err);
+    const status = err.message && err.message.includes('PO') ? 404 : 500;
+    res.status(status).json({ success: false, message: 'Error generando reporte: ' + err.message });
+  }
 });
 
 app.use((err, req, res, next) => {
@@ -451,6 +629,7 @@ async function init(options = {}) {
           adminUser, hash, null, '*'
         ]);
       }
+      await jasperManager.init();
       serverInstance = await new Promise((resolve, reject) => {
         const server = app.listen(listenPort, listenHost, () => {
           console.log(`Servidor corriendo en puerto ${listenPort}`);
