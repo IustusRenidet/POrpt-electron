@@ -16,10 +16,11 @@
     "bcryptjs": "^2.4.3",
     "bootstrap": "^5.3.3",
     "chart.js": "^4.4.0",
+    "date-fns": "^3.6.0",
     "dotenv": "^16.4.5",
     "express": "^5.1.0",
     "node-firebird": "^0.8.9",
-    "pdfmake": "^0.2.10",
+    "node-jasper": "^0.2.5",
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {

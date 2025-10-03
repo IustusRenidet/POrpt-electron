@@ -1,7 +1,35 @@
-.toast { z-index: 1055; }
-.position-fixed { position: fixed; }
-.bg-info { background-color: #0dcaf0 !important; }
-.bg-success { background-color: #198754 !important; }
-.bg-warning { background-color: #ffc107 !important; color: #000; }
-.bg-danger { background-color: #dc3545 !important; }
-canvas { max-height: 300px; }
+body.bg-gradient {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+  color: #0f172a;
+}
+
+.toast-container {
+  z-index: 1080;
+}
+
+.card.shadow-sm {
+  border-radius: 0.75rem;
+}
+
+.card-header {
+  font-weight: 600;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+canvas {
+  max-width: 100%;
+}
+
+.table-hover tbody tr:hover {
+  background-color: rgba(37, 99, 235, 0.08);
+}
+
+.btn-outline-secondary,
+.btn-outline-danger {
+  min-width: 90px;
+}

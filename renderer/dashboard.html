@@ -9,44 +9,90 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-light">
-  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
     <div class="container">
-      <a class="navbar-brand" href="#">POrpt</a>
-      <div class="navbar-nav ms-auto">
-        <a class="nav-link" href="admin.html">Admin</a>
-        <a class="nav-link" href="#" onclick="logout()">Logout</a>
+      <a class="navbar-brand fw-bold" href="#">POrpt</a>
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-light" href="admin.html">Administrar usuarios</a>
+        <button class="btn btn-warning" onclick="logout()">Salir</button>
       </div>
     </div>
   </nav>
-  <div class="container mt-4">
-    <h2>Dashboard - Selecciona Empresa</h2>
-    <select id="empresaSelect" class="form-select mb-3" onchange="loadPOs()">
-      <option value="">-- Selecciona Empresa (Search dinámico) --</option>
-    </select>
-    <div id="poSection" style="display:none;">
-      <h4>Selecciona PO</h4>
-      <select id="poSelect" class="form-select mb-3" onchange="updateCharts()">
-        <option value="">-- POs --</option>
-      </select>
-      <button onclick="generateReport()" class="btn btn-success mb-3">Generar Reporte PDF</button>
-      <div class="row">
-        <div class="col-md-4"><canvas id="chartRem"></canvas></div>
-        <div class="col-md-4"><canvas id="chartFac"></canvas></div>
-        <div class="col-md-4"><canvas id="chartJunto"></canvas></div>
+
+  <main class="container my-4">
+    <section class="mb-4">
+      <h2 class="fw-semibold">Dashboard de consumo de POs</h2>
+      <p class="text-muted">Busca la empresa y el Pedido (PO) para visualizar remisiones, facturas, extensiones y alertas de consumo.</p>
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <label for="empresaSearch" class="form-label">Empresa (búsqueda dinámica)</label>
+          <input id="empresaSearch" class="form-control" list="empresaOptions" placeholder="Escribe Empresa01, Empresa26...">
+          <datalist id="empresaOptions"></datalist>
+          <div class="form-text">Escribe para filtrar. Solo se listan coincidencias.</div>
+        </div>
+        <div class="col-lg-6">
+          <label for="poSearch" class="form-label">PO / Pedido (con extensiones)</label>
+          <input id="poSearch" class="form-control" list="poOptions" placeholder="Escribe el número de PO, fecha o monto">
+          <datalist id="poOptions"></datalist>
+          <div class="form-text">Cada coincidencia muestra número, fecha y monto para distinguir fácilmente.</div>
+        </div>
       </div>
-      <table id="poTable" class="table table-striped mt-3" style="display:none;"></table>
-    </div>
-    <div class="modal fade" id="modalExt" tabindex="-1">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header"><h5>Detalles Extensión PO</h5></div>
-          <div class="modal-body"><canvas id="chartExt"></canvas></div>
-          <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button></div>
+      <div class="mt-3">
+        <button id="generateReportBtn" class="btn btn-success me-2">Generar reporte Jasper</button>
+        <small class="text-muted">El reporte incluirá gráficas, totales y alertas del PO seleccionado.</small>
+      </div>
+    </section>
+
+    <section id="dashboardContent" class="d-none">
+      <div id="summaryCards" class="row g-3 mb-4"></div>
+      <div class="row g-3 mb-4">
+        <div class="col-md-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header bg-primary text-white">Remisiones por PO</div>
+            <div class="card-body"><canvas id="chartRem" height="220"></canvas></div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header bg-warning text-dark">Facturas por PO</div>
+            <div class="card-body"><canvas id="chartFac" height="220"></canvas></div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header bg-success text-white">Consumo vs Disponible (%)</div>
+            <div class="card-body"><canvas id="chartJunto" height="220"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="h5 mb-3">Extensiones y consumo específico</h3>
+      <div id="extensionsContainer" class="row g-3 mb-4"></div>
+
+      <h3 class="h5 mb-2">Detalle de POs seleccionadas</h3>
+      <div class="table-responsive">
+        <table id="poTable" class="table table-hover align-middle"></table>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal fade" id="modalExt" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Detalle PO</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
         </div>
       </div>
     </div>
-    <div id="alerts" class="position-fixed top-0 end-0 p-3" style="z-index: 11"></div>
   </div>
+
+  <div id="alerts" class="toast-container position-fixed top-0 end-0 p-3"></div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="renderer.js"></script>
 </body>

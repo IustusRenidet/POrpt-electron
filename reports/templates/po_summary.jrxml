@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jasperReport xmlns="http://jasperreports.sourceforge.net/jasperreports"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:schemaLocation="http://jasperreports.sourceforge.net/jasperreports http://jasperreports.sourceforge.net/xsd/jasperreport.xsd"
+              name="po_summary" pageWidth="595" pageHeight="842" columnWidth="515" leftMargin="40" rightMargin="40" topMargin="40" bottomMargin="40" uuid="d8a8c71e-a4f1-4e73-b1dd-2f42d9efc6c2">
+    <property name="ireport.zoom" value="1.0"/>
+    <property name="ireport.x" value="0"/>
+    <property name="ireport.y" value="0"/>
+    <parameter name="REPORT_TITLE" class="java.lang.String"/>
+    <parameter name="COMPANY_NAME" class="java.lang.String"/>
+    <parameter name="BASE_ID" class="java.lang.String"/>
+    <parameter name="TOTALS_TEXT" class="java.lang.String"/>
+    <parameter name="GENERAL_ALERTS" class="java.lang.String"/>
+    <queryString language="jsonql">
+        <![CDATA[summary.items]]>
+    </queryString>
+    <field name="id" class="java.lang.String">
+        <fieldDescription><![CDATA[id]]></fieldDescription>
+    </field>
+    <field name="fecha" class="java.lang.String">
+        <fieldDescription><![CDATA[fecha]]></fieldDescription>
+    </field>
+    <field name="total" class="java.lang.Double">
+        <fieldDescription><![CDATA[total]]></fieldDescription>
+    </field>
+    <field name="totals.totalRem" class="java.lang.Double">
+        <fieldDescription><![CDATA[totals.totalRem]]></fieldDescription>
+    </field>
+    <field name="totals.totalFac" class="java.lang.Double">
+        <fieldDescription><![CDATA[totals.totalFac]]></fieldDescription>
+    </field>
+    <field name="totals.totalConsumo" class="java.lang.Double">
+        <fieldDescription><![CDATA[totals.totalConsumo]]></fieldDescription>
+    </field>
+    <field name="totals.restante" class="java.lang.Double">
+        <fieldDescription><![CDATA[totals.restante]]></fieldDescription>
+    </field>
+    <field name="totals.porcRem" class="java.lang.Double">
+        <fieldDescription><![CDATA[totals.porcRem]]></fieldDescription>
+    </field>
+    <field name="totals.porcFac" class="java.lang.Double">
+        <fieldDescription><![CDATA[totals.porcFac]]></fieldDescription>
+    </field>
+    <field name="totals.porcRest" class="java.lang.Double">
+        <fieldDescription><![CDATA[totals.porcRest]]></fieldDescription>
+    </field>
+    <field name="remisionesTexto" class="java.lang.String">
+        <fieldDescription><![CDATA[remisionesTexto]]></fieldDescription>
+    </field>
+    <field name="facturasTexto" class="java.lang.String">
+        <fieldDescription><![CDATA[facturasTexto]]></fieldDescription>
+    </field>
+    <field name="alertasTexto" class="java.lang.String">
+        <fieldDescription><![CDATA[alertasTexto]]></fieldDescription>
+    </field>
+    <background>
+        <band splitType="Stretch"/>
+    </background>
+    <title>
+        <band height="120" splitType="Stretch">
+            <textField>
+                <reportElement x="0" y="0" width="515" height="30" forecolor="#1F2D3D" uuid="f6f9ee9c-5b1f-4a21-8c52-16c9a5e58aa6"/>
+                <textElement textAlignment="Center" verticalAlignment="Middle">
+                    <font size="18" isBold="true"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$P{REPORT_TITLE} == null ? "POrpt" : $P{REPORT_TITLE}]]></textFieldExpression>
+            </textField>
+            <textField>
+                <reportElement x="0" y="35" width="515" height="18" uuid="f0a791f0-1f72-4cc2-9ee0-7e4f1035a6f8"/>
+                <textElement textAlignment="Center">
+                    <font size="12"/>
+                </textElement>
+                <textFieldExpression><![CDATA["Empresa: " + ($P{COMPANY_NAME} == null ? "SSITEL" : $P{COMPANY_NAME})]]></textFieldExpression>
+            </textField>
+            <textField>
+                <reportElement x="0" y="55" width="515" height="18" uuid="9345e84d-5514-4f38-8b46-0febef872fdc"/>
+                <textElement textAlignment="Center">
+                    <font size="12"/>
+                </textElement>
+                <textFieldExpression><![CDATA["PO base: " + ($P{BASE_ID} == null ? "-" : $P{BASE_ID})]]></textFieldExpression>
+            </textField>
+            <textField isStretchWithOverflow="true">
+                <reportElement x="0" y="80" width="515" height="35" uuid="e0dfc49f-63d8-41a1-a0b0-62de4f6024e1"/>
+                <textElement textAlignment="Center">
+                    <font size="11"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$P{TOTALS_TEXT} == null ? "" : $P{TOTALS_TEXT}]]></textFieldExpression>
+            </textField>
+        </band>
+    </title>
+    <columnHeader>
+        <band height="28" splitType="Stretch">
+            <rectangle>
+                <reportElement x="0" y="0" width="515" height="28" backcolor="#F1F5F9" uuid="4ea5d5e5-6d9e-40d1-ac1e-0a9a5b1faef3"/>
+            </rectangle>
+            <staticText>
+                <reportElement x="0" y="6" width="70" height="16" uuid="6e96cc90-1fbe-4fa7-b93e-1c9a61b16bb7"/>
+                <textElement textAlignment="Left">
+                    <font isBold="true"/>
+                </textElement>
+                <text><![CDATA[PO]]></text>
+            </staticText>
+            <staticText>
+                <reportElement x="75" y="6" width="70" height="16" uuid="2e99812c-14af-4a60-bb01-9fa507ed8adf"/>
+                <textElement>
+                    <font isBold="true"/>
+                </textElement>
+                <text><![CDATA[Fecha]]></text>
+            </staticText>
+            <staticText>
+                <reportElement x="150" y="6" width="80" height="16" uuid="5fd78883-68f8-4b79-bf65-5f5a5dc5f736"/>
+                <textElement textAlignment="Right">
+                    <font isBold="true"/>
+                </textElement>
+                <text><![CDATA[Total]]></text>
+            </staticText>
+            <staticText>
+                <reportElement x="235" y="6" width="80" height="16" uuid="7b56f498-87c8-4140-b51d-330ca428b9cc"/>
+                <textElement textAlignment="Right">
+                    <font isBold="true"/>
+                </textElement>
+                <text><![CDATA[Remisiones]]></text>
+            </staticText>
+            <staticText>
+                <reportElement x="320" y="6" width="80" height="16" uuid="bb3ecda4-c2dd-4353-963a-b1f8b19cf024"/>
+                <textElement textAlignment="Right">
+                    <font isBold="true"/>
+                </textElement>
+                <text><![CDATA[Facturas]]></text>
+            </staticText>
+            <staticText>
+                <reportElement x="405" y="6" width="110" height="16" uuid="1f8bff8a-8da1-462c-932a-89f38547296e"/>
+                <textElement textAlignment="Right">
+                    <font isBold="true"/>
+                </textElement>
+                <text><![CDATA[Consumo (%)]]></text>
+            </staticText>
+        </band>
+    </columnHeader>
+    <detail>
+        <band height="150" splitType="Stretch">
+            <textField>
+                <reportElement x="0" y="0" width="70" height="16" uuid="15a7fb46-965c-4c48-b6d4-0e6f4f618e87"/>
+                <textFieldExpression><![CDATA[$F{id}]]></textFieldExpression>
+            </textField>
+            <textField>
+                <reportElement x="75" y="0" width="70" height="16" uuid="597f9f50-9802-4c2f-9b6c-160535989920"/>
+                <textFieldExpression><![CDATA[$F{fecha}]]></textFieldExpression>
+            </textField>
+            <textField pattern="$ #,##0.00">
+                <reportElement x="150" y="0" width="80" height="16" uuid="89a59713-5fde-4a0d-a84a-986803d5e48f" textAlignment="Right"/>
+                <textFieldExpression><![CDATA[$F{total}]]></textFieldExpression>
+            </textField>
+            <textField pattern="$ #,##0.00">
+                <reportElement x="235" y="0" width="80" height="16" uuid="1cb66f1d-0b6d-4f2d-8ef1-1c1ea53eb45b" textAlignment="Right"/>
+                <textFieldExpression><![CDATA[$F{totals.totalRem}]]></textFieldExpression>
+            </textField>
+            <textField pattern="$ #,##0.00">
+                <reportElement x="320" y="0" width="80" height="16" uuid="54ad59af-e400-4e88-b0ae-02516339950d" textAlignment="Right"/>
+                <textFieldExpression><![CDATA[$F{totals.totalFac}]]></textFieldExpression>
+            </textField>
+            <textField>
+                <reportElement x="405" y="0" width="110" height="16" uuid="46b6fe10-5a82-4dcc-aa27-a7e3c9a3f8d0" textAlignment="Right"/>
+                <textFieldExpression><![CDATA[String.format("%s (%.2f%%)",
+                    new Object[]{
+                        new java.text.DecimalFormat("$ #,##0.00").format($F{totals.totalConsumo}),
+                        $F{total} != null && $F{total} != 0 ? ($F{totals.totalConsumo} / $F{total} * 100) : 0.0
+                    })]]></textFieldExpression>
+            </textField>
+            <line>
+                <reportElement x="0" y="22" width="515" height="1" forecolor="#CBD5E1" uuid="0cd474f3-0e5e-4a55-8d3f-6f8b824973ab"/>
+            </line>
+            <staticText>
+                <reportElement x="0" y="30" width="80" height="14" uuid="4a708650-42cf-45ba-bef9-4d9be4ce1a2a"/>
+                <textElement>
+                    <font size="10" isBold="true"/>
+                </textElement>
+                <text><![CDATA[Remisiones]]></text>
+            </staticText>
+            <textField isStretchWithOverflow="true">
+                <reportElement x="0" y="46" width="250" height="50" uuid="03ce1579-b407-4e86-a324-5b340ca8f8dc"/>
+                <textElement>
+                    <font size="9"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$F{remisionesTexto}]]></textFieldExpression>
+            </textField>
+            <staticText>
+                <reportElement x="265" y="30" width="80" height="14" uuid="99e5664a-58b0-4c9d-b9dc-b1b7b6df6d30"/>
+                <textElement>
+                    <font size="10" isBold="true"/>
+                </textElement>
+                <text><![CDATA[Facturas]]></text>
+            </staticText>
+            <textField isStretchWithOverflow="true">
+                <reportElement x="265" y="46" width="250" height="50" uuid="0cd750c7-1a10-472d-b2de-86432d6dab66"/>
+                <textElement>
+                    <font size="9"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$F{facturasTexto}]]></textFieldExpression>
+            </textField>
+            <staticText>
+                <reportElement x="0" y="100" width="80" height="14" uuid="4cdf253c-a527-4d8d-927c-1cc09847f0a3"/>
+                <textElement>
+                    <font size="10" isBold="true"/>
+                </textElement>
+                <text><![CDATA[Alertas]]></text>
+            </staticText>
+            <textField isStretchWithOverflow="true">
+                <reportElement x="0" y="116" width="515" height="34" uuid="747b31b1-5d5e-4f25-86f9-5e1b5eafb409"/>
+                <textElement>
+                    <font size="9"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$F{alertasTexto}]]></textFieldExpression>
+            </textField>
+        </band>
+    </detail>
+    <summary>
+        <band height="80" splitType="Stretch">
+            <staticText>
+                <reportElement x="0" y="0" width="515" height="16" uuid="0bc1d106-8716-4511-b4e2-3f4fc0f6f364"/>
+                <textElement textAlignment="Left">
+                    <font size="11" isBold="true"/>
+                </textElement>
+                <text><![CDATA[Resumen general]]></text>
+            </staticText>
+            <textField isStretchWithOverflow="true">
+                <reportElement x="0" y="18" width="515" height="30" uuid="f367ee38-527a-4bc5-9cb3-4a7b238f6e7e"/>
+                <textElement>
+                    <font size="10"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$P{TOTALS_TEXT}]]></textFieldExpression>
+            </textField>
+            <textField isStretchWithOverflow="true">
+                <reportElement x="0" y="50" width="515" height="30" uuid="fb0dfa1b-e74d-4d73-89da-5afadf46c446"/>
+                <textElement>
+                    <font size="10"/>
+                </textElement>
+                <textFieldExpression><![CDATA[$P{GENERAL_ALERTS}]]></textFieldExpression>
+            </textField>
+        </band>
+    </summary>
+</jasperReport>
