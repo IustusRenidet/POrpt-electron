@@ -137,3 +137,44 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+
+# Dependencias
+node_modules/
+
+# Construcciones y empaquetado
+/dist/
+/out/
+/build/
+/release/
+/dist-*/
+/electron-build/
+
+# Instaladores y ejecutables
+*.exe
+*.msi
+*.dmg
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+*.pkg
+*.AppImage
+
+# Recursos generados
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.map
+*.asar
+
+# Sistemas operativos
+.DS_Store
+Thumbs.db
+
+# Herramientas de desarrollo
+.idea/
+.vscode/
+

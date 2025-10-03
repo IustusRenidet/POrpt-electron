@@ -1,0 +1,70 @@
+{
+  "name": "POrpt",
+  "version": "1.0.0",
+  "description": "Dashboard Electron para POs, Remisiones y Facturas en SAE9.00 con alertas y reportes PDF.",
+  "main": "main.js",
+  "author": "RintelGatachi & J02V4N",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IustusRenidet/POrpt-electron.git"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.3",
+    "chart.js": "^4.4.0",
+    "node-firebird": "^0.8.9",
+    "pdfmake": "^0.2.10",
+    "sqlite3": "^5.1.7",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.example.porpt",
+    "productName": "POrpt",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*"
+    ],
+    "win": {
+      "icon": "renderer/icono-peorpt.ico",
+      "signingHashAlgorithms": [],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-x64.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-${version}-setup.${ext}"
+    }
+  },
+  "keywords": [],
+  "author": "RintelGatachi & J02V4N",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/IustusRenidet/POrpt-electron/issues"
+  },
+  "homepage": "https://github.com/IustusRenidet/POrpt-electron#readme"
+}

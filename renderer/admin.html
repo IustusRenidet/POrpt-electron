@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POrpt - Admin Usuarios</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-light">
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container">
+      <a class="navbar-brand" href="dashboard.html">POrpt</a>
+      <div class="navbar-nav ms-auto">
+        <a class="nav-link" href="#" onclick="logout()">Logout</a>
+      </div>
+    </div>
+  </nav>
+  <div class="container mt-4">
+    <h2>Gestión de Usuarios</h2>
+    <button onclick="loadUsers()" class="btn btn-primary mb-3">Cargar Usuarios</button>
+    <table id="usersTable" class="table table-striped">
+      <thead><tr><th>ID</th><th>Usuario</th><th>Nombre</th><th>Empresas</th><th>Acciones</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="alerts" class="position-fixed top-0 end-0 p-3" style="z-index: 11"></div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

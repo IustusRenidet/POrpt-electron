@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>POrpt - Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-light">
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container">
+      <a class="navbar-brand" href="#">POrpt</a>
+      <div class="navbar-nav ms-auto">
+        <a class="nav-link" href="admin.html">Admin</a>
+        <a class="nav-link" href="#" onclick="logout()">Logout</a>
+      </div>
+    </div>
+  </nav>
+  <div class="container mt-4">
+    <h2>Dashboard - Selecciona Empresa</h2>
+    <select id="empresaSelect" class="form-select mb-3" onchange="loadPOs()">
+      <option value="">-- Selecciona Empresa (Search dinámico) --</option>
+    </select>
+    <div id="poSection" style="display:none;">
+      <h4>Selecciona PO</h4>
+      <select id="poSelect" class="form-select mb-3" onchange="updateCharts()">
+        <option value="">-- POs --</option>
+      </select>
+      <button onclick="generateReport()" class="btn btn-success mb-3">Generar Reporte PDF</button>
+      <div class="row">
+        <div class="col-md-4"><canvas id="chartRem"></canvas></div>
+        <div class="col-md-4"><canvas id="chartFac"></canvas></div>
+        <div class="col-md-4"><canvas id="chartJunto"></canvas></div>
+      </div>
+      <table id="poTable" class="table table-striped mt-3" style="display:none;"></table>
+    </div>
+    <div class="modal fade" id="modalExt" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header"><h5>Detalles Extensión PO</h5></div>
+          <div class="modal-body"><canvas id="chartExt"></canvas></div>
+          <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button></div>
+        </div>
+      </div>
+    </div>
+    <div id="alerts" class="position-fixed top-0 end-0 p-3" style="z-index: 11"></div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
