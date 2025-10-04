@@ -5,7 +5,6 @@ const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
-const { format } = require('date-fns');
 const jasperManager = require('./reports/jasper');
 let sqliteDb;
 let serverInstance;
@@ -28,13 +27,20 @@ function getEnvVar(name, defaultValue) {
   return value;
 }
 
+function padTo2(value) {
+  return value.toString().padStart(2, '0');
+}
+
 function formatFirebirdDate(value) {
   if (!value) return '';
-  try {
-    return format(value, 'yyyy-MM-dd');
-  } catch (err) {
-    return new Date(value).toISOString().slice(0, 10);
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
   }
+  const year = date.getFullYear();
+  const month = padTo2(date.getMonth() + 1);
+  const day = padTo2(date.getDate());
+  return `${year}-${month}-${day}`;
 }
 
 app.use(express.json());
