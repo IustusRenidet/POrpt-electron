@@ -2,7 +2,7 @@ const state = {
   empresas: [],
   pos: [],
   selectedEmpresa: '',
-  selectedPoId: '',
+  selectedPoIds: [],
   charts: new Map(),
   summary: null,
   users: [],
@@ -179,6 +179,100 @@ function renderPoOptions(filterText = '') {
     });
 }
 
+function getPoMetadataByBase(baseId) {
+  if (!baseId) return null;
+  return state.pos.find(po => po.id === baseId) || state.pos.find(po => po.baseId === baseId) || null;
+}
+
+function renderSelectedPoChips() {
+  const container = document.getElementById('selectedPoContainer');
+  if (!container) return;
+  container.innerHTML = '';
+  const help = document.getElementById('selectedPoHelp');
+  if (!state.selectedPoIds.length) {
+    const empty = document.createElement('p');
+    empty.className = 'text-muted small mb-0';
+    empty.textContent = 'No hay POs seleccionadas. Utiliza el buscador para agregarlas.';
+    container.appendChild(empty);
+    document.getElementById('dashboardContent')?.classList.add('d-none');
+    if (help) {
+      help.textContent = 'Puedes agregar varias POs base (el sistema combinará sus extensiones automáticamente).';
+    }
+    return;
+  }
+  if (help) {
+    const label = state.selectedPoIds.length === 1
+      ? '1 PEO base seleccionada'
+      : `${state.selectedPoIds.length} PEOs base seleccionadas`;
+    help.textContent = `${label}. Puedes quitar cualquiera dando clic en la “x”.`;
+  }
+  state.selectedPoIds.forEach(baseId => {
+    const chip = document.createElement('span');
+    chip.className = 'selected-po-chip';
+    const meta = getPoMetadataByBase(baseId);
+    const label = meta
+      ? `${baseId} • $${formatCurrency(meta.total || 0)}`
+      : baseId;
+    chip.innerHTML = `
+      <span>${label}</span>
+      <button type="button" aria-label="Quitar" data-action="remove-po" data-po="${baseId}">&times;</button>
+    `;
+    container.appendChild(chip);
+  });
+}
+
+function addPoToSelection(poId) {
+  if (!poId) return;
+  const found = state.pos.find(po => po.id === poId);
+  if (!found) {
+    showAlert('Selecciona una PO válida de la lista desplegable.', 'warning');
+    return;
+  }
+  const baseId = found.baseId || found.id;
+  if (state.selectedPoIds.includes(baseId)) {
+    showAlert(`La PO ${baseId} ya está en la selección.`, 'info');
+    return;
+  }
+  state.selectedPoIds.push(baseId);
+  showAlert(`PO ${baseId} agregada a la selección.`, 'success');
+  renderSelectedPoChips();
+  updateSummary();
+}
+
+function removePoFromSelection(baseId) {
+  const index = state.selectedPoIds.indexOf(baseId);
+  if (index === -1) return;
+  state.selectedPoIds.splice(index, 1);
+  renderSelectedPoChips();
+  if (state.selectedPoIds.length === 0) {
+    state.summary = null;
+    destroyCharts();
+    document.getElementById('summaryCards')?.replaceChildren();
+    document.getElementById('poTable')?.replaceChildren();
+    document.getElementById('extensionsContainer')?.replaceChildren();
+    document.getElementById('dashboardContent')?.classList.add('d-none');
+  } else {
+    updateSummary();
+  }
+}
+
+function clearSelectedPos() {
+  if (!state.selectedPoIds.length) return;
+  state.selectedPoIds = [];
+  renderSelectedPoChips();
+  state.summary = null;
+  destroyCharts();
+  document.getElementById('summaryCards')?.replaceChildren();
+  document.getElementById('poTable')?.replaceChildren();
+  document.getElementById('extensionsContainer')?.replaceChildren();
+  document.getElementById('dashboardContent')?.classList.add('d-none');
+  const input = document.getElementById('poSearch');
+  if (input) {
+    input.value = '';
+  }
+  showAlert('Selección de POs limpiada.', 'info');
+}
+
 async function selectEmpresa(value) {
   if (!value || !state.empresas.includes(value)) {
     showAlert('Selecciona una empresa válida de la lista.', 'warning');
@@ -186,10 +280,11 @@ async function selectEmpresa(value) {
   }
   if (state.selectedEmpresa === value) return;
   state.selectedEmpresa = value;
-  state.selectedPoId = '';
+  state.selectedPoIds = [];
   document.getElementById('poSearch').value = '';
   document.getElementById('dashboardContent').classList.add('d-none');
   destroyCharts();
+  renderSelectedPoChips();
   await loadPOs();
 }
 
@@ -212,8 +307,7 @@ async function loadPOs() {
       showAlert('La empresa seleccionada no tiene POs activas.', 'warning');
     }
     renderPoOptions();
-    document.getElementById('dashboardContent').classList.remove('d-none');
-    showAlert('POs disponibles listas. Busca por número, fecha o monto.', 'success');
+    showAlert('POs disponibles listas. Selecciona una o varias para visualizar el consumo.', 'success');
   } catch (error) {
     console.error('Error cargando POs:', error);
     showAlert(error.message || 'Error consultando POs', 'danger');
@@ -222,26 +316,29 @@ async function loadPOs() {
 
 async function selectPo(poId) {
   if (!poId) return;
-  const found = state.pos.find(po => po.id === poId);
-  if (!found) {
-    showAlert('Selecciona una PO válida de la lista desplegable.', 'warning');
-    return;
+  addPoToSelection(poId);
+  const input = document.getElementById('poSearch');
+  if (input) {
+    input.value = '';
   }
-  state.selectedPoId = poId;
-  await updateSummary();
 }
 
 function renderSummaryCards(summary) {
   const container = document.getElementById('summaryCards');
   if (!container) return;
   const totals = summary.totals;
+  const selectionCount = (summary.selectedIds || []).length || 0;
+  const selectionLabel = selectionCount === 1
+    ? '1 PEO base (extensiones incluidas)'
+    : `${selectionCount} PEOs base combinadas`;
   container.innerHTML = `
     <div class="col-md-4">
       <div class="card shadow-sm h-100 border-primary border-2">
         <div class="card-body">
-          <h5 class="card-title text-primary">Total PO (Grupo)</h5>
+          <h5 class="card-title text-primary">${selectionCount > 1 ? 'Total combinado' : 'Total PO (Grupo)'}</h5>
           <p class="display-6 fw-bold">$${formatCurrency(totals.total)}</p>
-          <p class="text-muted mb-0">${summary.items.length} documento(s) incluyendo extensiones.</p>
+          <p class="text-muted mb-0">${selectionLabel}.</p>
+          <span class="badge text-bg-light text-dark mt-2">${summary.empresaLabel || summary.empresa || 'Empresa'}</span>
         </div>
       </div>
     </div>
@@ -259,7 +356,7 @@ function renderSummaryCards(summary) {
         <div class="card-body">
           <h5 class="card-title text-success">Disponible</h5>
           <p class="display-6 fw-bold">$${formatCurrency(totals.restante)}</p>
-          <p class="text-muted mb-0">${totals.porcRest.toFixed(2)}% restante del presupuesto.</p>
+          <p class="text-muted mb-0">${totals.porcRest.toFixed(2)}% restante del presupuesto autorizado.</p>
         </div>
       </div>
     </div>
@@ -452,9 +549,13 @@ function renderAlerts(alerts) {
 }
 
 async function updateSummary() {
-  if (!state.selectedEmpresa || !state.selectedPoId) return;
+  if (!state.selectedEmpresa || state.selectedPoIds.length === 0) return;
   try {
-    const response = await fetch(`/po-summary/${state.selectedEmpresa}/${state.selectedPoId}`);
+    const response = await fetch('/po-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ empresa: state.selectedEmpresa, poIds: state.selectedPoIds })
+    });
     const data = await response.json();
     if (!data.success) {
       throw new Error(data.message || 'No fue posible obtener el resumen');
@@ -465,7 +566,8 @@ async function updateSummary() {
     attachTableHandlers(state.summary);
     renderCharts(state.summary);
     renderAlerts(state.summary.alerts || []);
-    showAlert('Dashboard actualizado con la PO seleccionada.', 'success');
+    showAlert('Dashboard actualizado con la selección de POs.', 'success');
+    document.getElementById('dashboardContent')?.classList.remove('d-none');
   } catch (error) {
     console.error('Error actualizando resumen:', error);
     showAlert(error.message || 'No se pudo actualizar el dashboard', 'danger');
@@ -473,8 +575,8 @@ async function updateSummary() {
 }
 
 async function generateReport() {
-  if (!state.selectedEmpresa || !state.selectedPoId) {
-    showAlert('Selecciona primero una empresa y PO.', 'warning');
+  if (!state.selectedEmpresa || state.selectedPoIds.length === 0) {
+    showAlert('Selecciona primero una empresa y al menos una PO base.', 'warning');
     return;
   }
   try {
@@ -482,7 +584,7 @@ async function generateReport() {
     const response = await fetch('/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ empresa: state.selectedEmpresa, poId: state.selectedPoId, engine })
+      body: JSON.stringify({ empresa: state.selectedEmpresa, poIds: state.selectedPoIds, engine })
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Error generando reporte' }));
@@ -492,7 +594,10 @@ async function generateReport() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `POrpt_${state.selectedPoId}.pdf`;
+    const filename = state.selectedPoIds.length === 1
+      ? `POrpt_${state.selectedPoIds[0]}`
+      : `POrpt_${state.selectedPoIds.length}_POs`;
+    link.download = `${filename}.pdf`;
     link.click();
     URL.revokeObjectURL(url);
     const selectedEngine = state.reportEngines.find(item => item.id === engine);
@@ -616,6 +721,18 @@ function toggleJasperFields(disabled) {
     });
 }
 
+function toggleBrandingLetterheadFields(disabled) {
+  ['brandingLetterheadTop', 'brandingLetterheadBottom'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.disabled = disabled;
+      if (disabled) {
+        input.classList.remove('is-invalid');
+      }
+    }
+  });
+}
+
 function renderReportSettingsForm() {
   const form = document.getElementById('reportSettingsForm');
   if (!form || !state.reportSettings) return;
@@ -646,6 +763,29 @@ function renderReportSettingsForm() {
     }
   });
   toggleJasperFields(jasper.enabled === false);
+  const branding = state.reportSettings.branding || {};
+  const brandingMappings = [
+    ['brandingHeaderTitle', branding.headerTitle || ''],
+    ['brandingHeaderSubtitle', branding.headerSubtitle || ''],
+    ['brandingFooterText', branding.footerText || ''],
+    ['brandingLetterheadTop', branding.letterheadTop || ''],
+    ['brandingLetterheadBottom', branding.letterheadBottom || ''],
+    ['brandingRemColor', branding.remColor || '#2563eb'],
+    ['brandingFacColor', branding.facColor || '#dc2626'],
+    ['brandingRestanteColor', branding.restanteColor || '#16a34a'],
+    ['brandingAccentColor', branding.accentColor || '#1f2937']
+  ];
+  brandingMappings.forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.value = value;
+    }
+  });
+  const letterheadToggle = document.getElementById('brandingLetterheadEnabled');
+  if (letterheadToggle) {
+    letterheadToggle.checked = branding.letterheadEnabled === true;
+  }
+  toggleBrandingLetterheadFields(!(branding.letterheadEnabled === true));
   updateJasperStatusBadge();
 }
 
@@ -943,6 +1083,18 @@ async function handleReportSettingsSubmit(event) {
       defaultReport: getInputValue('jasperReportName'),
       dataSourceName: getInputValue('jasperDataSource'),
       jsonQuery: getInputValue('jasperJsonQuery')
+    },
+    branding: {
+      headerTitle: getInputValue('brandingHeaderTitle'),
+      headerSubtitle: getInputValue('brandingHeaderSubtitle'),
+      footerText: getInputValue('brandingFooterText'),
+      letterheadEnabled: document.getElementById('brandingLetterheadEnabled')?.checked ?? false,
+      letterheadTop: getInputValue('brandingLetterheadTop'),
+      letterheadBottom: getInputValue('brandingLetterheadBottom'),
+      remColor: document.getElementById('brandingRemColor')?.value,
+      facColor: document.getElementById('brandingFacColor')?.value,
+      restanteColor: document.getElementById('brandingRestanteColor')?.value,
+      accentColor: document.getElementById('brandingAccentColor')?.value
     }
   };
   try {
@@ -997,13 +1149,27 @@ async function setupDashboard() {
     }
   }
   renderEmpresaOptions();
+  renderSelectedPoChips();
   const empresaInput = document.getElementById('empresaSearch');
   empresaInput?.addEventListener('input', event => renderEmpresaOptions(event.target.value));
   empresaInput?.addEventListener('change', event => selectEmpresa(event.target.value));
   const poInput = document.getElementById('poSearch');
   poInput?.addEventListener('input', event => renderPoOptions(event.target.value));
   poInput?.addEventListener('change', event => selectPo(event.target.value));
+  poInput?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      selectPo(event.target.value);
+    }
+  });
   document.getElementById('generateReportBtn')?.addEventListener('click', generateReport);
+  document.getElementById('clearSelectionBtn')?.addEventListener('click', clearSelectedPos);
+  document.getElementById('selectedPoContainer')?.addEventListener('click', event => {
+    const button = event.target.closest('button[data-action="remove-po"]');
+    if (!button) return;
+    const baseId = button.getAttribute('data-po');
+    removePoFromSelection(baseId);
+  });
   const adminLink = document.getElementById('adminLink');
   if (adminLink && !isAdmin()) {
     adminLink.classList.add('d-none');
@@ -1048,6 +1214,9 @@ async function setupAdmin() {
     toggleJasperFields(!enabled);
     updateJasperStatusBadge();
     updateReportEngineStatus();
+  });
+  document.getElementById('brandingLetterheadEnabled')?.addEventListener('change', event => {
+    toggleBrandingLetterheadFields(!event.target.checked);
   });
   showAlert('Desde aquí administra usuarios y configuraciones de reportes.', 'info', 7000);
 }

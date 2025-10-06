@@ -72,3 +72,40 @@ canvas {
 .card-header.bg-dark {
   background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%) !important;
 }
+
+.selected-po-container {
+  min-height: 58px;
+  border: 1px dashed rgba(37, 99, 235, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: #ffffff;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.selected-po-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.12);
+  color: #1e3a8a;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.selected-po-chip button {
+  border: none;
+  background: transparent;
+  color: #1e3a8a;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.selected-po-chip button:hover {
+  color: #ef4444;
+}
