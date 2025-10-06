@@ -20,6 +20,19 @@ Dashboard y generador de reportes para control de Pedidos (PO), Remisiones y Fac
 3. Instala dependencias: `npm install --package-lock-only` (requiere `python3-distutils` para compilar la librería `java`).
 4. Inicia la app con `npm start`.
 
+### Variables de entorno para JasperReports
+Si ves el mensaje `JasperReports no se inicializó. Verifica la configuración en reports/jasper.config.js.`, revisa las siguientes variables opcionales que permiten adaptar la ruta de los recursos:
+
+| Variable | Descripción | Valor por defecto |
+| --- | --- | --- |
+| `JASPER_COMPILED_DIR` | Directorio donde se generan los `.jasper` compilados. Úsalo si el directorio por defecto es de solo lectura (por ejemplo dentro de `app.asar`). | `reports/compiled` (o `TMP/porpt-electron/jasper/compiled` si la app está empaquetada) |
+| `JASPER_TEMPLATES_DIR` | Ruta a las plantillas `.jrxml`. | `reports/templates` |
+| `JAYBIRD_JAR_PATH` | Ruta absoluta al `jaybird-full-5.x.x.jar`. | `reports/lib/jaybird-full-5.0.1.jar` |
+| `JASPER_DATASOURCE_NAME` | Nombre del datasource JSON que se injecta en tiempo de ejecución. | `poSummaryJson` |
+| `JASPER_JSON_QUERY` | Query JSON usada para el datasource. | `summary.items` |
+
+También puedes definir `JASPER_WRITABLE_BASE` para controlar la raíz donde se crearán carpetas temporales y `JASPER_BASE_PATH` si deseas cargar la configuración desde otra carpeta.
+
 ## Funcionalidad
 - Inicio de sesión con control de usuarios (admin: `admin` / `569OpEGvwh'8`).
 - Selección de empresa y PO con búsqueda dinámica.
