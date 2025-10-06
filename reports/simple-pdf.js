@@ -115,6 +115,21 @@ function formatPercentage(value) {
   return `${Number(value || 0).toFixed(1)}%`;
 }
 
+function ensureSpace(doc, requiredHeight = 0, options = {}) {
+  const bottomLimit = doc.page.height - doc.page.margins.bottom;
+  if (doc.y + requiredHeight <= bottomLimit) {
+    return false;
+  }
+  doc.addPage();
+  if (typeof options.onAddPage === 'function') {
+    options.onAddPage();
+  }
+  if (options.padding) {
+    doc.moveDown(options.padding);
+  }
+  return true;
+}
+
 function drawLetterhead(doc, branding) {
   if (!branding.letterheadEnabled) return;
   const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
@@ -165,9 +180,16 @@ function drawHeader(doc, summary, branding) {
   doc.moveDown(0.4);
   const empresaLabel =
     branding.companyName || summary.companyName || summary.empresaLabel || summary.empresa || '';
-  const seleccion = Array.isArray(summary.selectedIds) && summary.selectedIds.length > 1
-    ? summary.selectedIds.join(', ')
-    : summary.selectedId || summary.baseId || '-';
+  const selectedIds = Array.isArray(summary.selectedIds) ? summary.selectedIds.filter(Boolean) : [];
+  let seleccion = summary.selectedId || summary.baseId || '-';
+  if (summary.universe?.isUniverse) {
+    const universeLabel = summary.universe.label || 'Global (todas las POs)';
+    seleccion = `Alcance: ${universeLabel}`;
+  } else if (selectedIds.length > 1) {
+    seleccion = `${selectedIds.length} bases (${selectedIds.join(', ')})`;
+  } else if (selectedIds.length === 1) {
+    seleccion = selectedIds[0];
+  }
   doc
     .font('Helvetica-Bold')
     .fontSize(12)
@@ -177,7 +199,7 @@ function drawHeader(doc, summary, branding) {
     .font('Helvetica')
     .fontSize(12)
     .fillColor(branding.accentColor || '#1f2937')
-    .text(`PO(s) seleccionada(s): ${seleccion}`, { align: 'center' });
+    .text(summary.universe?.isUniverse ? seleccion : `PO(s) seleccionada(s): ${seleccion}`, { align: 'center' });
   if (summary.universe?.isUniverse) {
     const titleText = summary.universe.title || 'Reporte del universo de POs';
     doc.moveDown(0.2);
@@ -191,6 +213,7 @@ function drawHeader(doc, summary, branding) {
 }
 
 function drawUniverseFilterInfo(doc, summary, branding) {
+  ensureSpace(doc, 70);
   const universe = summary.universe || {};
   const label = universe.label || 'Global (todas las fechas)';
   const description = universe.description || '';
@@ -219,12 +242,13 @@ function drawUniverseTotalsTable(doc, summary, branding) {
     { label: 'Remanente total del universo', value: formatCurrency(totals.restante), color: branding.restanteColor }
   ];
 
-  const top = doc.y;
   const totalHeight = rowHeight * rows.length;
+  ensureSpace(doc, totalHeight + 32);
+  const adjustedTop = doc.y;
   doc.save();
-  doc.lineWidth(1).rect(startX, top, width, totalHeight).stroke('#d1d5db');
+  doc.lineWidth(1).rect(startX, adjustedTop, width, totalHeight).stroke('#d1d5db');
   rows.forEach((row, index) => {
-    const y = top + index * rowHeight;
+    const y = adjustedTop + index * rowHeight;
     if (index > 0) {
       doc.lineWidth(0.5).moveTo(startX, y).lineTo(startX + width, y).stroke('#e5e7eb');
     }
@@ -240,12 +264,13 @@ function drawUniverseTotalsTable(doc, summary, branding) {
       .text(row.value, startX + width / 2, y + 10, { width: width / 2 - 16, align: 'right' });
   });
   doc.restore();
-  doc.y = top + totalHeight + 18;
+  doc.y = adjustedTop + totalHeight + 18;
 }
 
 function drawUniverseObservations(doc, summary) {
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  ensureSpace(doc, 140);
   doc.lineWidth(0.5);
   doc.moveTo(startX, doc.y).lineTo(startX + width, doc.y).stroke('#e5e7eb');
   doc.moveDown(0.6);
@@ -274,38 +299,131 @@ function drawUniverseObservations(doc, summary) {
   doc.y = boxTop + boxHeight + 16;
 }
 
+function drawPoBaseBreakdown(doc, summary, branding) {
+  if (summary.universe?.isUniverse) return;
+  const selectedIds = Array.isArray(summary.selectedIds) ? summary.selectedIds.filter(Boolean) : [];
+  if (selectedIds.length <= 1) return;
+  const items = summary.items || [];
+  const groups = new Map();
+  items.forEach(item => {
+    const baseId = item.baseId || item.id;
+    if (!groups.has(baseId)) {
+      groups.set(baseId, {
+        ids: [],
+        total: 0,
+        rem: 0,
+        fac: 0
+      });
+    }
+    const group = groups.get(baseId);
+    group.ids.push(item.id);
+    group.total += Number(item.total || 0);
+    group.rem += Number(item.totals?.totalRem || 0);
+    group.fac += Number(item.totals?.totalFac || 0);
+  });
+
+  const breakdown = selectedIds.map(baseId => {
+    const group = groups.get(baseId) || { ids: [], total: 0, rem: 0, fac: 0 };
+    const consumo = group.rem + group.fac;
+    const restante = Math.max(group.total - consumo, 0);
+    return {
+      baseId,
+      label: `${baseId} (${group.ids.length || 1} partidas)`,
+      total: group.total,
+      consumo,
+      restante
+    };
+  });
+
+  const startX = doc.page.margins.left;
+  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const headerHeight = 26;
+  const rowHeight = 24;
+  const tableHeight = headerHeight + rowHeight * breakdown.length;
+  ensureSpace(doc, tableHeight + 70);
+
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(14)
+    .fillColor(branding.accentColor || '#111827')
+    .text('Resumen por PEO base', startX, doc.y);
+  doc.moveDown(0.4);
+
+  const tableTop = doc.y;
+  const columnPercents = [0.32, 0.34, 0.34];
+  const columnXs = [startX, startX + width * columnPercents[0], startX + width * (columnPercents[0] + columnPercents[1])];
+
+  doc.lineWidth(1).rect(startX, tableTop, width, tableHeight).stroke('#d1d5db');
+  doc.save();
+  doc.rect(startX, tableTop, width, headerHeight).fillAndStroke('#0f172a', '#1f2937');
+  doc
+    .fillColor('#ffffff')
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .text('PEO base', columnXs[0] + 12, tableTop + 6, { width: width * columnPercents[0] - 24 });
+  doc.text('Autorizado', columnXs[1] + 12, tableTop + 6, { width: width * columnPercents[1] - 24, align: 'right' });
+  doc.text('Consumido / Restante', columnXs[2] + 12, tableTop + 6, {
+    width: width * columnPercents[2] - 24,
+    align: 'right'
+  });
+  doc.restore();
+
+  breakdown.forEach((row, index) => {
+    const y = tableTop + headerHeight + index * rowHeight;
+    doc.lineWidth(0.5).moveTo(startX, y).lineTo(startX + width, y).stroke('#e5e7eb');
+    doc
+      .font('Helvetica')
+      .fontSize(11)
+      .fillColor('#111827')
+      .text(row.label, columnXs[0] + 12, y + 6, { width: width * columnPercents[0] - 24 });
+    doc.text(formatCurrency(row.total), columnXs[1] + 12, y + 6, {
+      width: width * columnPercents[1] - 24,
+      align: 'right'
+    });
+    doc.text(`${formatCurrency(row.consumo)} / ${formatCurrency(row.restante)}`, columnXs[2] + 12, y + 6, {
+      width: width * columnPercents[2] - 24,
+      align: 'right'
+    });
+  });
+
+  doc.y = tableTop + tableHeight + 16;
+}
+
 function drawPoTable(doc, summary) {
   const items = summary.items || [];
   if (!items.length) return;
   const startX = doc.page.margins.left;
   const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const headerHeight = 24;
+  const headerHeight = 26;
   const rowHeight = 22;
-  const tableTop = doc.y;
-  const totalRowsHeight = headerHeight + rowHeight * items.length;
+  const colWidths = [tableWidth * 0.38, tableWidth * 0.24, tableWidth * 0.38];
+  const colXs = [startX, startX + colWidths[0], startX + colWidths[0] + colWidths[1]];
 
-  doc.save();
-  doc.lineWidth(1);
-  doc.rect(startX, tableTop, tableWidth, totalRowsHeight).stroke('#1f2937');
-  doc.moveTo(startX, tableTop + headerHeight).lineTo(startX + tableWidth, tableTop + headerHeight).stroke('#1f2937');
-  const colXs = [startX, startX + tableWidth * 0.35, startX + tableWidth * 0.65];
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(12)
-    .fillColor('#111827')
-    .text('PEO ID', colXs[0] + 10, tableTop + 6, { width: tableWidth * 0.35 - 20 });
-  doc.text('Fecha', colXs[1] + 10, tableTop + 6, { width: tableWidth * 0.3 - 20 });
-  doc.text('Total', colXs[2] + 10, tableTop + 6, { width: tableWidth * 0.35 - 20 });
+  const drawHeader = () => {
+    ensureSpace(doc, headerHeight + 8);
+    const y = doc.y;
+    doc.save();
+    doc.lineWidth(1);
+    doc.rect(startX, y, tableWidth, headerHeight).fillAndStroke('#111827', '#1f2937');
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11);
+    doc.text('PEO ID', colXs[0] + 10, y + 6, { width: colWidths[0] - 20 });
+    doc.text('Fecha', colXs[1] + 10, y + 6, { width: colWidths[1] - 20 });
+    doc.text('Total', colXs[2] + 10, y + 6, { width: colWidths[2] - 20 });
+    doc.restore();
+    doc.y = y + headerHeight;
+  };
 
-  items.forEach((item, index) => {
-    const y = tableTop + headerHeight + index * rowHeight;
-    doc.moveTo(startX, y).lineTo(startX + tableWidth, y).stroke('#e5e7eb');
-    doc
-      .font('Helvetica')
-      .fontSize(11)
-      .fillColor('#1f2937')
-      .text(item.id, colXs[0] + 10, y + 6, { width: tableWidth * 0.35 - 20 });
-    doc.text(item.fecha || '-', colXs[1] + 10, y + 6, { width: tableWidth * 0.3 - 20 });
+  drawHeader();
+
+  items.forEach(item => {
+    if (ensureSpace(doc, rowHeight + 6)) {
+      drawHeader();
+    }
+    const y = doc.y;
+    doc.lineWidth(0.5).rect(startX, y, tableWidth, rowHeight).stroke('#d1d5db');
+    doc.font('Helvetica').fontSize(11).fillColor('#1f2937');
+    doc.text(item.id, colXs[0] + 10, y + 6, { width: colWidths[0] - 20 });
+    doc.text(item.fecha || '-', colXs[1] + 10, y + 6, { width: colWidths[1] - 20 });
     const totalAmount = Number(item.total || 0);
     const subtotalAmount = Number(item.subtotal || 0);
     const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - totalAmount) > 0.009;
@@ -313,19 +431,30 @@ function drawPoTable(doc, summary) {
       ? `${formatCurrency(totalAmount)} (Sub: ${formatCurrency(subtotalAmount)})`
       : formatCurrency(totalAmount);
     doc.text(totalText, colXs[2] + 10, y + 6, {
-      width: tableWidth * 0.35 - 20,
+      width: colWidths[2] - 20,
       align: 'left'
     });
+    doc.y = y + rowHeight;
   });
-  doc.restore();
-  doc.y = tableTop + totalRowsHeight + 12;
 
-  if (summary.selectedIds && summary.selectedIds.length === 1) {
+  const totalsOnNewPage = ensureSpace(doc, 50);
+  if (totalsOnNewPage) {
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(12)
+      .fillColor('#111827')
+      .text('Resumen de totales', startX, doc.y);
+    doc.moveDown(0.2);
+  } else {
+    doc.moveDown(0.3);
+  }
+  const baseCount = (summary.selectedIds || []).length;
+  if (baseCount === 1) {
     const baseId = summary.selectedIds[0];
     const baseItem = items.find(item => item.id === baseId);
     const extensionItems = items.filter(item => item.id !== baseId);
-    const originalTotal = baseItem ? baseItem.total : 0;
-    const extensionTotal = extensionItems.reduce((sum, item) => sum + item.total, 0);
+    const originalTotal = baseItem ? Number(baseItem.total || 0) : 0;
+    const extensionTotal = extensionItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
     const total = originalTotal + extensionTotal;
     doc.lineWidth(0.5);
     doc.moveTo(startX, doc.y).lineTo(startX + tableWidth, doc.y).stroke('#d1d5db');
@@ -363,7 +492,7 @@ function drawPoTable(doc, summary) {
       .font('Helvetica-Bold')
       .fontSize(12)
       .fillColor('#111827')
-      .text(`Totales (${(summary.selectedIds || []).length} PEOs)`, startX + 10, doc.y);
+      .text(`Totales (${baseCount} PEOs)`, startX + 10, doc.y);
     doc
       .font('Helvetica')
       .fontSize(12)
@@ -398,64 +527,120 @@ function drawMovements(doc, summary, branding) {
   const fac = collectMovements(summary.items || [], totals, 'facturas');
   const startX = doc.page.margins.left;
   const columnWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right - 20) / 2;
-  const top = doc.y;
+  const availableHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom - 120;
+  const rowsPerChunk = Math.max(1, Math.floor((availableHeight - 36) / 16));
+  const totalRows = Math.max(rem.movements.length, fac.movements.length);
+  const totalChunks = Math.max(1, Math.ceil(totalRows / rowsPerChunk));
 
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(14)
-    .fillColor(branding.remColor)
-    .text('Remisiones', startX, top);
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(14)
-    .fillColor(branding.facColor)
-    .text('Facturas', startX + columnWidth + 20, top);
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+    const start = chunkIndex * rowsPerChunk;
+    const end = start + rowsPerChunk;
+    const remSlice = rem.movements.slice(start, end);
+    const facSlice = fac.movements.slice(start, end);
+    const rowsInChunk = Math.max(remSlice.length, facSlice.length);
+    const boxHeight = rowsInChunk * 16 + 36;
+    const requiredHeight = boxHeight + 90;
+    ensureSpace(doc, requiredHeight);
+    const top = doc.y;
 
-  const boxHeight = Math.max(rem.movements.length, fac.movements.length) * 16 + 36;
-  doc.lineWidth(1);
-  doc.rect(startX, top + 18, columnWidth, boxHeight).stroke(branding.remColor);
-  doc.rect(startX + columnWidth + 20, top + 18, columnWidth, boxHeight).stroke(branding.facColor);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(14)
+      .fillColor(branding.remColor)
+      .text('Remisiones', startX, top);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(14)
+      .fillColor(branding.facColor)
+      .text('Facturas', startX + columnWidth + 20, top);
 
-  doc.font('Helvetica').fontSize(11).fillColor('#111827');
-  rem.movements.forEach((item, index) => {
-    const y = top + 30 + index * 16;
-    doc.text(`${item.id}: ${formatCurrency(item.monto)} (${formatPercentage(item.porcentaje)})`, startX + 10, y, {
-      width: columnWidth - 20
+    doc.lineWidth(1);
+    doc.rect(startX, top + 18, columnWidth, boxHeight).stroke(branding.remColor);
+    doc.rect(startX + columnWidth + 20, top + 18, columnWidth, boxHeight).stroke(branding.facColor);
+
+    doc.font('Helvetica').fontSize(11).fillColor('#111827');
+    remSlice.forEach((item, index) => {
+      const y = top + 30 + index * 16;
+      doc.text(`${item.id}: ${formatCurrency(item.monto)} (${formatPercentage(item.porcentaje)})`, startX + 10, y, {
+        width: columnWidth - 20
+      });
     });
-  });
-  doc
-    .font('Helvetica-Bold')
-    .fillColor('#111827')
-    .text(
-      `Subtotal Remisiones: ${formatCurrency(rem.subtotal)} (${formatPercentage(rem.porcentaje)})`,
-      startX + 10,
-      top + 18 + boxHeight - 18,
-      { width: columnWidth - 20 }
-    );
+    if (remSlice.length === 0) {
+      doc
+        .font('Helvetica')
+        .fontSize(11)
+        .fillColor('#6b7280')
+        .text('Sin remisiones destacadas en este bloque.', startX + 10, top + 32, {
+          width: columnWidth - 20
+        });
+    }
 
-  doc.font('Helvetica').fillColor('#111827');
-  fac.movements.forEach((item, index) => {
-    const y = top + 30 + index * 16;
-    doc.text(`${item.id}: ${formatCurrency(item.monto)} (${formatPercentage(item.porcentaje)})`, startX + columnWidth + 30, y, {
-      width: columnWidth - 20
+    doc.font('Helvetica').fillColor('#111827');
+    facSlice.forEach((item, index) => {
+      const y = top + 30 + index * 16;
+      doc.text(
+        `${item.id}: ${formatCurrency(item.monto)} (${formatPercentage(item.porcentaje)})`,
+        startX + columnWidth + 30,
+        y,
+        {
+          width: columnWidth - 20
+        }
+      );
     });
-  });
-  doc
-    .font('Helvetica-Bold')
-    .fillColor('#111827')
-    .text(
-      `Subtotal Facturas: ${formatCurrency(fac.subtotal)} (${formatPercentage(fac.porcentaje)})`,
-      startX + columnWidth + 30,
-      top + 18 + boxHeight - 18,
-      { width: columnWidth - 20 }
-    );
-  doc.y = top + 18 + boxHeight + 12;
+    if (facSlice.length === 0) {
+      doc
+        .font('Helvetica')
+        .fontSize(11)
+        .fillColor('#6b7280')
+        .text('Sin facturas destacadas en este bloque.', startX + columnWidth + 30, top + 32, {
+          width: columnWidth - 20
+        });
+    }
+
+    const footerY = top + 18 + boxHeight - 18;
+    const isLastChunk = chunkIndex === totalChunks - 1;
+    if (isLastChunk) {
+      doc
+        .font('Helvetica-Bold')
+        .fillColor('#111827')
+        .text(
+          `Subtotal Remisiones: ${formatCurrency(rem.subtotal)} (${formatPercentage(rem.porcentaje)})`,
+          startX + 10,
+          footerY,
+          { width: columnWidth - 20 }
+        );
+      doc
+        .font('Helvetica-Bold')
+        .fillColor('#111827')
+        .text(
+          `Subtotal Facturas: ${formatCurrency(fac.subtotal)} (${formatPercentage(fac.porcentaje)})`,
+          startX + columnWidth + 30,
+          footerY,
+          { width: columnWidth - 20 }
+        );
+    } else {
+      doc
+        .font('Helvetica')
+        .fontSize(10)
+        .fillColor('#6b7280')
+        .text('Continúa en la siguiente página…', startX + 10, footerY, { width: columnWidth - 20 });
+      doc
+        .font('Helvetica')
+        .fontSize(10)
+        .fillColor('#6b7280')
+        .text('Continúa en la siguiente página…', startX + columnWidth + 30, footerY, {
+          width: columnWidth - 20
+        });
+    }
+    doc.y = top + 18 + boxHeight + 12;
+  }
 }
 
 function drawSummaryBox(doc, summary) {
   const totals = summary.totals || {};
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  ensureSpace(doc, 90);
   const top = doc.y;
   doc.save();
   doc.lineWidth(1);
@@ -488,6 +673,7 @@ function drawStackedBar(doc, summary, branding) {
   const totals = summary.totals || {};
   const startX = doc.page.margins.left + 20;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right - 40;
+  ensureSpace(doc, 200);
   const top = doc.y;
   const height = 36;
   const remWidth = (width * (totals.porcRem || 0)) / 100;
@@ -559,6 +745,7 @@ function drawPieSlice(doc, centerX, centerY, radius, startAngle, endAngle, color
 
 function drawPieChart(doc, summary, branding) {
   const totals = summary.totals || {};
+  ensureSpace(doc, 320);
   const centerX = doc.page.width / 2;
   const centerY = doc.y + 120;
   const radius = 105;
@@ -610,6 +797,7 @@ function drawLegend(doc, branding, totals, startX, startY) {
 function drawObservations(doc, summary) {
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  ensureSpace(doc, 130);
   doc.lineWidth(0.5);
   doc.moveTo(startX, doc.y).lineTo(startX + width, doc.y).stroke('#e5e7eb');
   doc.moveDown(0.6);
@@ -620,18 +808,23 @@ function drawObservations(doc, summary) {
   doc.font('Helvetica').fontSize(12).fillColor('#555555');
 
   const notes = [];
-  if (summary.selectedIds && summary.selectedIds.length === 1 && (summary.items || []).length === 1) {
-    notes.push('*Este formato se usa cuando solo existe el PEO original (sin extensiones “-2”).');
+  const baseCount = (summary.selectedIds || []).length;
+  const itemCount = (summary.items || []).length;
+  if (baseCount === 1 && itemCount === 1) {
+    notes.push('*El PEO no presenta extensiones activas en este periodo.');
   }
-  if (summary.selectedIds && summary.selectedIds.length === 1 && (summary.items || []).length > 1) {
-    notes.push('*Este formato muestra el PEO original y sus extensiones combinadas.');
+  if (baseCount === 1 && itemCount > 1) {
+    notes.push('*El PEO incluye extensiones; los totales consideran todas las variantes listadas.');
   }
-  if (summary.selectedIds && summary.selectedIds.length > 1) {
-    notes.push(`*Reporte combinado de ${summary.selectedIds.length} PEOs base.`);
+  if (baseCount > 1) {
+    notes.push(`*Se combinan ${baseCount} PEOs base; cada fila detalla su consumo específico.`);
   }
-  notes.push('*Las remisiones y facturas listadas arriba alimentan directamente el consumo del PEO.');
+  if (summary.alertasTexto && summary.alertasTexto !== 'Sin alertas generales') {
+    notes.push(`*Alertas relevantes: ${summary.alertasTexto}`);
+  }
+  notes.push('*Las remisiones y facturas mostradas alimentan los totales de consumo.');
   const textStartY = boxTop + 12;
-  notes.forEach((note, index) => {
+  Array.from(new Set(notes)).forEach((note, index) => {
     doc.text(note, startX + 10, textStartY + index * 20, { width: width - 20 });
   });
   const boxBottom = boxTop + 92;
@@ -664,25 +857,20 @@ async function generate(summary, branding = {}, customization = {}) {
       drawHeader(doc, summary, style);
       if (summary.universe?.isUniverse) {
         drawUniverseFilterInfo(doc, summary, style);
-        if (options.includeUniverse) {
-          drawUniverseTotalsTable(doc, summary, style);
-        }
         drawSummaryBox(doc, summary);
         if (options.includeCharts) {
           drawStackedBar(doc, summary, style);
         } else {
           doc.moveDown(1.2);
         }
+        if (options.includeUniverse) {
+          drawUniverseTotalsTable(doc, summary, style);
+        }
         if (options.includeObservations) {
           drawUniverseObservations(doc, summary);
         }
       } else {
-        drawPoTable(doc, summary);
-        if (options.includeMovements) {
-          drawMovements(doc, summary, style);
-        }
         drawSummaryBox(doc, summary);
-
         if (options.includeCharts) {
           if (summary.selectedIds && summary.selectedIds.length > 1) {
             drawPieChart(doc, summary, style);
@@ -694,7 +882,11 @@ async function generate(summary, branding = {}, customization = {}) {
         } else {
           doc.moveDown(1.2);
         }
-
+        drawPoBaseBreakdown(doc, summary, style);
+        drawPoTable(doc, summary);
+        if (options.includeMovements) {
+          drawMovements(doc, summary, style);
+        }
         if (options.includeObservations) {
           drawObservations(doc, summary);
         }
