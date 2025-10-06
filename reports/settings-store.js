@@ -24,7 +24,14 @@ const defaultSettings = {
     includeCharts: true,
     includeMovements: true,
     includeObservations: true,
-    includeUniverse: true
+    includeUniverse: true,
+    csv: {
+      includePoResumen: true,
+      includeRemisiones: true,
+      includeFacturas: true,
+      includeTotales: true,
+      includeUniverseInfo: true
+    }
   },
   branding: {
     headerTitle: 'Reporte de PEOs - Consumo',
@@ -102,12 +109,23 @@ function sanitizeExportConfig(exportConfig = {}) {
   };
 }
 
+function sanitizeCsvCustomization(csv = {}) {
+  return {
+    includePoResumen: csv.includePoResumen !== false,
+    includeRemisiones: csv.includeRemisiones !== false,
+    includeFacturas: csv.includeFacturas !== false,
+    includeTotales: csv.includeTotales !== false,
+    includeUniverseInfo: csv.includeUniverseInfo !== false
+  };
+}
+
 function sanitizeCustomizationConfig(customization = {}) {
   return {
     includeCharts: customization.includeCharts !== false,
     includeMovements: customization.includeMovements !== false,
     includeObservations: customization.includeObservations !== false,
-    includeUniverse: customization.includeUniverse !== false
+    includeUniverse: customization.includeUniverse !== false,
+    csv: sanitizeCsvCustomization(customization.csv || {})
   };
 }
 

@@ -109,3 +109,64 @@ canvas {
 .selected-po-chip button:hover {
   color: #ef4444;
 }
+
+.nav-wizard .nav-link {
+  border-radius: 999px;
+  font-weight: 600;
+  padding: 0.75rem 1.25rem;
+  color: #475569;
+  background-color: #f8fafc;
+  transition: all 0.2s ease;
+}
+
+.nav-wizard .nav-link:hover {
+  color: #1d4ed8;
+  background-color: #e0f2fe;
+}
+
+.nav-wizard .nav-link.active {
+  color: #fff;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  box-shadow: 0 0.5rem 1rem rgba(37, 99, 235, 0.15);
+}
+
+.selection-overview {
+  min-height: 120px;
+  border: 1px dashed rgba(37, 99, 235, 0.25);
+  border-radius: 1rem;
+  padding: 1rem;
+  background: #f8fafc;
+}
+
+.customization-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.customization-badge.on {
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+}
+
+.customization-badge.off {
+  background: rgba(148, 163, 184, 0.16);
+  color: #475569;
+  border: 1px dashed rgba(148, 163, 184, 0.6);
+}
+
+#overviewPoCount {
+  font-size: 0.85rem;
+}
+
+#reportPreviewModal .list-group {
+  margin-bottom: 0;
+}
+
+#reportPreviewModal .list-group-item {
+  font-size: 0.9rem;
+}

@@ -114,26 +114,56 @@
                     <div class="form-text">Los usuarios podrán elegir cualquiera de estos formatos.</div>
                   </div>
                   <div class="col-lg-4">
-                    <span class="form-label d-block">Contenido del PDF simple</span>
-                    <div class="vstack gap-2" id="customizationContainer">
-                      <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="customIncludeCharts">
-                        <label class="form-check-label" for="customIncludeCharts">Mostrar gráficas y comparativas</label>
+                    <div class="vstack gap-3">
+                      <div>
+                        <span class="form-label d-block">Contenido del PDF simple</span>
+                        <div class="vstack gap-2" id="customizationContainer">
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="customIncludeCharts">
+                            <label class="form-check-label" for="customIncludeCharts">Mostrar gráficas y comparativas</label>
+                          </div>
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="customIncludeMovements">
+                            <label class="form-check-label" for="customIncludeMovements">Listar remisiones y facturas destacadas</label>
+                          </div>
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="customIncludeObservations">
+                            <label class="form-check-label" for="customIncludeObservations">Incluir bloque de observaciones</label>
+                          </div>
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="customIncludeUniverse">
+                            <label class="form-check-label" for="customIncludeUniverse">Detalles completos en reporte de universo</label>
+                          </div>
+                        </div>
+                        <div class="form-text">Personaliza el contenido cuando se use el motor "PDF directo".</div>
                       </div>
-                      <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="customIncludeMovements">
-                        <label class="form-check-label" for="customIncludeMovements">Listar remisiones y facturas destacadas</label>
-                      </div>
-                      <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="customIncludeObservations">
-                        <label class="form-check-label" for="customIncludeObservations">Incluir bloque de observaciones</label>
-                      </div>
-                      <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="customIncludeUniverse">
-                        <label class="form-check-label" for="customIncludeUniverse">Detalles completos en reporte de universo</label>
+                      <div>
+                        <span class="form-label d-block">Campos incluidos en CSV</span>
+                        <div class="vstack gap-2" id="customizationCsvContainer">
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="customCsvIncludePoResumen">
+                            <label class="form-check-label" for="customCsvIncludePoResumen">Agregar resumen general por PO</label>
+                          </div>
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="customCsvIncludeRemisiones">
+                            <label class="form-check-label" for="customCsvIncludeRemisiones">Listado de remisiones</label>
+                          </div>
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="customCsvIncludeFacturas">
+                            <label class="form-check-label" for="customCsvIncludeFacturas">Listado de facturas</label>
+                          </div>
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="customCsvIncludeTotales">
+                            <label class="form-check-label" for="customCsvIncludeTotales">Totales consolidados al final</label>
+                          </div>
+                          <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="customCsvIncludeUniverseInfo">
+                            <label class="form-check-label" for="customCsvIncludeUniverseInfo">Datos del filtro de universo seleccionado</label>
+                          </div>
+                        </div>
+                        <div class="form-text">Define qué columnas y bloques aparecen al exportar CSV.</div>
                       </div>
                     </div>
-                    <div class="form-text">Personaliza el contenido cuando se use el motor "PDF directo".</div>
                   </div>
                 </div>
               </div>

@@ -49,6 +49,57 @@ function formatFirebirdDate(value) {
   return `${year}-${month}-${day}`;
 }
 
+function parseToggle(value, defaultValue) {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['false', '0', 'no', 'off'].includes(normalized)) {
+      return false;
+    }
+    if (['true', '1', 'si', 'sí', 'on'].includes(normalized)) {
+      return true;
+    }
+  }
+  return Boolean(value);
+}
+
+function mergeCustomization(baseCustomization = {}, requestCustomization = {}) {
+  const baseCsv = baseCustomization.csv || {};
+  const merged = {
+    includeCharts: baseCustomization.includeCharts !== false,
+    includeMovements: baseCustomization.includeMovements !== false,
+    includeObservations: baseCustomization.includeObservations !== false,
+    includeUniverse: baseCustomization.includeUniverse !== false,
+    csv: {
+      includePoResumen: baseCsv.includePoResumen !== false,
+      includeRemisiones: baseCsv.includeRemisiones !== false,
+      includeFacturas: baseCsv.includeFacturas !== false,
+      includeTotales: baseCsv.includeTotales !== false,
+      includeUniverseInfo: baseCsv.includeUniverseInfo !== false
+    }
+  };
+
+  const overrides = requestCustomization && typeof requestCustomization === 'object'
+    ? requestCustomization
+    : {};
+  ['includeCharts', 'includeMovements', 'includeObservations', 'includeUniverse'].forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+      merged[key] = parseToggle(overrides[key], merged[key]);
+    }
+  });
+
+  const csvOverrides = overrides.csv && typeof overrides.csv === 'object' ? overrides.csv : {};
+  ['includePoResumen', 'includeRemisiones', 'includeFacturas', 'includeTotales', 'includeUniverseInfo'].forEach(key => {
+    if (Object.prototype.hasOwnProperty.call(csvOverrides, key)) {
+      merged.csv[key] = parseToggle(csvOverrides[key], merged.csv[key]);
+    }
+  });
+
+  return merged;
+}
+
 function isAdminRequest(req) {
   const headerValue = req.headers?.[ADMIN_HEADER];
   return typeof headerValue === 'string' && headerValue.toLowerCase() === 'true';
@@ -1004,24 +1055,51 @@ app.put('/report-settings', async (req, res) => {
 });
 
 app.post('/report-universe', async (req, res) => {
-  const { empresa, filter } = req.body || {};
+  const { empresa, filter, format: requestedFormat, customization: requestedCustomization } = req.body || {};
   if (!empresa || !empresa.match(/^Empresa\d+$/)) {
     return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
   }
   try {
     const summary = await getUniverseSummary(empresa, filter || {});
     const settings = reportSettingsStore.getSettings();
+    const customization = mergeCustomization(settings.customization || {}, requestedCustomization || {});
+    summary.customization = customization;
     if (settings.branding?.companyName) {
       summary.companyName = settings.branding.companyName;
     }
-    if (!simplePdf.isAvailable()) {
-      return res.status(503).json({ success: false, message: simplePdf.getUnavailableMessage() });
-    }
-    const buffer = await simplePdf.generate(summary, settings.branding || {}, settings.customization || {});
-    res.set('Content-Type', 'application/pdf');
+    const normalizedRequestFormat = typeof requestedFormat === 'string' ? requestedFormat.toLowerCase() : '';
+    const allowedFormats = ['pdf', 'csv', 'json'];
+    const format = allowedFormats.includes(normalizedRequestFormat) ? normalizedRequestFormat : 'pdf';
+    const branding = settings.branding || {};
     const rawLabel = summary.universe?.shortLabel || 'global';
     const sanitized = rawLabel.replace(/[^0-9a-zA-Z_-]+/gu, '-');
     const filenameBase = `universo_${sanitized}`;
+
+    if (format === 'csv') {
+      const buffer = exporters.createCsv(summary, { customization });
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', `attachment; filename=${filenameBase}.csv`);
+      return res.send(buffer);
+    }
+
+    if (format === 'json') {
+      const buffer = exporters.createJson(summary, {
+        engine: 'simple-pdf',
+        format,
+        empresa,
+        selectedIds: summary.selectedIds,
+        customization
+      });
+      res.set('Content-Type', 'application/json');
+      res.set('Content-Disposition', `attachment; filename=${filenameBase}.json`);
+      return res.send(buffer);
+    }
+
+    if (!simplePdf.isAvailable()) {
+      return res.status(503).json({ success: false, message: simplePdf.getUnavailableMessage() });
+    }
+    const buffer = await simplePdf.generate(summary, branding, customization);
+    res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
     res.send(buffer);
   } catch (err) {
@@ -1031,7 +1109,8 @@ app.post('/report-universe', async (req, res) => {
 });
 
 app.post('/report', async (req, res) => {
-  const { empresa, poId, poIds, engine: requestedEngine, format: requestedFormat } = req.body || {};
+  const { empresa, poId, poIds, engine: requestedEngine, format: requestedFormat, customization: requestedCustomization } =
+    req.body || {};
   const ids = Array.isArray(poIds) && poIds.length ? poIds : poId ? [poId] : [];
   if (!empresa || ids.length === 0) {
     return res.status(400).json({ success: false, message: 'Empresa y PO son obligatorios para el reporte' });
@@ -1039,6 +1118,8 @@ app.post('/report', async (req, res) => {
   try {
     const summary = await getPoSummaryGroup(empresa, ids);
     const settings = reportSettingsStore.getSettings();
+    const customization = mergeCustomization(settings.customization || {}, requestedCustomization || {});
+    summary.customization = customization;
     if (settings.branding?.companyName) {
       summary.companyName = settings.branding.companyName;
     }
@@ -1069,7 +1150,7 @@ app.post('/report', async (req, res) => {
         });
       }
       if (format === 'csv') {
-        const buffer = exporters.createCsv(summary);
+        const buffer = exporters.createCsv(summary, { customization });
         res.set('Content-Type', 'text/csv; charset=utf-8');
         res.set('Content-Disposition', `attachment; filename=${filenameBase}.csv`);
         return res.send(buffer);
@@ -1079,13 +1160,14 @@ app.post('/report', async (req, res) => {
           engine,
           format,
           empresa,
-          selectedIds: summary.selectedIds
+          selectedIds: summary.selectedIds,
+          customization
         });
         res.set('Content-Type', 'application/json');
         res.set('Content-Disposition', `attachment; filename=${filenameBase}.json`);
         return res.send(buffer);
       }
-      const buffer = await simplePdf.generate(summary, settings.branding || {}, settings.customization || {});
+      const buffer = await simplePdf.generate(summary, settings.branding || {}, customization);
       res.set('Content-Type', 'application/pdf');
       res.set('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
       return res.send(buffer);
