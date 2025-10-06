@@ -96,6 +96,58 @@
                   <input type="text" id="jasperJsonQuery" class="form-control" placeholder="summary.items">
                 </div>
               </div>
+              <hr class="text-muted">
+              <div class="vstack gap-3">
+                <div>
+                  <h3 class="h6 mb-1">Personalización visual del reporte PDF</h3>
+                  <p class="text-muted small mb-0">Define títulos, membretes y colores corporativos para los reportes generados desde POrpt.</p>
+                </div>
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label for="brandingHeaderTitle" class="form-label">Título del encabezado</label>
+                    <input type="text" id="brandingHeaderTitle" class="form-control" placeholder="Reporte de PEOs - Consumo">
+                  </div>
+                  <div class="col-md-6">
+                    <label for="brandingHeaderSubtitle" class="form-label">Subtítulo / descripción</label>
+                    <input type="text" id="brandingHeaderSubtitle" class="form-control" placeholder="Consumo actualizado del pedido">
+                  </div>
+                  <div class="col-12">
+                    <label for="brandingFooterText" class="form-label">Texto de pie de página</label>
+                    <input type="text" id="brandingFooterText" class="form-control" placeholder="PEOrpt • Aspel SAE 9">
+                  </div>
+                  <div class="col-12">
+                    <div class="form-check form-switch">
+                      <input class="form-check-input" type="checkbox" role="switch" id="brandingLetterheadEnabled">
+                      <label class="form-check-label" for="brandingLetterheadEnabled">Usar membretes personalizados (imágenes superior e inferior)</label>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <label for="brandingLetterheadTop" class="form-label">Ruta membrete superior</label>
+                    <input type="text" id="brandingLetterheadTop" class="form-control" placeholder="C:\\reportes\\membrete-superior.png">
+                    <div class="form-text">Opcional. Debe ser un archivo accesible desde el servidor.</div>
+                  </div>
+                  <div class="col-md-6">
+                    <label for="brandingLetterheadBottom" class="form-label">Ruta membrete inferior</label>
+                    <input type="text" id="brandingLetterheadBottom" class="form-control" placeholder="C:\\reportes\\membrete-inferior.png">
+                  </div>
+                  <div class="col-md-3">
+                    <label for="brandingRemColor" class="form-label">Color remisiones</label>
+                    <input type="color" id="brandingRemColor" class="form-control form-control-color" value="#2563eb" title="Color remisiones">
+                  </div>
+                  <div class="col-md-3">
+                    <label for="brandingFacColor" class="form-label">Color facturas</label>
+                    <input type="color" id="brandingFacColor" class="form-control form-control-color" value="#dc2626" title="Color facturas">
+                  </div>
+                  <div class="col-md-3">
+                    <label for="brandingRestanteColor" class="form-label">Color restante</label>
+                    <input type="color" id="brandingRestanteColor" class="form-control form-control-color" value="#16a34a" title="Color restante">
+                  </div>
+                  <div class="col-md-3">
+                    <label for="brandingAccentColor" class="form-label">Color de acentos</label>
+                    <input type="color" id="brandingAccentColor" class="form-control form-control-color" value="#1f2937" title="Color de textos">
+                  </div>
+                </div>
+              </div>
               <div class="d-flex align-items-center justify-content-between gap-3">
                 <span id="jasperStatusBadge" class="badge text-bg-secondary">Sin verificar</span>
                 <button type="submit" class="btn btn-success">Guardar configuración</button>

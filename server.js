@@ -319,22 +319,6 @@ async function withFirebirdConnection(empresa, handler) {
   });
 }
 
-async function getEmpresaNombre(db, tables) {
-  try {
-    const exists = await tableExists(db, tables.CLIE);
-    if (!exists) return 'SSITEL';
-    const rows = await queryWithTimeout(
-      db,
-      `SELECT FIRST 1 TRIM(NOMBRE) AS nombre FROM ${tables.CLIE} WHERE TRIM(NOMBRE) <> '' ORDER BY TRIM(CLAVE)`
-    );
-    if (rows.length === 0) return 'SSITEL';
-    return rows[0].NOMBRE || rows[0].nombre || 'SSITEL';
-  } catch (err) {
-    console.warn('No se pudo obtener nombre de empresa:', err.message);
-    return 'SSITEL';
-  }
-}
-
 function buildAlert(message, type = 'info') {
   return { message, type };
 }
@@ -355,6 +339,35 @@ function calculateTotals(total, totalRem, totalFac) {
     porcFac,
     porcRest
   };
+}
+
+function extractEmpresaNumero(empresa) {
+  if (typeof empresa !== 'string') return '';
+  const match = empresa.match(/(\d+)/u);
+  return match ? match[1] : '';
+}
+
+function buildEmpresaLabel(empresa) {
+  const numero = extractEmpresaNumero(empresa);
+  return numero ? `Empresa ${numero}` : empresa;
+}
+
+function normalizePoId(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+}
+
+function uniqueBasePoIds(ids = []) {
+  const seen = new Set();
+  ids.forEach(id => {
+    const normalized = normalizePoId(id);
+    if (!normalized) return;
+    const base = basePoId(normalized);
+    if (base) {
+      seen.add(base);
+    }
+  });
+  return Array.from(seen);
 }
 
 async function getPoSummary(empresa, poId) {
@@ -494,12 +507,15 @@ async function getPoSummary(empresa, poId) {
     const alertasTexto = alerts.length
       ? alerts.map(alerta => `[${alerta.type.toUpperCase()}] ${alerta.message}`).join('\n')
       : 'Sin alertas generales';
-    const companyName = await getEmpresaNombre(db, tables);
+    const empresaLabel = buildEmpresaLabel(empresa);
     return {
       empresa,
-      companyName,
+      empresaNumero: extractEmpresaNumero(empresa),
+      empresaLabel,
+      companyName: empresaLabel,
       baseId,
       selectedId: targetPo,
+      selectedIds: [baseId],
       totals,
       totalsTexto,
       items,
@@ -507,6 +523,77 @@ async function getPoSummary(empresa, poId) {
       alertasTexto
     };
   });
+}
+
+async function getPoSummaryGroup(empresa, poIds) {
+  const normalizedIds = uniqueBasePoIds(poIds);
+  if (normalizedIds.length === 0) {
+    throw new Error('Selecciona al menos una PO válida.');
+  }
+  const summaries = [];
+  for (const id of normalizedIds) {
+    const summary = await getPoSummary(empresa, id);
+    summaries.push(summary);
+  }
+  if (summaries.length === 1) {
+    return summaries[0];
+  }
+
+  const firstSummary = summaries[0];
+  const itemsMap = new Map();
+  summaries.forEach(summary => {
+    summary.items.forEach(item => {
+      itemsMap.set(item.id, item);
+    });
+  });
+  const items = Array.from(itemsMap.values()).sort((a, b) => a.id.localeCompare(b.id));
+  const aggregated = items.reduce(
+    (acc, item) => {
+      acc.total += item.total;
+      acc.totalRem += item.totals.totalRem;
+      acc.totalFac += item.totals.totalFac;
+      return acc;
+    },
+    { total: 0, totalRem: 0, totalFac: 0 }
+  );
+  const totals = calculateTotals(aggregated.total, aggregated.totalRem, aggregated.totalFac);
+  const totalsTexto =
+    `Total combinado: $${totals.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n` +
+    `Remisiones: $${totals.totalRem.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRem.toFixed(2)}%)\n` +
+    `Facturas: $${totals.totalFac.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcFac.toFixed(2)}%)\n` +
+    `Restante: $${totals.restante.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRest.toFixed(2)}%)`;
+
+  const alerts = summaries.flatMap(summary => summary.alerts || []);
+  if (totals.total > 0 && totals.totalConsumo >= totals.total * 0.1) {
+    alerts.push(
+      buildAlert(
+        `El consumo total combinado supera el 10% (${((totals.totalConsumo / totals.total) * 100).toFixed(2)}%)`,
+        'warning'
+      )
+    );
+  }
+  const alertasTexto = alerts.length
+    ? alerts.map(alerta => `[${(alerta.type || 'info').toUpperCase()}] ${alerta.message}`).join('\n')
+    : 'Sin alertas generales';
+
+  const selectedIds = Array.from(new Set(summaries.flatMap(summary => summary.selectedIds || [summary.baseId]))).filter(Boolean);
+  const selectedTargets = Array.from(new Set(summaries.map(summary => summary.selectedId).filter(Boolean)));
+
+  return {
+    empresa: firstSummary.empresa,
+    empresaNumero: firstSummary.empresaNumero,
+    empresaLabel: firstSummary.empresaLabel,
+    companyName: firstSummary.companyName,
+    baseId: null,
+    selectedId: selectedIds.join(', '),
+    selectedIds,
+    selectedTargets,
+    totals,
+    totalsTexto,
+    items,
+    alerts,
+    alertasTexto
+  };
 }
 
 async function tableExists(db, tableName) {
@@ -589,13 +676,27 @@ app.get('/facts/:empresa/:poId', async (req, res) => {
   }
 });
 
+app.post('/po-summary', async (req, res) => {
+  const { empresa, poIds } = req.body || {};
+  if (!empresa || !empresa.match(/^Empresa\d+$/)) {
+    return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
+  }
+  try {
+    const summary = await getPoSummaryGroup(empresa, Array.isArray(poIds) ? poIds : []);
+    res.json({ success: true, summary });
+  } catch (err) {
+    const status = err.message && err.message.includes('PO') ? 404 : 500;
+    res.status(status).json({ success: false, message: err.message });
+  }
+});
+
 app.get('/po-summary/:empresa/:poId', async (req, res) => {
   const { empresa, poId } = req.params;
   if (!empresa.match(/^Empresa\d+$/)) {
     return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
   }
   try {
-    const summary = await getPoSummary(empresa, poId);
+    const summary = await getPoSummaryGroup(empresa, [poId]);
     res.json({ success: true, summary });
   } catch (err) {
     const status = err.message && err.message.includes('No se encontró') ? 404 : 500;
@@ -662,6 +763,20 @@ app.put('/report-settings', async (req, res) => {
       updates.jasper = jasper;
     }
 
+    if (payload.branding) {
+      const branding = {};
+      const stringKeys = ['headerTitle', 'headerSubtitle', 'footerText', 'letterheadTop', 'letterheadBottom', 'remColor', 'facColor', 'restanteColor', 'accentColor'];
+      stringKeys.forEach(key => {
+        if (payload.branding[key] !== undefined) {
+          branding[key] = payload.branding[key];
+        }
+      });
+      if (payload.branding.letterheadEnabled !== undefined) {
+        branding.letterheadEnabled = !!payload.branding.letterheadEnabled;
+      }
+      updates.branding = branding;
+    }
+
     const updatedSettings = reportSettingsStore.updateSettings(updates);
     if (updates.jasper) {
       await jasperManager.reload();
@@ -692,12 +807,13 @@ app.put('/report-settings', async (req, res) => {
 });
 
 app.post('/report', async (req, res) => {
-  const { empresa, poId, engine: requestedEngine } = req.body;
-  if (!empresa || !poId) {
+  const { empresa, poId, poIds, engine: requestedEngine } = req.body || {};
+  const ids = Array.isArray(poIds) && poIds.length ? poIds : poId ? [poId] : [];
+  if (!empresa || ids.length === 0) {
     return res.status(400).json({ success: false, message: 'Empresa y PO son obligatorios para el reporte' });
   }
   try {
-    const summary = await getPoSummary(empresa, poId);
+    const summary = await getPoSummaryGroup(empresa, ids);
     const settings = reportSettingsStore.getSettings();
     const engine = ALLOWED_ENGINES.includes(requestedEngine) ? requestedEngine : settings.defaultEngine;
 
@@ -708,9 +824,12 @@ app.post('/report', async (req, res) => {
           message: simplePdf.getUnavailableMessage()
         });
       }
-      const buffer = await simplePdf.generate(summary);
+      const buffer = await simplePdf.generate(summary, settings.branding || {});
       res.set('Content-Type', 'application/pdf');
-      res.set('Content-Disposition', `attachment; filename=${summary.baseId || 'reporte'}.pdf`);
+      const filenameBase = summary.selectedIds && summary.selectedIds.length
+        ? summary.selectedIds.join('_')
+        : summary.baseId || 'reporte';
+      res.set('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
       return res.send(buffer);
     }
 
@@ -731,7 +850,10 @@ app.post('/report', async (req, res) => {
 
     const buffer = await jasperManager.generatePoSummary(jasper, summary);
     res.set('Content-Type', 'application/pdf');
-    res.set('Content-Disposition', `attachment; filename=${summary.baseId || 'reporte'}.pdf`);
+    const filenameBase = summary.selectedIds && summary.selectedIds.length
+      ? summary.selectedIds.join('_')
+      : summary.baseId || 'reporte';
+    res.set('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
     res.send(buffer);
   } catch (err) {
     console.error('Error generando reporte:', err);

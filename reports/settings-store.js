@@ -14,6 +14,18 @@ const defaultSettings = {
     defaultReport: '',
     dataSourceName: '',
     jsonQuery: ''
+  },
+  branding: {
+    headerTitle: 'Reporte de PEOs - Consumo',
+    headerSubtitle: '',
+    footerText: 'PEOrpt • Aspel SAE 9',
+    letterheadEnabled: false,
+    letterheadTop: '',
+    letterheadBottom: '',
+    remColor: '#2563eb',
+    facColor: '#dc2626',
+    restanteColor: '#16a34a',
+    accentColor: '#1f2937'
   }
 };
 
@@ -42,11 +54,35 @@ function sanitizeJasperConfig(jasper = {}) {
   return normalized;
 }
 
+function sanitizeBrandingConfig(branding = {}) {
+  const sanitizeString = value => (typeof value === 'string' ? value.trim() : '');
+  const sanitizeColor = (value, fallback) => {
+    if (typeof value !== 'string') return fallback;
+    const hex = value.trim();
+    return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex) ? hex : fallback;
+  };
+  return {
+    ...defaultSettings.branding,
+    ...branding,
+    headerTitle: sanitizeString(branding.headerTitle) || defaultSettings.branding.headerTitle,
+    headerSubtitle: sanitizeString(branding.headerSubtitle),
+    footerText: sanitizeString(branding.footerText) || defaultSettings.branding.footerText,
+    letterheadEnabled: branding.letterheadEnabled === true,
+    letterheadTop: sanitizeString(branding.letterheadTop),
+    letterheadBottom: sanitizeString(branding.letterheadBottom),
+    remColor: sanitizeColor(branding.remColor, defaultSettings.branding.remColor),
+    facColor: sanitizeColor(branding.facColor, defaultSettings.branding.facColor),
+    restanteColor: sanitizeColor(branding.restanteColor, defaultSettings.branding.restanteColor),
+    accentColor: sanitizeColor(branding.accentColor, defaultSettings.branding.accentColor)
+  };
+}
+
 function normalizeSettings(rawSettings = {}) {
   const merged = {
     ...defaultSettings,
     ...rawSettings,
-    jasper: sanitizeJasperConfig(rawSettings.jasper)
+    jasper: sanitizeJasperConfig(rawSettings.jasper),
+    branding: sanitizeBrandingConfig(rawSettings.branding)
   };
 
   if (!ALLOWED_ENGINES.includes(merged.defaultEngine)) {
@@ -107,7 +143,11 @@ function updateSettings(partial = {}) {
     jasper: {
       ...current.jasper,
       ...(partial.jasper || {})
-    }
+    },
+    branding: sanitizeBrandingConfig({
+      ...current.branding,
+      ...(partial.branding || {})
+    })
   };
   return saveSettings(updated);
 }
