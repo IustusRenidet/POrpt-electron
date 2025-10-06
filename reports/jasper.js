@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const settingsStore = require('./settings-store');
+const configModule = require('./jasper.config');
 
 let jasperFactory = null;
 let jasperLoadError = null;
@@ -16,15 +18,16 @@ try {
   console.log('3. Reinicia el servidor\n');
 }
 
-const config = require('./jasper.config');
-
+let config = configModule.get();
 let instance = null;
 let initPromise = null;
 let compiled = false;
 
-/**
- * Crea directorio si no existe
- */
+function refreshConfig() {
+  config = configModule.load(settingsStore.getSettings());
+  compiled = false;
+}
+
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
@@ -32,9 +35,6 @@ function ensureDir(dirPath) {
   }
 }
 
-/**
- * Compila reporte JRXML a .jasper si es necesario
- */
 function compileReport(target, reportCfg) {
   if (!reportCfg || !reportCfg.jrxml || !reportCfg.jasper) {
     console.warn('Configuración de reporte incompleta:', reportCfg);
@@ -49,14 +49,13 @@ function compileReport(target, reportCfg) {
   const jrxmlStat = fs.statSync(reportCfg.jrxml);
   const jasperStat = jasperExists ? fs.statSync(reportCfg.jasper) : null;
 
-  // Solo compilar si el .jasper no existe o si el JRXML es más nuevo
   if (jasperExists && jasperStat && jasperStat.mtimeMs >= jrxmlStat.mtimeMs) {
     console.log(`✓ Reporte ya compilado: ${path.basename(reportCfg.jasper)}`);
     return;
   }
 
   console.log(`Compilando reporte: ${path.basename(reportCfg.jrxml)}...`);
-  
+
   if (typeof target.compile === 'function') {
     try {
       target.compile(reportCfg.jrxml, reportCfg.jasper);
@@ -70,27 +69,32 @@ function compileReport(target, reportCfg) {
   }
 }
 
-/**
- * Inicializa JasperReports
- */
 async function init() {
   if (instance) {
     return instance;
   }
-  
+
   if (initPromise) {
     return initPromise;
   }
 
+  const { jasper } = settingsStore.getSettings();
+  if (jasper && jasper.enabled === false) {
+    console.warn('JasperReports deshabilitado por configuración.');
+    instance = null;
+    compiled = false;
+    return null;
+  }
+
   initPromise = (async () => {
     try {
-      // Verificar que node-jasper esté disponible
+      refreshConfig();
+
       if (!jasperFactory) {
         console.error('JasperReports no disponible. Error de carga:', jasperLoadError?.message);
         return null;
       }
 
-      // Crear directorios necesarios
       ensureDir(config.jasperPath);
       ensureDir(config.templatesPath);
 
@@ -102,22 +106,20 @@ async function init() {
 
       console.log('Inicializando JasperReports...');
 
-      // Configurar opciones
       const options = {
         path: config.jasperPath,
         reports: config.reports,
         dataSources: config.dataSources || {}
       };
 
-      // Agregar driver Jaybird si existe
       if (config.drivers && config.drivers.jaybird) {
         const driver = config.drivers.jaybird;
         if (fs.existsSync(driver.jar)) {
-          options.drivers = { 
-            jaybird: { 
-              path: driver.jar, 
-              className: driver.className 
-            } 
+          options.drivers = {
+            jaybird: {
+              path: driver.jar,
+              className: driver.className
+            }
           };
           console.log('✓ Driver Jaybird configurado');
         } else {
@@ -125,7 +127,6 @@ async function init() {
         }
       }
 
-      // Crear instancia
       instance = jasperFactory(options);
 
       if (!instance) {
@@ -134,56 +135,53 @@ async function init() {
 
       console.log('✓ Instancia de JasperReports creada');
 
-      // Compilar reportes si es necesario
       if (!compiled) {
         console.log('Verificando compilación de reportes...');
         const reportNames = Object.keys(config.reports);
-        
+
         for (const reportName of reportNames) {
           const reportCfg = config.reports[reportName];
           try {
             compileReport(instance, reportCfg);
           } catch (err) {
             console.error(`Error compilando reporte ${reportName}:`, err.message);
-            // Continuar con otros reportes
           }
         }
-        
+
         compiled = true;
         console.log('✓ Proceso de compilación completado');
       }
 
       console.log('✓ JasperReports inicializado correctamente\n');
       return instance;
-
     } catch (err) {
       console.error('✗ Error inicializando JasperReports:', err.message);
       console.error('Stack:', err.stack);
       instance = null;
       return null;
+    } finally {
+      initPromise = null;
     }
   })();
 
   return await initPromise;
 }
 
-/**
- * Obtiene la instancia actual (puede ser null)
- */
 function getInstance() {
   return instance;
 }
 
-/**
- * Verifica si JasperReports está disponible
- */
 function isAvailable() {
   return instance !== null;
 }
 
-/**
- * Genera reporte PDF de resumen de PO
- */
+async function reload() {
+  instance = null;
+  initPromise = null;
+  compiled = false;
+  return await init();
+}
+
 async function generatePoSummary(jasperInstance, summary) {
   if (!jasperInstance) {
     throw new Error('JasperReports no está inicializado. Verifica la instalación de node-jasper y Java JDK.');
@@ -193,60 +191,39 @@ async function generatePoSummary(jasperInstance, summary) {
 
   const payload = { summary };
 
-  // Configurar data source
   if (jasperInstance.dataSources && config.dataSourceName) {
     jasperInstance.dataSources[config.dataSourceName] = {
       driver: 'json',
       data: payload,
-      jsonQuery: config.dataSources?.[config.dataSourceName]?.jsonQuery || 'summary.items'
+      jsonQuery: config.dataSources[config.dataSourceName]?.jsonQuery || 'summary.items'
     };
   }
 
+  const reportName = config.defaultReport;
+  const reportConfig = config.reports[reportName];
+
+  if (!reportConfig) {
+    throw new Error(`No se encontró la configuración del reporte ${reportName}`);
+  }
+
   return await new Promise((resolve, reject) => {
-    const reportConfig = {
-      report: config.defaultReport,
-      dataSource: {
-        type: 'json',
-        name: 'SummaryData',
-        jsonQuery: 'summary.items',
-        data: JSON.stringify(payload)
-      },
-      parameters: {
-        REPORT_TITLE: `POrpt • ${summary.companyName || 'Sin empresa'}`,
-        COMPANY_NAME: summary.companyName || 'SSITEL',
-        BASE_ID: summary.baseId || '-',
-        TOTALS_TEXT: summary.totalsTexto || '',
-        GENERAL_ALERTS: summary.alertasTexto || ''
-      }
-    };
-
-    jasperInstance.pdf(reportConfig, (err, buffer) => {
-      if (err) {
-        console.error('Error generando PDF:', err.message);
-        return reject(new Error(`Error generando reporte: ${err.message}`));
-      }
-      
-      console.log('✓ Reporte PDF generado correctamente');
-      resolve(buffer);
-    });
+    try {
+      jasperInstance.pdf(reportConfig, (err, buffer) => {
+        if (err) {
+          return reject(err);
+        }
+        resolve(buffer);
+      });
+    } catch (err) {
+      reject(err);
+    }
   });
-}
-
-/**
- * Reinicia la instancia (útil para desarrollo)
- */
-async function reset() {
-  console.log('Reiniciando JasperReports...');
-  instance = null;
-  initPromise = null;
-  compiled = false;
-  return await init();
 }
 
 module.exports = {
   init,
+  reload,
   getInstance,
   isAvailable,
-  generatePoSummary,
-  reset
+  generatePoSummary
 };

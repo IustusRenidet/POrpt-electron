@@ -18,29 +18,144 @@
   </nav>
 
   <main class="container my-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <div>
-        <h2 class="fw-semibold">Gestión de usuarios</h2>
-        <p class="text-muted mb-0">Crea, modifica y elimina usuarios autorizados para acceder a POrpt.</p>
+    <div class="row g-4">
+      <div class="col-xl-7">
+        <div class="card shadow-sm h-100">
+          <div class="card-header d-flex justify-content-between align-items-center bg-dark text-white">
+            <div>
+              <h2 class="h5 mb-0">Gestión de usuarios</h2>
+              <p class="mb-0 small text-white-50">Solo los administradores pueden administrar cuentas.</p>
+            </div>
+            <div class="btn-group">
+              <button id="loadUsersBtn" class="btn btn-outline-light btn-sm">Actualizar</button>
+              <button id="newUserBtn" class="btn btn-primary btn-sm">Nuevo usuario</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <p class="text-muted">Administra los accesos disponibles para visualizar el tablero de POrpt.</p>
+            <div class="table-responsive">
+              <table id="usersTable" class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Usuario</th>
+                    <th>Nombre</th>
+                    <th>Empresas</th>
+                    <th>Rol</th>
+                    <th class="text-end">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div id="usersEmptyState" class="text-center text-muted py-4 d-none">
+              <p class="mb-1 fw-semibold">No hay usuarios para mostrar</p>
+              <p class="mb-0 small">Crea un nuevo usuario con el botón “Nuevo usuario”.</p>
+            </div>
+          </div>
+        </div>
       </div>
-      <button id="loadUsersBtn" class="btn btn-primary">Actualizar listado</button>
+      <div class="col-xl-5">
+        <div class="card shadow-sm h-100">
+          <div class="card-header bg-body-tertiary">
+            <h2 class="h5 mb-0">Configuración de reportes</h2>
+          </div>
+          <div class="card-body">
+            <p class="text-muted">Selecciona el motor predeterminado y ajusta la configuración de Jasper.</p>
+            <form id="reportSettingsForm" class="vstack gap-3">
+              <div>
+                <label for="defaultReportEngine" class="form-label">Motor predeterminado</label>
+                <select id="defaultReportEngine" name="defaultEngine" class="form-select"></select>
+              </div>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="jasperEnabled">
+                <label class="form-check-label" for="jasperEnabled">Habilitar JasperReports</label>
+              </div>
+              <div class="row g-3">
+                <div class="col-12">
+                  <label for="jasperCompiledDir" class="form-label">Directorio compilados (.jasper)</label>
+                  <input type="text" id="jasperCompiledDir" class="form-control" placeholder="C:\\Program Files\\porpt\\compiled">
+                </div>
+                <div class="col-12">
+                  <label for="jasperTemplatesDir" class="form-label">Directorio plantillas (.jrxml)</label>
+                  <input type="text" id="jasperTemplatesDir" class="form-control" placeholder="C:\\Program Files\\porpt\\templates">
+                </div>
+                <div class="col-12">
+                  <label for="jasperFontsDir" class="form-label">Directorio de fuentes</label>
+                  <input type="text" id="jasperFontsDir" class="form-control" placeholder="C:\\Program Files\\porpt\\fonts">
+                </div>
+                <div class="col-md-6">
+                  <label for="jasperReportName" class="form-label">Reporte predeterminado</label>
+                  <input type="text" id="jasperReportName" class="form-control" placeholder="poSummary">
+                </div>
+                <div class="col-md-6">
+                  <label for="jasperDataSource" class="form-label">Datasource JSON</label>
+                  <input type="text" id="jasperDataSource" class="form-control" placeholder="poSummaryJson">
+                </div>
+                <div class="col-12">
+                  <label for="jasperJsonQuery" class="form-label">Consulta JSON</label>
+                  <input type="text" id="jasperJsonQuery" class="form-control" placeholder="summary.items">
+                </div>
+              </div>
+              <div class="d-flex align-items-center justify-content-between gap-3">
+                <span id="jasperStatusBadge" class="badge text-bg-secondary">Sin verificar</span>
+                <button type="submit" class="btn btn-success">Guardar configuración</button>
+              </div>
+              <small class="text-muted">Los cambios se guardan en <code>reports/report-settings.json</code>.</small>
+            </form>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="table-responsive">
-      <table id="usersTable" class="table table-striped align-middle">
-        <thead class="table-dark">
-          <tr>
-            <th>ID</th>
-            <th>Usuario</th>
-            <th>Nombre</th>
-            <th>Empresas</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <p class="small text-muted">Tip: Usa el botón “Editar” para actualizar nombre, empresas o contraseña. El administrador tiene acceso a todas las empresas.</p>
   </main>
+
+  <div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <form id="userForm" novalidate>
+          <div class="modal-header">
+            <h5 class="modal-title" id="userModalTitle">Nuevo usuario</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body vstack gap-3">
+            <div>
+              <label for="userUsername" class="form-label">Usuario</label>
+              <input type="text" id="userUsername" class="form-control" required>
+              <div class="invalid-feedback">El usuario es obligatorio.</div>
+            </div>
+            <div>
+              <label for="userName" class="form-label">Nombre completo</label>
+              <input type="text" id="userName" class="form-control" placeholder="Nombre y apellido">
+            </div>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label for="userPassword" class="form-label">Contraseña</label>
+                <input type="password" id="userPassword" class="form-control" autocomplete="new-password">
+                <div class="invalid-feedback">La contraseña debe contener al menos 6 caracteres.</div>
+              </div>
+              <div class="col-md-6">
+                <label for="userPasswordConfirm" class="form-label">Confirmar contraseña</label>
+                <input type="password" id="userPasswordConfirm" class="form-control" autocomplete="new-password">
+                <div class="invalid-feedback">Las contraseñas no coinciden.</div>
+              </div>
+            </div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="userAllCompanies">
+              <label class="form-check-label" for="userAllCompanies">Acceso a todas las empresas (administrador)</label>
+            </div>
+            <div>
+              <label for="userCompanies" class="form-label">Empresas autorizadas</label>
+              <input type="text" id="userCompanies" class="form-control" placeholder="Empresa01, Empresa02">
+              <div class="form-text">Separa cada empresa con coma. Usa el conmutador para otorgar acceso total.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" id="userModalSubmit" class="btn btn-primary">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 
   <div id="alerts" class="toast-container position-fixed top-0 end-0 p-3"></div>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

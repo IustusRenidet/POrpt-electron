@@ -1,0 +1,12 @@
+{
+  "defaultEngine": "jasper",
+  "jasper": {
+    "enabled": true,
+    "compiledDir": "",
+    "templatesDir": "",
+    "fontsDir": "",
+    "defaultReport": "poSummary",
+    "dataSourceName": "poSummaryJson",
+    "jsonQuery": "summary.items"
+  }
+}

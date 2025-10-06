@@ -20,6 +20,7 @@
     "express": "^5.1.0",
     "node-firebird": "^0.8.9",
     "node-jasper": "^0.2.5",
+    "pdfkit": "^0.13.0",
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {
