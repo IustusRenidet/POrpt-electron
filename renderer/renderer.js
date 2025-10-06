@@ -499,6 +499,14 @@ function attachTableHandlers(summary) {
         <h6 class="text-danger">Facturas</h6>
         <pre class="bg-light rounded p-3 small">${item.facturasTexto}</pre>
       </div>
+      <div class="mb-3">
+        <h6 class="text-success">Notas de venta vinculadas</h6>
+        <pre class="bg-light rounded p-3 small">${item.notasVentaTexto || 'Sin notas de venta vinculadas'}</pre>
+      </div>
+      <div class="mb-3">
+        <h6 class="text-info">Cotizaciones relacionadas</h6>
+        <pre class="bg-light rounded p-3 small">${item.cotizacionesTexto || 'Sin cotizaciones relacionadas'}</pre>
+      </div>
       <div>
         <h6 class="text-warning">Alertas</h6>
         <pre class="bg-light rounded p-3 small">${item.alertasTexto}</pre>
