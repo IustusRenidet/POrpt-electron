@@ -4,20 +4,23 @@ Dashboard y generador de reportes para control de Pedidos (PO), Remisiones y Fac
 
 ## Requisitos
 - Node.js 20+
-- Java 21 LTS (para JasperReports)
-- Driver Jaybird (`jaybird-full-5.x.x.jar`) ubicado en `reports/lib`
+- Java 21 LTS (solo si vas a usar JasperReports)
+- Driver Jaybird (`jaybird-full-5.x.x.jar`) ubicado en `reports/lib` cuando JasperReports está habilitado
 - Librerías Jasper compiladas (se generan automáticamente al iniciar el servidor)
 - Acceso a las bases Firebird de SAE 9 en la ruta configurada (`BASE_DIR` y `BASE_DIR_FB`)
 
 ## Dependencias destacadas
 - [node-firebird](https://www.npmjs.com/package/node-firebird) para la conexión a Firebird
-- [node-jasper](https://www.npmjs.com/package/node-jasper) + Jaybird para renderizar JasperReports
+- [pdfkit](https://www.npmjs.com/package/pdfkit) para el motor de reporte "PDF directo"
+- [node-jasper](https://www.npmjs.com/package/node-jasper) + Jaybird para renderizar JasperReports (instalación opcional)
 - [Chart.js](https://www.chartjs.org/) para la visualización en el dashboard
 
 ## Configuración
 1. Copia el `jaybird-full-5.x.x.jar` a `reports/lib`.
 2. Ajusta variables de entorno en `.env` si es necesario (host Firebird, rutas de empresa, etc.).
-3. Instala dependencias: `npm install --package-lock-only` (requiere `python3-distutils` para compilar la librería `java`).
+3. Instala dependencias: `npm install`.
+   - Si estás en Windows y no cuentas con el toolchain de Visual Studio puedes omitir la instalación de JasperReports ejecutando `npm install --omit=optional`. El motor "PDF directo" seguirá funcionando porque `pdfkit` es una dependencia normal.
+   - Para habilitar JasperReports en Windows asegúrate de tener instalado *Desktop development with C++* de Visual Studio o [windows-build-tools](https://github.com/felixrieseberg/windows-build-tools).
 4. Inicia la app con `npm start`.
 
 ### Variables de entorno para JasperReports
