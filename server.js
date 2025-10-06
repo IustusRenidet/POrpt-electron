@@ -654,6 +654,80 @@ async function getPoSummary(empresa, poId) {
       : [];
     const docLinkMap = buildPoLinkMap(poIds, docLinkRows);
 
+    const linkedDocsData = {
+      remisiones: {},
+      facturas: {}
+    };
+
+    if (linkingAvailable && docLinkRows.length > 0) {
+      const remisionesSet = new Set();
+      const facturasSet = new Set();
+      Object.values(docLinkMap).forEach(entry => {
+        entry?.remisiones?.values?.forEach(id => {
+          const value = typeof id === 'string' ? id.trim() : '';
+          if (value) {
+            remisionesSet.add(value);
+          }
+        });
+        entry?.facturas?.values?.forEach(id => {
+          const value = typeof id === 'string' ? id.trim() : '';
+          if (value) {
+            facturasSet.add(value);
+          }
+        });
+      });
+
+      if (remisionesSet.size > 0) {
+        const remDocs = Array.from(remisionesSet);
+        const placeholdersRem = remDocs.map(() => '?').join(',');
+        const remLinkedRows = await queryWithTimeout(
+          db,
+          `SELECT
+             TRIM(r.CVE_DOC) AS id,
+             r.FECHA_DOC AS fecha,
+             COALESCE(r.IMPORTE, 0) AS monto
+           FROM ${tables.FACTR} r
+           WHERE TRIM(r.CVE_DOC) IN (${placeholdersRem})`,
+          remDocs
+        );
+        remLinkedRows.forEach(row => {
+          const key = normalizeDocKey(row.ID || row.id || '');
+          if (!key) return;
+          const current = linkedDocsData.remisiones[key] || { id: (row.ID || row.id || '').trim(), monto: 0, fecha: row.FECHA || row.fecha };
+          current.monto += Number(row.MONTO ?? row.monto ?? row.IMPORTE ?? row.importe ?? 0);
+          if (!current.fecha && (row.FECHA || row.fecha)) {
+            current.fecha = row.FECHA || row.fecha;
+          }
+          linkedDocsData.remisiones[key] = current;
+        });
+      }
+
+      if (facturasSet.size > 0) {
+        const facDocs = Array.from(facturasSet);
+        const placeholdersFac = facDocs.map(() => '?').join(',');
+        const facLinkedRows = await queryWithTimeout(
+          db,
+          `SELECT
+             TRIM(f.CVE_DOC) AS id,
+             f.FECHA_DOC AS fecha,
+             COALESCE(f.IMPORTE, 0) AS monto
+           FROM ${tables.FACTF} f
+           WHERE TRIM(f.CVE_DOC) IN (${placeholdersFac})`,
+          facDocs
+        );
+        facLinkedRows.forEach(row => {
+          const key = normalizeDocKey(row.ID || row.id || '');
+          if (!key) return;
+          const current = linkedDocsData.facturas[key] || { id: (row.ID || row.id || '').trim(), monto: 0, fecha: row.FECHA || row.fecha };
+          current.monto += Number(row.MONTO ?? row.monto ?? row.IMPORTE ?? row.importe ?? 0);
+          if (!current.fecha && (row.FECHA || row.fecha)) {
+            current.fecha = row.FECHA || row.fecha;
+          }
+          linkedDocsData.facturas[key] = current;
+        });
+      }
+    }
+
     const remisionesMap = remRows.reduce((acc, row) => {
       const key = (row.PO || row.po || '').trim();
       if (!acc[key]) acc[key] = [];
@@ -683,7 +757,7 @@ async function getPoSummary(empresa, poId) {
       const fecha = formatFirebirdDate(row.FECHA || row.fecha);
       const total = Number(row.IMPORTE ?? row.importe ?? row.TOTAL ?? row.total ?? 0);
       const subtotal = Number(row.SUBTOTAL ?? row.subtotal ?? row.CAN_TOT ?? row.can_tot ?? 0);
-      const remisiones = (remisionesMap[id] || []).map(rem => {
+      let remisiones = (remisionesMap[id] || []).map(rem => {
         const remId = (rem.id || '').trim();
         const remKey = normalizeDocKey(remId);
         const vinculado = linkingAvailable && linkEntry.remisiones.keys.has(remKey);
@@ -693,7 +767,7 @@ async function getPoSummary(empresa, poId) {
           vinculado
         };
       });
-      const facturas = (facturasMap[id] || []).map(fac => {
+      let facturas = (facturasMap[id] || []).map(fac => {
         const facId = (fac.id || '').trim();
         const facKey = normalizeDocKey(facId);
         const vinculado = linkingAvailable && linkEntry.facturas.keys.has(facKey);
@@ -703,6 +777,45 @@ async function getPoSummary(empresa, poId) {
           vinculado
         };
       });
+      if (linkingAvailable) {
+        const remisionesKeys = new Set(remisiones.map(rem => normalizeDocKey(rem.id)));
+        const remisionesExtras = Array.from(linkEntry.remisiones.values).map(value => {
+          const remKey = normalizeDocKey(value);
+          if (!remKey || remisionesKeys.has(remKey)) return null;
+          const data = linkedDocsData.remisiones[remKey];
+          if (!data) return null;
+          const monto = Number(data.monto || 0);
+          return {
+            id: data.id || value,
+            fecha: formatFirebirdDate(data.fecha),
+            monto,
+            porcentaje: total > 0 ? (monto / total) * 100 : 0,
+            vinculado: true
+          };
+        }).filter(Boolean);
+        if (remisionesExtras.length > 0) {
+          remisiones = [...remisiones, ...remisionesExtras];
+        }
+
+        const facturasKeys = new Set(facturas.map(fac => normalizeDocKey(fac.id)));
+        const facturasExtras = Array.from(linkEntry.facturas.values).map(value => {
+          const facKey = normalizeDocKey(value);
+          if (!facKey || facturasKeys.has(facKey)) return null;
+          const data = linkedDocsData.facturas[facKey];
+          if (!data) return null;
+          const monto = Number(data.monto || 0);
+          return {
+            id: data.id || value,
+            fecha: formatFirebirdDate(data.fecha),
+            monto,
+            porcentaje: total > 0 ? (monto / total) * 100 : 0,
+            vinculado: true
+          };
+        }).filter(Boolean);
+        if (facturasExtras.length > 0) {
+          facturas = [...facturas, ...facturasExtras];
+        }
+      }
       const notasVenta = Array.from(linkEntry.notasVenta.values).sort((a, b) => a.localeCompare(b, 'es-MX'));
       const cotizacionesOrigen = Array.from(linkEntry.cotizacionesOrigen.values).sort((a, b) => a.localeCompare(b, 'es-MX'));
       const cotizacionesPosteriores = Array.from(linkEntry.cotizacionesPosteriores.values).sort((a, b) => a.localeCompare(b, 'es-MX'));
