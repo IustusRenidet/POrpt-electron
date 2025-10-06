@@ -94,6 +94,12 @@ async function init() {
       ensureDir(config.jasperPath);
       ensureDir(config.templatesPath);
 
+      console.log('• Directorio de compilados Jasper:', config.jasperPath);
+      console.log('• Directorio de plantillas Jasper:', config.templatesPath);
+      if (config.fontsPath) {
+        console.log('• Directorio de fuentes Jasper:', config.fontsPath);
+      }
+
       console.log('Inicializando JasperReports...');
 
       // Configurar opciones
