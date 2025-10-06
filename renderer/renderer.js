@@ -424,16 +424,33 @@ function renderTable(summary) {
   const rows = summary.items
     .map(item => {
       const totalAmount = Number(item.total || 0);
+      const totalOriginalAmount = Number(item.totalOriginal ?? item.total ?? 0);
       const subtotalAmount = Number(item.subtotal || 0);
       const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - totalAmount) > 0.009;
       const subtotalHtml = showSubtotal
         ? `<div class="small text-muted">Subtotal: $${formatCurrency(subtotalAmount)}</div>`
         : '';
+      const adjustment = item.ajusteDocSig;
+      const appliedDiff = Number(adjustment?.diferenciaAplicada ?? 0);
+      const hasAdjustment = appliedDiff > 0.009;
+      const adjustmentDetails = [];
+      if (hasAdjustment) {
+        adjustmentDetails.push(`<div class="small text-muted">Original: $${formatCurrency(totalOriginalAmount)}</div>`);
+        const tipoLabel = adjustment?.tipo === 'F' ? 'Factura' : 'Remisión';
+        const docLabel = escapeHtml(adjustment?.docSig || '-');
+        adjustmentDetails.push(
+          `<div class="small text-warning">Ajuste por ${tipoLabel} ${docLabel}: -$${formatCurrency(appliedDiff)}</div>`
+        );
+      }
+      if (subtotalHtml) {
+        adjustmentDetails.push(subtotalHtml);
+      }
+      const totalCellDetails = adjustmentDetails.join('');
       return `
       <tr data-po="${item.id}">
         <td class="fw-semibold">${item.id}</td>
         <td>${item.fecha || '-'}</td>
-        <td>$${formatCurrency(totalAmount)}${subtotalHtml}</td>
+        <td>$${formatCurrency(totalAmount)}${totalCellDetails}</td>
         <td>$${formatCurrency(item.totals.totalRem)} (${item.totals.porcRem.toFixed(2)}%)</td>
         <td>$${formatCurrency(item.totals.totalFac)} (${item.totals.porcFac.toFixed(2)}%)</td>
         <td>$${formatCurrency(item.totals.restante)} (${item.totals.porcRest.toFixed(2)}%)</td>
@@ -475,11 +492,26 @@ function attachTableHandlers(summary) {
     modalTitle.textContent = `Detalle PO ${item.id}`;
     const totalAutorizado = formatCurrency(item.total || 0);
     const subtotalAmount = Number(item.subtotal || 0);
+    const totalOriginal = Number(item.totalOriginal ?? item.total ?? 0);
+    const adjustment = item.ajusteDocSig;
+    const appliedDiff = Number(adjustment?.diferenciaAplicada ?? 0);
+    const hasAdjustment = appliedDiff > 0.009;
     const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - Number(item.total || 0)) > 0.009;
     const subtotalLinea = showSubtotal ? `Subtotal (CAN_TOT): $${formatCurrency(subtotalAmount)}` : '';
+    const ajusteLinea = hasAdjustment
+      ? `Ajuste aplicado (${adjustment?.tipo === 'F' ? 'Factura' : 'Remisión'} ${adjustment?.docSig || '-' }): -$${formatCurrency(appliedDiff)}`
+      : '';
+    const originalLinea = hasAdjustment ? `Total original FACTP: $${formatCurrency(totalOriginal)}` : '';
+    const totalLinea = hasAdjustment
+      ? `Total autorizado ajustado: $${totalAutorizado}`
+      : `Total autorizado (IMPORTE): $${totalAutorizado}`;
+    const docSigLinea = item.docSig ? `DOC_SIG relacionado: ${item.docSig}` : '';
     const totalesResumen = [
-      `Total autorizado (IMPORTE): $${totalAutorizado}`,
+      totalLinea,
+      originalLinea,
+      ajusteLinea,
       subtotalLinea,
+      docSigLinea,
       `Remisiones acumuladas: $${formatCurrency(item.totals?.totalRem ?? 0)}`,
       `Facturas acumuladas: $${formatCurrency(item.totals?.totalFac ?? 0)}`,
       `Disponible: $${formatCurrency(item.totals?.restante ?? 0)}`
@@ -837,6 +869,38 @@ function updateReportOverviewMeta() {
     const custom = state.customReportName?.trim();
     filenameLabel.textContent = custom ? `${custom}.${state.selectedFormat}` : 'Se generará automáticamente';
   }
+}
+
+function showWizardTab(target) {
+  if (!target) return;
+  const normalized = target.startsWith('#') ? target : `#${target}`;
+  const trigger = document.querySelector(`[data-bs-target="${normalized}"]`);
+  if (!trigger) return;
+  const tabInstance = bootstrap.Tab.getOrCreateInstance(trigger);
+  tabInstance.show();
+}
+
+function setupWizardNavigation() {
+  document.querySelectorAll('[data-wizard-action]').forEach(button => {
+    if (!button || button.dataset.wizardBound === 'true') {
+      return;
+    }
+    button.dataset.wizardBound = 'true';
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      const explicitTarget = button.getAttribute('data-wizard-target');
+      if (explicitTarget) {
+        showWizardTab(explicitTarget);
+        return;
+      }
+      const action = button.getAttribute('data-wizard-action');
+      if (action === 'next') {
+        showWizardTab('#panel-personal');
+      } else if (action === 'prev') {
+        showWizardTab('#panel-global');
+      }
+    });
+  });
 }
 
 function isSummarySynced() {
@@ -2058,6 +2122,7 @@ async function setupDashboard() {
   applySavedCustomization();
   setupCustomizationControls();
   renderCustomizationSummary();
+  setupWizardNavigation();
   updateReportOverviewMeta();
   renderReportSelectionOverview();
   showAlert('Selecciona empresa y PO para visualizar el tablero.', 'info', 9000);

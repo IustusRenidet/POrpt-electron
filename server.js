@@ -582,6 +582,72 @@ function buildPoLinkMap(poIds = [], docRows = []) {
   return map;
 }
 
+async function buildDocSigAdjustments(db, tables, poRows = []) {
+  const docsByType = {
+    R: new Set(),
+    F: new Set()
+  };
+
+  poRows.forEach(row => {
+    const tipDocRaw = row?.TIP_DOC ?? row?.tip_doc;
+    const docSigRaw = row?.DOC_SIG ?? row?.doc_sig;
+    const tipDoc = typeof tipDocRaw === 'string' ? tipDocRaw.trim().toUpperCase() : '';
+    const docSig = typeof docSigRaw === 'string' ? docSigRaw.trim() : '';
+    if (!docSig) return;
+    if (tipDoc === 'R') {
+      docsByType.R.add(docSig);
+    } else if (tipDoc === 'F') {
+      docsByType.F.add(docSig);
+    }
+  });
+
+  const result = new Map();
+
+  const collectRows = (rows, tipo) => {
+    rows.forEach(row => {
+      const id = (row.ID || row.id || '').trim();
+      const key = normalizeDocKey(id);
+      if (!key) return;
+      const importe = Number(row.IMPORTE ?? row.importe ?? row.MONTO ?? row.monto ?? 0);
+      const existing = result.get(key);
+      const totalImporte = (existing?.importe || 0) + importe;
+      result.set(key, {
+        tipo,
+        id,
+        importe: totalImporte
+      });
+    });
+  };
+
+  if (docsByType.R.size > 0 && tables.FACTR) {
+    const remDocs = Array.from(docsByType.R);
+    const placeholders = remDocs.map(() => '?').join(',');
+    const rows = await queryWithTimeout(
+      db,
+      `SELECT TRIM(r.CVE_DOC) AS id, COALESCE(r.IMPORTE, 0) AS importe
+         FROM ${tables.FACTR} r
+        WHERE r.STATUS <> 'C' AND TRIM(r.CVE_DOC) IN (${placeholders})`,
+      remDocs
+    );
+    collectRows(rows, 'R');
+  }
+
+  if (docsByType.F.size > 0 && tables.FACTF) {
+    const facDocs = Array.from(docsByType.F);
+    const placeholders = facDocs.map(() => '?').join(',');
+    const rows = await queryWithTimeout(
+      db,
+      `SELECT TRIM(f.CVE_DOC) AS id, COALESCE(f.IMPORTE, 0) AS importe
+         FROM ${tables.FACTF} f
+        WHERE f.STATUS <> 'C' AND TRIM(f.CVE_DOC) IN (${placeholders})`,
+      facDocs
+    );
+    collectRows(rows, 'F');
+  }
+
+  return result;
+}
+
 async function getPoSummary(empresa, poId) {
   const targetPo = (poId || '').trim();
   if (!targetPo) {
@@ -595,7 +661,9 @@ async function getPoSummary(empresa, poId) {
          TRIM(f.CVE_DOC) AS id,
          f.FECHA_DOC AS fecha,
          COALESCE(f.IMPORTE, 0) AS importe,
-         COALESCE(f.CAN_TOT, 0) AS subtotal
+         COALESCE(f.CAN_TOT, 0) AS subtotal,
+         TRIM(f.TIP_DOC) AS tip_doc,
+         TRIM(f.DOC_SIG) AS doc_sig
        FROM ${tables.FACTP} f
        WHERE f.STATUS <> 'C' AND (TRIM(f.CVE_DOC) = ? OR TRIM(f.CVE_DOC) LIKE ?)
        ORDER BY TRIM(f.CVE_DOC)`,
@@ -653,6 +721,7 @@ async function getPoSummary(empresa, poId) {
         )
       : [];
     const docLinkMap = buildPoLinkMap(poIds, docLinkRows);
+    const docSigAdjustments = await buildDocSigAdjustments(db, tables, poRows);
 
     const linkedDocsData = {
       remisiones: {},
@@ -755,8 +824,36 @@ async function getPoSummary(empresa, poId) {
       const key = normalizeDocKey(id);
       const linkEntry = docLinkMap[key] || createEmptyLinkEntry();
       const fecha = formatFirebirdDate(row.FECHA || row.fecha);
-      const total = Number(row.IMPORTE ?? row.importe ?? row.TOTAL ?? row.total ?? 0);
+      const totalOriginal = Number(row.IMPORTE ?? row.importe ?? row.TOTAL ?? row.total ?? 0);
       const subtotal = Number(row.SUBTOTAL ?? row.subtotal ?? row.CAN_TOT ?? row.can_tot ?? 0);
+      const tipDocRaw = row.TIP_DOC ?? row.tip_doc;
+      const docSigRaw = row.DOC_SIG ?? row.doc_sig;
+      const tipDoc = typeof tipDocRaw === 'string' ? tipDocRaw.trim().toUpperCase() : '';
+      const docSig = typeof docSigRaw === 'string' ? docSigRaw.trim() : '';
+      const docSigKey = normalizeDocKey(docSig);
+      const adjustmentData = docSigKey ? docSigAdjustments.get(docSigKey) : null;
+      let docSigAdjustment = null;
+      let total = totalOriginal;
+      if (adjustmentData && (tipDoc === 'R' || tipDoc === 'F')) {
+        const rawImporte = Number(adjustmentData.importe || 0);
+        if (rawImporte > 0) {
+          let applied = rawImporte;
+          let adjustedTotal = total - rawImporte;
+          if (adjustedTotal < 0) {
+            applied = total;
+            adjustedTotal = 0;
+          }
+          total = adjustedTotal;
+          docSigAdjustment = {
+            tipo: tipDoc,
+            docSig: adjustmentData.id || docSig,
+            importeRelacionado: rawImporte,
+            importeOriginal: totalOriginal,
+            importeAjustado: adjustedTotal,
+            diferenciaAplicada: applied
+          };
+        }
+      }
       let remisiones = (remisionesMap[id] || []).map(rem => {
         const remId = (rem.id || '').trim();
         const remKey = normalizeDocKey(remId);
@@ -823,6 +920,19 @@ async function getPoSummary(empresa, poId) {
       const totalFac = facturas.reduce((sum, item) => sum + item.monto, 0);
       const totals = calculateTotals(total, totalRem, totalFac);
       const alerts = [];
+      if (docSigAdjustment && docSigAdjustment.diferenciaAplicada > 0) {
+        const diffLabel = docSigAdjustment.diferenciaAplicada.toLocaleString('es-MX', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+        const tipoLabel = docSigAdjustment.tipo === 'R' ? 'remisión' : 'factura';
+        alerts.push(
+          buildAlert(
+            `El total del documento ${id} se ajustó por ${tipoLabel} ${docSigAdjustment.docSig}. Diferencia aplicada: $${diffLabel}.`,
+            'info'
+          )
+        );
+      }
       if (totals.totalConsumo >= total * 0.1 && total > 0) {
         alerts.push(buildAlert(`El consumo del PO ${id} ha alcanzado el ${(totals.totalConsumo / total * 100).toFixed(2)}%`, 'warning'));
       }
@@ -916,6 +1026,10 @@ async function getPoSummary(empresa, poId) {
           facturasSinVinculo: facturas.filter(fac => !fac.vinculado).map(fac => fac.id)
         },
         alertasTexto,
+        tipDoc,
+        docSig,
+        totalOriginal,
+        ajusteDocSig: docSigAdjustment,
         totals,
         alerts
       };
