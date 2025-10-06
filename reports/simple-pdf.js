@@ -306,7 +306,13 @@ function drawPoTable(doc, summary) {
       .fillColor('#1f2937')
       .text(item.id, colXs[0] + 10, y + 6, { width: tableWidth * 0.35 - 20 });
     doc.text(item.fecha || '-', colXs[1] + 10, y + 6, { width: tableWidth * 0.3 - 20 });
-    doc.text(formatCurrency(item.total || 0), colXs[2] + 10, y + 6, {
+    const totalAmount = Number(item.total || 0);
+    const subtotalAmount = Number(item.subtotal || 0);
+    const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - totalAmount) > 0.009;
+    const totalText = showSubtotal
+      ? `${formatCurrency(totalAmount)} (Sub: ${formatCurrency(subtotalAmount)})`
+      : formatCurrency(totalAmount);
+    doc.text(totalText, colXs[2] + 10, y + 6, {
       width: tableWidth * 0.35 - 20,
       align: 'left'
     });

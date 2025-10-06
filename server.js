@@ -513,11 +513,13 @@ async function getPoSummary(empresa, poId) {
     const baseId = basePoId(targetPo);
     const poRows = await queryWithTimeout(
       db,
-      `SELECT TRIM(f.CVE_DOC) AS id, f.FECHA_DOC AS fecha, COALESCE(SUM(p.TOT_PARTIDA), 0) AS total
+      `SELECT
+         TRIM(f.CVE_DOC) AS id,
+         f.FECHA_DOC AS fecha,
+         COALESCE(f.IMPORTE, 0) AS importe,
+         COALESCE(f.CAN_TOT, 0) AS subtotal
        FROM ${tables.FACTP} f
-       LEFT JOIN ${tables.PAR_FACTP} p ON f.CVE_DOC = p.CVE_DOC
        WHERE f.STATUS <> 'C' AND (TRIM(f.CVE_DOC) = ? OR TRIM(f.CVE_DOC) LIKE ?)
-       GROUP BY f.CVE_DOC, f.FECHA_DOC
        ORDER BY TRIM(f.CVE_DOC)`,
       [targetPo, `${baseId}-%`]
     );
@@ -531,9 +533,12 @@ async function getPoSummary(empresa, poId) {
     if (poIds.length > 0) {
       remRows = await queryWithTimeout(
         db,
-        `SELECT TRIM(r.CVE_DOC) AS id, TRIM(r.CVE_PEDI) AS po, r.FECHA_DOC AS fecha, COALESCE(SUM(pr.TOT_PARTIDA), 0) AS monto
+        `SELECT
+           TRIM(r.CVE_DOC) AS id,
+           TRIM(r.CVE_PEDI) AS po,
+           r.FECHA_DOC AS fecha,
+           COALESCE(SUM(r.IMPORTE), 0) AS monto
          FROM ${tables.FACTR} r
-         LEFT JOIN ${tables.PAR_FACTR} pr ON r.CVE_DOC = pr.CVE_DOC
          WHERE r.STATUS <> 'C' AND TRIM(r.CVE_PEDI) IN (${placeholders})
          GROUP BY r.CVE_DOC, r.CVE_PEDI, r.FECHA_DOC
          ORDER BY TRIM(r.CVE_DOC)`,
@@ -541,9 +546,12 @@ async function getPoSummary(empresa, poId) {
       );
       factRows = await queryWithTimeout(
         db,
-        `SELECT TRIM(f.CVE_DOC) AS id, TRIM(f.CVE_PEDI) AS po, f.FECHA_DOC AS fecha, COALESCE(SUM(pf.TOT_PARTIDA), 0) AS monto
+        `SELECT
+           TRIM(f.CVE_DOC) AS id,
+           TRIM(f.CVE_PEDI) AS po,
+           f.FECHA_DOC AS fecha,
+           COALESCE(SUM(f.IMPORTE), 0) AS monto
          FROM ${tables.FACTF} f
-         LEFT JOIN ${tables.PAR_FACTF} pf ON f.CVE_DOC = pf.CVE_DOC
          WHERE f.STATUS <> 'C' AND TRIM(f.CVE_PEDI) IN (${placeholders})
          GROUP BY f.CVE_DOC, f.CVE_PEDI, f.FECHA_DOC
          ORDER BY TRIM(f.CVE_DOC)`,
@@ -576,7 +584,8 @@ async function getPoSummary(empresa, poId) {
     const items = poRows.map(row => {
       const id = (row.ID || row.id || '').trim();
       const fecha = formatFirebirdDate(row.FECHA || row.fecha);
-      const total = Number(row.TOTAL ?? row.total ?? 0);
+      const total = Number(row.IMPORTE ?? row.importe ?? row.TOTAL ?? row.total ?? 0);
+      const subtotal = Number(row.SUBTOTAL ?? row.subtotal ?? row.CAN_TOT ?? row.can_tot ?? 0);
       const remisiones = (remisionesMap[id] || []).map(rem => ({
         ...rem,
         porcentaje: total > 0 ? (rem.monto / total) * 100 : 0
@@ -610,6 +619,7 @@ async function getPoSummary(empresa, poId) {
         baseId: basePoId(id),
         fecha,
         total,
+        subtotal,
         remisiones,
         facturas,
         remisionesTexto,
@@ -736,9 +746,8 @@ async function getUniverseSummary(empresa, rawFilter) {
     const { clause: poClause, params: poParams } = buildDateFilterClause('f.FECHA_DOC', filter);
     const totalRows = await queryWithTimeout(
       db,
-      `SELECT COALESCE(SUM(p.TOT_PARTIDA), 0) AS total
+      `SELECT COALESCE(SUM(f.IMPORTE), 0) AS total
        FROM ${tables.FACTP} f
-       LEFT JOIN ${tables.PAR_FACTP} p ON f.CVE_DOC = p.CVE_DOC
        WHERE f.STATUS <> 'C'${poClause}`,
       poParams
     );
@@ -747,9 +756,8 @@ async function getUniverseSummary(empresa, rawFilter) {
     const { clause: remClause, params: remParams } = buildDateFilterClause('r.FECHA_DOC', filter);
     const remRows = await queryWithTimeout(
       db,
-      `SELECT COALESCE(SUM(pr.TOT_PARTIDA), 0) AS total
+      `SELECT COALESCE(SUM(r.IMPORTE), 0) AS total
        FROM ${tables.FACTR} r
-       LEFT JOIN ${tables.PAR_FACTR} pr ON r.CVE_DOC = pr.CVE_DOC
        WHERE r.STATUS <> 'C'${remClause}`,
       remParams
     );
@@ -758,9 +766,8 @@ async function getUniverseSummary(empresa, rawFilter) {
     const { clause: facClause, params: facParams } = buildDateFilterClause('f.FECHA_DOC', filter);
     const facRows = await queryWithTimeout(
       db,
-      `SELECT COALESCE(SUM(pf.TOT_PARTIDA), 0) AS total
+      `SELECT COALESCE(SUM(f.IMPORTE), 0) AS total
        FROM ${tables.FACTF} f
-       LEFT JOIN ${tables.PAR_FACTF} pf ON f.CVE_DOC = pf.CVE_DOC
        WHERE f.STATUS <> 'C'${facClause}`,
       facParams
     );
@@ -832,17 +839,20 @@ app.get('/pos/:empresa', async (req, res) => {
   try {
     const rows = await withFirebirdConnection(empresa, async (db, tables) => {
       const result = await queryWithTimeout(db, `
-        SELECT TRIM(f.CVE_DOC) AS id, f.FECHA_DOC AS fecha, COALESCE(SUM(p.TOT_PARTIDA), 0) AS total
+        SELECT
+          TRIM(f.CVE_DOC) AS id,
+          f.FECHA_DOC AS fecha,
+          COALESCE(f.IMPORTE, 0) AS total,
+          COALESCE(f.CAN_TOT, 0) AS subtotal
         FROM ${tables.FACTP} f
-        LEFT JOIN ${tables.PAR_FACTP} p ON f.CVE_DOC = p.CVE_DOC
         WHERE f.STATUS <> 'C'
-        GROUP BY f.CVE_DOC, f.FECHA_DOC
         ORDER BY f.FECHA_DOC DESC
       `);
       return result.map(row => ({
         id: (row.ID || row.id || '').trim(),
         fecha: formatFirebirdDate(row.FECHA || row.fecha),
-        total: Number(row.TOTAL ?? row.total ?? 0),
+        total: Number(row.TOTAL ?? row.total ?? row.IMPORTE ?? row.importe ?? 0),
+        subtotal: Number(row.SUBTOTAL ?? row.subtotal ?? row.CAN_TOT ?? row.can_tot ?? 0),
         baseId: basePoId((row.ID || row.id || '').trim()),
         isExtension: basePoId((row.ID || row.id || '').trim()) !== (row.ID || row.id || '').trim()
       }));
