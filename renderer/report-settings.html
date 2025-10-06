@@ -45,27 +45,96 @@
               <div class="row g-3">
                 <div class="col-12">
                   <label for="jasperCompiledDir" class="form-label">Directorio compilados (.jasper)</label>
-                  <input type="text" id="jasperCompiledDir" class="form-control" placeholder="C:\\Program Files\\porpt\\compiled">
+                  <div class="input-group">
+                    <input type="text" id="jasperCompiledDir" class="form-control" placeholder="C:\\Program Files\\porpt\\compiled">
+                    <button
+                      type="button"
+                      class="btn btn-outline-secondary"
+                      data-select-path
+                      data-select-target="jasperCompiledDir"
+                      data-select-type="directory"
+                    >Explorar…</button>
+                  </div>
+                  <div class="form-text">Ruta donde se guardarán los archivos <code>.jasper</code> compilados.</div>
                 </div>
                 <div class="col-12">
                   <label for="jasperTemplatesDir" class="form-label">Directorio plantillas (.jrxml)</label>
-                  <input type="text" id="jasperTemplatesDir" class="form-control" placeholder="C:\\Program Files\\porpt\\templates">
+                  <div class="input-group">
+                    <input type="text" id="jasperTemplatesDir" class="form-control" placeholder="C:\\Program Files\\porpt\\templates">
+                    <button
+                      type="button"
+                      class="btn btn-outline-secondary"
+                      data-select-path
+                      data-select-target="jasperTemplatesDir"
+                      data-select-type="directory"
+                    >Explorar…</button>
+                  </div>
+                  <div class="form-text">Directorio que contiene las plantillas <code>.jrxml</code> de JasperReports.</div>
                 </div>
                 <div class="col-12">
                   <label for="jasperFontsDir" class="form-label">Directorio de fuentes</label>
-                  <input type="text" id="jasperFontsDir" class="form-control" placeholder="C:\\Program Files\\porpt\\fonts">
+                  <div class="input-group">
+                    <input type="text" id="jasperFontsDir" class="form-control" placeholder="C:\\Program Files\\porpt\\fonts">
+                    <button
+                      type="button"
+                      class="btn btn-outline-secondary"
+                      data-select-path
+                      data-select-target="jasperFontsDir"
+                      data-select-type="directory"
+                    >Explorar…</button>
+                  </div>
+                  <div class="form-text">Ubicación opcional de fuentes personalizadas usadas por Jasper.</div>
                 </div>
                 <div class="col-md-6">
                   <label for="jasperReportName" class="form-label">Reporte predeterminado</label>
                   <input type="text" id="jasperReportName" class="form-control" placeholder="poSummary">
+                  <div class="form-text">Nombre base del archivo <code>.jasper</code> que se ejecutará.</div>
                 </div>
                 <div class="col-md-6">
                   <label for="jasperDataSource" class="form-label">Datasource JSON</label>
                   <input type="text" id="jasperDataSource" class="form-control" placeholder="poSummaryJson">
+                  <div class="form-text">Identificador del datasource dentro del reporte Jasper.</div>
                 </div>
                 <div class="col-12">
                   <label for="jasperJsonQuery" class="form-label">Consulta JSON</label>
                   <input type="text" id="jasperJsonQuery" class="form-control" placeholder="summary.items">
+                  <div class="form-text">Ruta JSON usada por Jasper para leer los datos (por ejemplo <code>summary.items</code>).</div>
+                </div>
+              </div>
+              <div class="border rounded p-3 bg-body-tertiary">
+                <div class="row g-3 align-items-start">
+                  <div class="col-lg-4">
+                    <label for="exportDefaultFormat" class="form-label">Formato predeterminado</label>
+                    <select id="exportDefaultFormat" class="form-select"></select>
+                    <div class="form-text">Se utilizará cuando no se especifique otro formato al generar reportes.</div>
+                  </div>
+                  <div class="col-lg-4">
+                    <span class="form-label d-block">Formatos disponibles</span>
+                    <div class="vstack gap-2" id="exportFormatsContainer"></div>
+                    <div class="form-text">Los usuarios podrán elegir cualquiera de estos formatos.</div>
+                  </div>
+                  <div class="col-lg-4">
+                    <span class="form-label d-block">Contenido del PDF simple</span>
+                    <div class="vstack gap-2" id="customizationContainer">
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="customIncludeCharts">
+                        <label class="form-check-label" for="customIncludeCharts">Mostrar gráficas y comparativas</label>
+                      </div>
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="customIncludeMovements">
+                        <label class="form-check-label" for="customIncludeMovements">Listar remisiones y facturas destacadas</label>
+                      </div>
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="customIncludeObservations">
+                        <label class="form-check-label" for="customIncludeObservations">Incluir bloque de observaciones</label>
+                      </div>
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="customIncludeUniverse">
+                        <label class="form-check-label" for="customIncludeUniverse">Detalles completos en reporte de universo</label>
+                      </div>
+                    </div>
+                    <div class="form-text">Personaliza el contenido cuando se use el motor "PDF directo".</div>
+                  </div>
                 </div>
               </div>
               <hr class="text-muted">
@@ -105,12 +174,32 @@
                   </div>
                   <div class="col-md-6">
                     <label for="brandingLetterheadTop" class="form-label">Ruta membrete superior</label>
-                    <input type="text" id="brandingLetterheadTop" class="form-control" placeholder="C:\\reportes\\membrete-superior.png">
+                    <div class="input-group">
+                      <input type="text" id="brandingLetterheadTop" class="form-control" placeholder="C:\\reportes\\membrete-superior.png">
+                      <button
+                        type="button"
+                        class="btn btn-outline-secondary"
+                        data-select-path
+                        data-select-target="brandingLetterheadTop"
+                        data-select-type="file"
+                        data-select-filters='[{"name":"Imágenes","extensions":["png","jpg","jpeg","gif","bmp","webp"]}]'
+                      >Explorar…</button>
+                    </div>
                     <div class="form-text">Opcional. Debe ser un archivo accesible desde el servidor.</div>
                   </div>
                   <div class="col-md-6">
                     <label for="brandingLetterheadBottom" class="form-label">Ruta membrete inferior</label>
-                    <input type="text" id="brandingLetterheadBottom" class="form-control" placeholder="C:\\reportes\\membrete-inferior.png">
+                    <div class="input-group">
+                      <input type="text" id="brandingLetterheadBottom" class="form-control" placeholder="C:\\reportes\\membrete-inferior.png">
+                      <button
+                        type="button"
+                        class="btn btn-outline-secondary"
+                        data-select-path
+                        data-select-target="brandingLetterheadBottom"
+                        data-select-type="file"
+                        data-select-filters='[{"name":"Imágenes","extensions":["png","jpg","jpeg","gif","bmp","webp"]}]'
+                      >Explorar…</button>
+                    </div>
                   </div>
                   <div class="col-md-3">
                     <label for="brandingRemColor" class="form-label">Color remisiones</label>

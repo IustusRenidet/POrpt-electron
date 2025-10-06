@@ -32,6 +32,13 @@ const DEFAULT_BRANDING = {
   companyName: 'SITTEL'
 };
 
+const DEFAULT_CUSTOMIZATION = {
+  includeCharts: true,
+  includeMovements: true,
+  includeObservations: true,
+  includeUniverse: true
+};
+
 function ensurePdfkitAvailable() {
   if (PDFDocument) {
     return true;
@@ -72,6 +79,16 @@ function normalizeBranding(branding = {}) {
       typeof branding.companyName === 'string' && branding.companyName.trim()
         ? branding.companyName.trim()
         : DEFAULT_BRANDING.companyName
+  };
+}
+
+function normalizeCustomization(customization = {}) {
+  return {
+    ...DEFAULT_CUSTOMIZATION,
+    includeCharts: customization.includeCharts !== false,
+    includeMovements: customization.includeMovements !== false,
+    includeObservations: customization.includeObservations !== false,
+    includeUniverse: customization.includeUniverse !== false
   };
 }
 
@@ -624,9 +641,10 @@ function drawFooter(doc, branding) {
   });
 }
 
-async function generate(summary, branding = {}) {
+async function generate(summary, branding = {}, customization = {}) {
   ensurePdfkitAvailable();
   const style = normalizeBranding(branding);
+  const options = normalizeCustomization(customization);
 
   return await new Promise((resolve, reject) => {
     try {
@@ -640,24 +658,40 @@ async function generate(summary, branding = {}) {
       drawHeader(doc, summary, style);
       if (summary.universe?.isUniverse) {
         drawUniverseFilterInfo(doc, summary, style);
-        drawUniverseTotalsTable(doc, summary, style);
+        if (options.includeUniverse) {
+          drawUniverseTotalsTable(doc, summary, style);
+        }
         drawSummaryBox(doc, summary);
-        drawStackedBar(doc, summary, style);
-        drawUniverseObservations(doc, summary);
+        if (options.includeCharts) {
+          drawStackedBar(doc, summary, style);
+        } else {
+          doc.moveDown(1.2);
+        }
+        if (options.includeObservations) {
+          drawUniverseObservations(doc, summary);
+        }
       } else {
         drawPoTable(doc, summary);
-        drawMovements(doc, summary, style);
+        if (options.includeMovements) {
+          drawMovements(doc, summary, style);
+        }
         drawSummaryBox(doc, summary);
 
-        if (summary.selectedIds && summary.selectedIds.length > 1) {
-          drawPieChart(doc, summary, style);
-        } else if ((summary.items || []).length > 1) {
-          drawPieChart(doc, summary, style);
+        if (options.includeCharts) {
+          if (summary.selectedIds && summary.selectedIds.length > 1) {
+            drawPieChart(doc, summary, style);
+          } else if ((summary.items || []).length > 1) {
+            drawPieChart(doc, summary, style);
+          } else {
+            drawStackedBar(doc, summary, style);
+          }
         } else {
-          drawStackedBar(doc, summary, style);
+          doc.moveDown(1.2);
         }
 
-        drawObservations(doc, summary);
+        if (options.includeObservations) {
+          drawObservations(doc, summary);
+        }
       }
       drawFooter(doc, style);
       doc.end();
