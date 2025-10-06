@@ -25,7 +25,8 @@ const defaultSettings = {
     remColor: '#2563eb',
     facColor: '#dc2626',
     restanteColor: '#16a34a',
-    accentColor: '#1f2937'
+    accentColor: '#1f2937',
+    companyName: 'SITTEL'
   }
 };
 
@@ -73,7 +74,8 @@ function sanitizeBrandingConfig(branding = {}) {
     remColor: sanitizeColor(branding.remColor, defaultSettings.branding.remColor),
     facColor: sanitizeColor(branding.facColor, defaultSettings.branding.facColor),
     restanteColor: sanitizeColor(branding.restanteColor, defaultSettings.branding.restanteColor),
-    accentColor: sanitizeColor(branding.accentColor, defaultSettings.branding.accentColor)
+    accentColor: sanitizeColor(branding.accentColor, defaultSettings.branding.accentColor),
+    companyName: sanitizeString(branding.companyName) || defaultSettings.branding.companyName
   };
 }
 

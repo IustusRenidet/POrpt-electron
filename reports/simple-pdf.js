@@ -28,7 +28,8 @@ const DEFAULT_BRANDING = {
   remColor: '#2563eb',
   facColor: '#dc2626',
   restanteColor: '#16a34a',
-  accentColor: '#1f2937'
+  accentColor: '#1f2937',
+  companyName: 'SITTEL'
 };
 
 function ensurePdfkitAvailable() {
@@ -66,7 +67,11 @@ function normalizeBranding(branding = {}) {
       : DEFAULT_BRANDING.footerText,
     letterheadEnabled: branding.letterheadEnabled === true,
     letterheadTop: typeof branding.letterheadTop === 'string' ? branding.letterheadTop.trim() : '',
-    letterheadBottom: typeof branding.letterheadBottom === 'string' ? branding.letterheadBottom.trim() : ''
+    letterheadBottom: typeof branding.letterheadBottom === 'string' ? branding.letterheadBottom.trim() : '',
+    companyName:
+      typeof branding.companyName === 'string' && branding.companyName.trim()
+        ? branding.companyName.trim()
+        : DEFAULT_BRANDING.companyName
   };
 }
 
@@ -141,7 +146,8 @@ function drawHeader(doc, summary, branding) {
     doc.font('Helvetica').fontSize(12).fillColor('#475569').text(branding.headerSubtitle, { align: 'center' });
   }
   doc.moveDown(0.4);
-  const empresaLabel = summary.empresaLabel || summary.companyName || summary.empresa || '';
+  const empresaLabel =
+    branding.companyName || summary.companyName || summary.empresaLabel || summary.empresa || '';
   const seleccion = Array.isArray(summary.selectedIds) && summary.selectedIds.length > 1
     ? summary.selectedIds.join(', ')
     : summary.selectedId || summary.baseId || '-';
@@ -155,7 +161,100 @@ function drawHeader(doc, summary, branding) {
     .fontSize(12)
     .fillColor(branding.accentColor || '#1f2937')
     .text(`PO(s) seleccionada(s): ${seleccion}`, { align: 'center' });
+  if (summary.universe?.isUniverse) {
+    const titleText = summary.universe.title || 'Reporte del universo de POs';
+    doc.moveDown(0.2);
+    doc
+      .font('Helvetica')
+      .fontSize(12)
+      .fillColor('#475569')
+      .text(titleText, { align: 'center' });
+  }
   doc.moveDown(0.8);
+}
+
+function drawUniverseFilterInfo(doc, summary, branding) {
+  const universe = summary.universe || {};
+  const label = universe.label || 'Global (todas las fechas)';
+  const description = universe.description || '';
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .fillColor(branding.accentColor || '#1f2937')
+    .text(`Filtro aplicado: ${label}`, { align: 'center' });
+  if (description) {
+    doc.moveDown(0.2);
+    doc.font('Helvetica').fontSize(11).fillColor('#475569').text(description, { align: 'center' });
+  }
+  doc.moveDown(0.8);
+}
+
+function drawUniverseTotalsTable(doc, summary, branding) {
+  const totals = summary.totals || {};
+  const startX = doc.page.margins.left;
+  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const rowHeight = 32;
+  const rows = [
+    { label: 'Total autorizado de POs', value: formatCurrency(totals.total), color: branding.accentColor },
+    { label: 'Total remisiones', value: formatCurrency(totals.totalRem), color: branding.remColor },
+    { label: 'Total facturas', value: formatCurrency(totals.totalFac), color: branding.facColor },
+    { label: 'Total consumido (Rem + Fac)', value: formatCurrency(totals.totalConsumo), color: '#1f2937' },
+    { label: 'Remanente total del universo', value: formatCurrency(totals.restante), color: branding.restanteColor }
+  ];
+
+  const top = doc.y;
+  const totalHeight = rowHeight * rows.length;
+  doc.save();
+  doc.lineWidth(1).rect(startX, top, width, totalHeight).stroke('#d1d5db');
+  rows.forEach((row, index) => {
+    const y = top + index * rowHeight;
+    if (index > 0) {
+      doc.lineWidth(0.5).moveTo(startX, y).lineTo(startX + width, y).stroke('#e5e7eb');
+    }
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(12)
+      .fillColor(row.color || branding.accentColor || '#1f2937')
+      .text(row.label, startX + 12, y + 10, { width: width / 2 - 16 });
+    doc
+      .font('Helvetica')
+      .fontSize(12)
+      .fillColor('#111827')
+      .text(row.value, startX + width / 2, y + 10, { width: width / 2 - 16, align: 'right' });
+  });
+  doc.restore();
+  doc.y = top + totalHeight + 18;
+}
+
+function drawUniverseObservations(doc, summary) {
+  const startX = doc.page.margins.left;
+  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  doc.lineWidth(0.5);
+  doc.moveTo(startX, doc.y).lineTo(startX + width, doc.y).stroke('#e5e7eb');
+  doc.moveDown(0.6);
+  doc.font('Helvetica-Bold').fontSize(14).fillColor('#111827').text('Observaciones', startX, doc.y);
+  doc.moveDown(0.4);
+  const boxTop = doc.y;
+  const boxHeight = 100;
+  doc.lineWidth(1).rect(startX, boxTop, width, boxHeight).stroke('#d1d5db');
+  doc.font('Helvetica').fontSize(12).fillColor('#555555');
+  const universe = summary.universe || {};
+  const label = universe.label || 'Global';
+  const notes = [
+    `*Resumen agregado del universo de POs (${label}).`,
+    '*El consumo considera remisiones y facturas registradas en el periodo seleccionado.'
+  ];
+  if (summary.alertasTexto && summary.alertasTexto !== 'Sin alertas generales') {
+    notes.push(`*Alertas: ${summary.alertasTexto}`);
+  }
+  if (summary.totals && summary.totals.total === 0) {
+    notes.push('*No se encontraron POs activas con el filtro aplicado.');
+  }
+  const textStartY = boxTop + 12;
+  notes.forEach((note, index) => {
+    doc.text(note, startX + 10, textStartY + index * 20, { width: width - 20 });
+  });
+  doc.y = boxTop + boxHeight + 16;
 }
 
 function drawPoTable(doc, summary) {
@@ -539,19 +638,27 @@ async function generate(summary, branding = {}) {
 
       drawLetterhead(doc, style);
       drawHeader(doc, summary, style);
-      drawPoTable(doc, summary);
-      drawMovements(doc, summary, style);
-      drawSummaryBox(doc, summary);
-
-      if (summary.selectedIds && summary.selectedIds.length > 1) {
-        drawPieChart(doc, summary, style);
-      } else if ((summary.items || []).length > 1) {
-        drawPieChart(doc, summary, style);
-      } else {
+      if (summary.universe?.isUniverse) {
+        drawUniverseFilterInfo(doc, summary, style);
+        drawUniverseTotalsTable(doc, summary, style);
+        drawSummaryBox(doc, summary);
         drawStackedBar(doc, summary, style);
-      }
+        drawUniverseObservations(doc, summary);
+      } else {
+        drawPoTable(doc, summary);
+        drawMovements(doc, summary, style);
+        drawSummaryBox(doc, summary);
 
-      drawObservations(doc, summary);
+        if (summary.selectedIds && summary.selectedIds.length > 1) {
+          drawPieChart(doc, summary, style);
+        } else if ((summary.items || []).length > 1) {
+          drawPieChart(doc, summary, style);
+        } else {
+          drawStackedBar(doc, summary, style);
+        }
+
+        drawObservations(doc, summary);
+      }
       drawFooter(doc, style);
       doc.end();
     } catch (err) {

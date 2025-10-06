@@ -14,6 +14,7 @@
       <a class="navbar-brand fw-bold" href="#">POrpt</a>
       <div class="d-flex flex-wrap gap-2">
         <a id="adminLink" class="btn btn-outline-light" href="admin.html">Administrar usuarios</a>
+        <a id="reportSettingsLink" class="btn btn-outline-light" href="report-settings.html">Configuración de reportes</a>
         <button class="btn btn-warning" onclick="logout()">Salir</button>
       </div>
     </div>
@@ -57,6 +58,41 @@
         <button id="generateReportBtn" class="btn btn-success">Descargar reporte</button>
         <span id="reportEngineStatus" class="badge text-bg-secondary d-none"></span>
         <small id="reportEngineHelp" class="text-muted d-block">El reporte incluirá gráficas, totales y alertas de todas las POs seleccionadas.</small>
+      </div>
+
+      <div class="card border-success-subtle shadow-sm mt-4" id="universeControls">
+        <div class="card-body">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+              <h3 class="h5 mb-1 text-success">Reporte universo de POs</h3>
+              <p class="text-muted mb-2">Genera un resumen global del total autorizado, consumo y remanente.</p>
+              <p class="mb-1 small text-muted">Nombre comercial: <span id="universeCompanyLabel" class="fw-semibold">SITTEL</span></p>
+              <p class="mb-0 small text-muted">Empresa seleccionada: <span id="universeSelectedEmpresa" class="fw-semibold">Selecciona una empresa</span></p>
+            </div>
+            <div class="text-end">
+              <button id="generateUniverseReportBtn" class="btn btn-outline-success">Descargar universo</button>
+            </div>
+          </div>
+          <div class="row g-3 mt-1 align-items-end">
+            <div class="col-md-4">
+              <label for="universeFilterMode" class="form-label">Filtro del universo</label>
+              <select id="universeFilterMode" class="form-select">
+                <option value="global">Global (todas las fechas)</option>
+                <option value="range">Por rango de fechas</option>
+                <option value="single">Unitario (1 día)</option>
+              </select>
+            </div>
+            <div class="col-md-4 d-none" id="universeStartDateGroup">
+              <label for="universeStartDate" id="universeStartDateLabel" class="form-label">Fecha inicial</label>
+              <input type="date" id="universeStartDate" class="form-control">
+            </div>
+            <div class="col-md-4 d-none" id="universeEndDateGroup">
+              <label for="universeEndDate" class="form-label">Fecha final</label>
+              <input type="date" id="universeEndDate" class="form-control">
+            </div>
+          </div>
+          <small class="text-muted d-block mt-3">El reporte universo utiliza el motor PDF directo e incluye todos los POs válidos del periodo elegido.</small>
+        </div>
       </div>
     </section>
 
