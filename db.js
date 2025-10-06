@@ -50,14 +50,24 @@ async function getPOs(empresaFolder) {
   const db = await getConnection(empresaFolder);
   return new Promise((resolve) => {
     db.query(`
-      SELECT f.CVE_DOC as id, f.FECHA_DOC as fecha, COALESCE(SUM(p.TOT_PARTIDA), 0) as total
-      FROM FACTP26 f LEFT JOIN PAR_FACTP26 p ON f.CVE_DOC = p.CVE_DOC
-      WHERE f.STATUS <> 'C' GROUP BY f.CVE_DOC, f.FECHA_DOC ORDER BY f.FECHA_DOC DESC
+      SELECT
+        f.CVE_DOC AS id,
+        f.FECHA_DOC AS fecha,
+        COALESCE(f.IMPORTE, 0) AS total,
+        COALESCE(f.CAN_TOT, 0) AS subtotal
+      FROM FACTP26 f
+      WHERE f.STATUS <> 'C'
+      ORDER BY f.FECHA_DOC DESC
     `, (err, rows) => {
       if (err) return resolve([]);
       const pos = [];
       rows.forEach(row => {
-        pos.push({ id: row.ID, fecha: row.FECHA, total: parseFloat(row.TOTAL) });
+        pos.push({
+          id: row.ID,
+          fecha: row.FECHA,
+          total: parseFloat(row.TOTAL),
+          subtotal: parseFloat(row.SUBTOTAL)
+        });
       });
       db.detach();
       resolve(pos);
@@ -68,11 +78,21 @@ async function getPOs(empresaFolder) {
 async function getRemisionesForPO(db, poIdBase) {
   return new Promise((resolve) => {
     db.query(`
-      SELECT r.CVE_DOC as id, COALESCE(SUM(pr.TOT_PARTIDA), 0) as monto
-      FROM FACTR26 r LEFT JOIN PAR_FACTR26 pr ON r.CVE_DOC = pr.CVE_DOC
-      WHERE r.CVE_PEDI LIKE '${poIdBase}%' AND r.STATUS <> 'C' GROUP BY r.CVE_DOC
+      SELECT
+        r.CVE_DOC AS id,
+        r.FECHA_DOC AS fecha,
+        COALESCE(SUM(r.IMPORTE), 0) AS monto
+      FROM FACTR26 r
+      WHERE r.CVE_PEDI LIKE '${poIdBase}%'
+        AND r.STATUS <> 'C'
+      GROUP BY r.CVE_DOC, r.FECHA_DOC
     `, (err, rows) => {
-      const rems = rows.map(row => ({ id: row.ID, monto: parseFloat(row.MONTO), porcentaje: 0 }));
+      const rems = rows.map(row => ({
+        id: row.ID,
+        fecha: row.FECHA,
+        monto: parseFloat(row.MONTO),
+        porcentaje: 0
+      }));
       resolve(rems);
     });
   });
@@ -82,11 +102,21 @@ async function getFacturasForPO(db, poIdBase) {
   // Similar a remisiones, pero FACTF26 / PAR_FACTF26
   return new Promise((resolve) => {
     db.query(`
-      SELECT f.CVE_DOC as id, COALESCE(SUM(pf.TOT_PARTIDA), 0) as monto
-      FROM FACTF26 f LEFT JOIN PAR_FACTF26 pf ON f.CVE_DOC = pf.CVE_DOC
-      WHERE f.CVE_PEDI LIKE '${poIdBase}%' AND f.STATUS <> 'C' GROUP BY f.CVE_DOC
+      SELECT
+        f.CVE_DOC AS id,
+        f.FECHA_DOC AS fecha,
+        COALESCE(SUM(f.IMPORTE), 0) AS monto
+      FROM FACTF26 f
+      WHERE f.CVE_PEDI LIKE '${poIdBase}%'
+        AND f.STATUS <> 'C'
+      GROUP BY f.CVE_DOC, f.FECHA_DOC
     `, (err, rows) => {
-      const facts = rows.map(row => ({ id: row.ID, monto: parseFloat(row.MONTO), porcentaje: 0 }));
+      const facts = rows.map(row => ({
+        id: row.ID,
+        fecha: row.FECHA,
+        monto: parseFloat(row.MONTO),
+        porcentaje: 0
+      }));
       resolve(facts);
     });
   });

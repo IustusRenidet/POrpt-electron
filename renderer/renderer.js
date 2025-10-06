@@ -422,11 +422,18 @@ function renderTable(summary) {
   const table = document.getElementById('poTable');
   if (!table) return;
   const rows = summary.items
-    .map(item => `
+    .map(item => {
+      const totalAmount = Number(item.total || 0);
+      const subtotalAmount = Number(item.subtotal || 0);
+      const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - totalAmount) > 0.009;
+      const subtotalHtml = showSubtotal
+        ? `<div class="small text-muted">Subtotal: $${formatCurrency(subtotalAmount)}</div>`
+        : '';
+      return `
       <tr data-po="${item.id}">
         <td class="fw-semibold">${item.id}</td>
         <td>${item.fecha || '-'}</td>
-        <td>$${formatCurrency(item.total || 0)}</td>
+        <td>$${formatCurrency(totalAmount)}${subtotalHtml}</td>
         <td>$${formatCurrency(item.totals.totalRem)} (${item.totals.porcRem.toFixed(2)}%)</td>
         <td>$${formatCurrency(item.totals.totalFac)} (${item.totals.porcFac.toFixed(2)}%)</td>
         <td>$${formatCurrency(item.totals.restante)} (${item.totals.porcRest.toFixed(2)}%)</td>
@@ -434,7 +441,8 @@ function renderTable(summary) {
           <button class="btn btn-outline-primary btn-sm" data-po="${item.id}" data-action="show-modal">Detalle</button>
         </td>
       </tr>
-    `)
+    `;
+    })
     .join('');
   table.innerHTML = `
     <thead class="table-light">
@@ -465,7 +473,24 @@ function attachTableHandlers(summary) {
     const item = summary.items.find(it => it.id === poId);
     if (!item) return;
     modalTitle.textContent = `Detalle PO ${item.id}`;
+    const totalAutorizado = formatCurrency(item.total || 0);
+    const subtotalAmount = Number(item.subtotal || 0);
+    const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - Number(item.total || 0)) > 0.009;
+    const subtotalLinea = showSubtotal ? `Subtotal (CAN_TOT): $${formatCurrency(subtotalAmount)}` : '';
+    const totalesResumen = [
+      `Total autorizado (IMPORTE): $${totalAutorizado}`,
+      subtotalLinea,
+      `Remisiones acumuladas: $${formatCurrency(item.totals?.totalRem ?? 0)}`,
+      `Facturas acumuladas: $${formatCurrency(item.totals?.totalFac ?? 0)}`,
+      `Disponible: $${formatCurrency(item.totals?.restante ?? 0)}`
+    ]
+      .filter(Boolean)
+      .join('\n');
     modalBody.innerHTML = `
+      <div class="mb-3">
+        <h6 class="text-secondary">Totales del pedido</h6>
+        <pre class="bg-light rounded p-3 small">${totalesResumen}</pre>
+      </div>
       <div class="mb-3">
         <h6 class="text-primary">Remisiones</h6>
         <pre class="bg-light rounded p-3 small">${item.remisionesTexto}</pre>

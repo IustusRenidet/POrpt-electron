@@ -38,7 +38,12 @@ function createCsv(summary = {}, options = {}) {
       if (includeFacturas) {
         commentParts.push(`Fac: ${formatCurrency(item.totalFac || item.totals?.totalFac || 0)}`);
       }
+      const subtotal = Number(item.subtotal ?? 0);
+      const total = Number(item.total ?? 0);
       if (includeTotals) {
+        if (subtotal > 0 && Math.abs(subtotal - total) > 0.009) {
+          commentParts.push(`Sub: ${formatCurrency(subtotal)}`);
+        }
         const restante = item.restante ?? item.totals?.restante ?? 0;
         commentParts.push(`Rest: ${formatCurrency(restante)}`);
       }
