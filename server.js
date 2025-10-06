@@ -619,7 +619,7 @@ app.get('/report-settings', async (req, res) => {
         id: 'simple-pdf',
         label: 'PDF directo',
         description: 'Genera un PDF resumido sin depender de Jasper.',
-        available: true
+        available: simplePdf.isAvailable()
       }
     ];
     res.json({
@@ -680,7 +680,7 @@ app.put('/report-settings', async (req, res) => {
         id: 'simple-pdf',
         label: 'PDF directo',
         description: 'Genera un PDF resumido sin depender de Jasper.',
-        available: true
+        available: simplePdf.isAvailable()
       }
     ];
 
@@ -702,6 +702,12 @@ app.post('/report', async (req, res) => {
     const engine = ALLOWED_ENGINES.includes(requestedEngine) ? requestedEngine : settings.defaultEngine;
 
     if (engine === 'simple-pdf') {
+      if (!simplePdf.isAvailable()) {
+        return res.status(503).json({
+          success: false,
+          message: simplePdf.getUnavailableMessage()
+        });
+      }
       const buffer = await simplePdf.generate(summary);
       res.set('Content-Type', 'application/pdf');
       res.set('Content-Disposition', `attachment; filename=${summary.baseId || 'reporte'}.pdf`);

@@ -1,4 +1,32 @@
-const PDFDocument = require('pdfkit');
+let PDFDocument;
+let pdfkitLoadError = null;
+
+try {
+  PDFDocument = require('pdfkit');
+  console.log('✓ pdfkit cargado correctamente');
+} catch (err) {
+  pdfkitLoadError = err;
+  console.error('✗ Error cargando pdfkit:', err.message);
+  console.error('El motor "PDF directo" requiere la dependencia opcional "pdfkit".');
+  console.error('Ejecuta "npm install" para instalar las dependencias del proyecto.');
+  console.error('Si estás en Windows y no necesitas JasperReports puedes usar "npm install --omit=optional".\n');
+}
+
+const PDF_UNAVAILABLE_MESSAGE =
+  'El motor "PDF directo" no está disponible porque la dependencia opcional "pdfkit" no se pudo cargar. ' +
+  'Ejecuta "npm install" (o "npm install --omit=optional" si deseas omitir JasperReports) y vuelve a iniciar la aplicación.';
+
+function ensurePdfkitAvailable() {
+  if (PDFDocument) {
+    return true;
+  }
+  const error = new Error(PDF_UNAVAILABLE_MESSAGE);
+  error.code = 'PDFKIT_NOT_INSTALLED';
+  if (pdfkitLoadError) {
+    error.cause = pdfkitLoadError;
+  }
+  throw error;
+}
 
 function formatCurrency(value) {
   const amount = Number(value || 0);
@@ -77,6 +105,8 @@ function renderTotals(doc, totals = {}) {
 }
 
 async function generate(summary) {
+  ensurePdfkitAvailable();
+
   return await new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ size: 'A4', margin: 40 });
@@ -102,5 +132,12 @@ async function generate(summary) {
 }
 
 module.exports = {
-  generate
+  generate,
+  isAvailable: () => Boolean(PDFDocument),
+  getUnavailableMessage: () => {
+    if (pdfkitLoadError) {
+      return `${PDF_UNAVAILABLE_MESSAGE} Detalle técnico: ${pdfkitLoadError.message}`;
+    }
+    return PDF_UNAVAILABLE_MESSAGE;
+  }
 };
