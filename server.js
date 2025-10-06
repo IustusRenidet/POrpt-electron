@@ -334,6 +334,7 @@ function getCompanyTables(empresa) {
     PAR_FACTR: `PAR_FACTR${num}`,
     FACTF: `FACTF${num}`,
     PAR_FACTF: `PAR_FACTF${num}`,
+    DOCTOSIG: `DOCTOSIG${num}`,
     CLIE: `CLIE${num}`
   };
 }
@@ -504,6 +505,83 @@ function uniqueBasePoIds(ids = []) {
   return Array.from(seen);
 }
 
+function normalizeDocKey(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().toUpperCase();
+}
+
+function createLinkCollection() {
+  return { keys: new Set(), values: new Set() };
+}
+
+function addDocumentToCollection(collection, docId) {
+  if (!collection) return;
+  const normalized = normalizeDocKey(docId);
+  if (!normalized) return;
+  collection.keys.add(normalized);
+  const trimmed = typeof docId === 'string' ? docId.trim() : '';
+  if (trimmed) {
+    collection.values.add(trimmed);
+  }
+}
+
+function createEmptyLinkEntry() {
+  return {
+    remisiones: createLinkCollection(),
+    facturas: createLinkCollection(),
+    notasVenta: createLinkCollection(),
+    cotizacionesPosteriores: createLinkCollection(),
+    cotizacionesOrigen: createLinkCollection()
+  };
+}
+
+function buildPoLinkMap(poIds = [], docRows = []) {
+  const map = {};
+  poIds.forEach(id => {
+    const key = normalizeDocKey(id);
+    if (!key) return;
+    map[key] = createEmptyLinkEntry();
+  });
+  docRows.forEach(row => {
+    const tipDocSigRaw = row?.TIP_DOC_SIG ?? row?.tip_doc_sig;
+    const tipDocAntRaw = row?.TIP_DOC_ANT ?? row?.tip_doc_ant;
+    const docSigRaw = row?.DOC_SIG ?? row?.doc_sig;
+    const docAntRaw = row?.DOC_ANT ?? row?.doc_ant;
+    const tipDocSig = typeof tipDocSigRaw === 'string' ? tipDocSigRaw.trim().toUpperCase() : '';
+    const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+    const docSig = normalizePoId(docSigRaw);
+    const docAnt = normalizePoId(docAntRaw);
+    const docSigKey = normalizeDocKey(docSigRaw);
+    const docAntKey = normalizeDocKey(docAntRaw);
+
+    const antEntry = map[docAntKey];
+    if (antEntry) {
+      switch (tipDocSig) {
+        case 'R':
+          addDocumentToCollection(antEntry.remisiones, docSig);
+          break;
+        case 'F':
+          addDocumentToCollection(antEntry.facturas, docSig);
+          break;
+        case 'V':
+          addDocumentToCollection(antEntry.notasVenta, docSig);
+          break;
+        case 'C':
+          addDocumentToCollection(antEntry.cotizacionesPosteriores, docSig);
+          break;
+        default:
+          break;
+      }
+    }
+
+    const sigEntry = map[docSigKey];
+    if (sigEntry && tipDocAnt === 'C') {
+      addDocumentToCollection(sigEntry.cotizacionesOrigen, docAnt);
+    }
+  });
+  return map;
+}
+
 async function getPoSummary(empresa, poId) {
   const targetPo = (poId || '').trim();
   if (!targetPo) {
@@ -559,6 +637,23 @@ async function getPoSummary(empresa, poId) {
       );
     }
 
+    const linkingAvailable = tables.DOCTOSIG ? await tableExists(db, tables.DOCTOSIG) : false;
+    const docLinkRows = linkingAvailable && poIds.length > 0
+      ? await queryWithTimeout(
+          db,
+          `SELECT
+             TRIM(d.TIP_DOC_SIG) AS TIP_DOC_SIG,
+             TRIM(d.DOC_SIG) AS DOC_SIG,
+             TRIM(d.TIP_DOC_ANT) AS TIP_DOC_ANT,
+             TRIM(d.DOC_ANT) AS DOC_ANT
+           FROM ${tables.DOCTOSIG} d
+           WHERE TRIM(d.DOC_ANT) IN (${placeholders})
+              OR TRIM(d.DOC_SIG) IN (${placeholders})`,
+          [...poIds, ...poIds]
+        )
+      : [];
+    const docLinkMap = buildPoLinkMap(poIds, docLinkRows);
+
     const remisionesMap = remRows.reduce((acc, row) => {
       const key = (row.PO || row.po || '').trim();
       if (!acc[key]) acc[key] = [];
@@ -583,17 +678,34 @@ async function getPoSummary(empresa, poId) {
 
     const items = poRows.map(row => {
       const id = (row.ID || row.id || '').trim();
+      const key = normalizeDocKey(id);
+      const linkEntry = docLinkMap[key] || createEmptyLinkEntry();
       const fecha = formatFirebirdDate(row.FECHA || row.fecha);
       const total = Number(row.IMPORTE ?? row.importe ?? row.TOTAL ?? row.total ?? 0);
       const subtotal = Number(row.SUBTOTAL ?? row.subtotal ?? row.CAN_TOT ?? row.can_tot ?? 0);
-      const remisiones = (remisionesMap[id] || []).map(rem => ({
-        ...rem,
-        porcentaje: total > 0 ? (rem.monto / total) * 100 : 0
-      }));
-      const facturas = (facturasMap[id] || []).map(fac => ({
-        ...fac,
-        porcentaje: total > 0 ? (fac.monto / total) * 100 : 0
-      }));
+      const remisiones = (remisionesMap[id] || []).map(rem => {
+        const remId = (rem.id || '').trim();
+        const remKey = normalizeDocKey(remId);
+        const vinculado = linkingAvailable && linkEntry.remisiones.keys.has(remKey);
+        return {
+          ...rem,
+          porcentaje: total > 0 ? (rem.monto / total) * 100 : 0,
+          vinculado
+        };
+      });
+      const facturas = (facturasMap[id] || []).map(fac => {
+        const facId = (fac.id || '').trim();
+        const facKey = normalizeDocKey(facId);
+        const vinculado = linkingAvailable && linkEntry.facturas.keys.has(facKey);
+        return {
+          ...fac,
+          porcentaje: total > 0 ? (fac.monto / total) * 100 : 0,
+          vinculado
+        };
+      });
+      const notasVenta = Array.from(linkEntry.notasVenta.values).sort((a, b) => a.localeCompare(b, 'es-MX'));
+      const cotizacionesOrigen = Array.from(linkEntry.cotizacionesOrigen.values).sort((a, b) => a.localeCompare(b, 'es-MX'));
+      const cotizacionesPosteriores = Array.from(linkEntry.cotizacionesPosteriores.values).sort((a, b) => a.localeCompare(b, 'es-MX'));
       const totalRem = remisiones.reduce((sum, item) => sum + item.monto, 0);
       const totalFac = facturas.reduce((sum, item) => sum + item.monto, 0);
       const totals = calculateTotals(total, totalRem, totalFac);
@@ -601,16 +713,72 @@ async function getPoSummary(empresa, poId) {
       if (totals.totalConsumo >= total * 0.1 && total > 0) {
         alerts.push(buildAlert(`El consumo del PO ${id} ha alcanzado el ${(totals.totalConsumo / total * 100).toFixed(2)}%`, 'warning'));
       }
+      if (linkingAvailable) {
+        const remSinVinculo = remisiones.filter(rem => !rem.vinculado);
+        if (remSinVinculo.length > 0) {
+          alerts.push(
+            buildAlert(
+              `Remisiones sin vínculo DOCTOSIG: ${remSinVinculo.map(rem => rem.id).join(', ')}`,
+              'warning'
+            )
+          );
+        }
+        const facSinVinculo = facturas.filter(fac => !fac.vinculado);
+        if (facSinVinculo.length > 0) {
+          alerts.push(
+            buildAlert(
+              `Facturas sin vínculo DOCTOSIG: ${facSinVinculo.map(fac => fac.id).join(', ')}`,
+              'warning'
+            )
+          );
+        }
+      } else if ((remisiones.length > 0 || facturas.length > 0)) {
+        alerts.push(
+          buildAlert(
+            'No fue posible validar vínculos DOCTOSIG para este pedido (tabla no disponible).',
+            'info'
+          )
+        );
+      }
       const remisionesTexto = remisiones.length
         ? remisiones
-            .map(rem => `${rem.id} • ${formatFirebirdDate(rem.fecha)} • $${rem.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${rem.porcentaje.toFixed(2)}%)`)
+            .map(rem => {
+              const baseLinea = `${rem.id} • ${formatFirebirdDate(rem.fecha)} • $${rem.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${rem.porcentaje.toFixed(2)}%)`;
+              if (!linkingAvailable) {
+                return baseLinea;
+              }
+              return `${baseLinea} • ${rem.vinculado ? 'Vinculada en DOCTOSIG' : 'Sin vínculo en DOCTOSIG'}`;
+            })
             .join('\n')
         : 'Sin remisiones registradas';
       const facturasTexto = facturas.length
         ? facturas
-            .map(fac => `${fac.id} • ${formatFirebirdDate(fac.fecha)} • $${fac.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${fac.porcentaje.toFixed(2)}%)`)
+            .map(fac => {
+              const baseLinea = `${fac.id} • ${formatFirebirdDate(fac.fecha)} • $${fac.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${fac.porcentaje.toFixed(2)}%)`;
+              if (!linkingAvailable) {
+                return baseLinea;
+              }
+              return `${baseLinea} • ${fac.vinculado ? 'Vinculada en DOCTOSIG' : 'Sin vínculo en DOCTOSIG'}`;
+            })
             .join('\n')
         : 'Sin facturas registradas';
+      const notasVentaTexto = notasVenta.length
+        ? notasVenta.join('\n')
+        : linkingAvailable
+          ? 'Sin notas de venta vinculadas'
+          : 'Validación de notas de venta no disponible (tabla DOCTOSIG).';
+      const cotizacionesPartes = [];
+      if (cotizacionesOrigen.length > 0) {
+        cotizacionesPartes.push(`Cotización origen (TIP_DOC_ANT = C): ${cotizacionesOrigen.join(', ')}`);
+      }
+      if (cotizacionesPosteriores.length > 0) {
+        cotizacionesPartes.push(`Cotizaciones vinculadas al pedido: ${cotizacionesPosteriores.join(', ')}`);
+      }
+      const cotizacionesTexto = cotizacionesPartes.length
+        ? cotizacionesPartes.join('\n')
+        : linkingAvailable
+          ? 'Sin cotizaciones relacionadas'
+          : 'Validación de cotizaciones no disponible (tabla DOCTOSIG).';
       const alertasTexto = alerts.length
         ? alerts.map(alerta => `[${alerta.type.toUpperCase()}] ${alerta.message}`).join('\n')
         : 'Sin alertas';
@@ -624,6 +792,16 @@ async function getPoSummary(empresa, poId) {
         facturas,
         remisionesTexto,
         facturasTexto,
+        notasVenta,
+        notasVentaTexto,
+        cotizacionesOrigen,
+        cotizacionesPosteriores,
+        cotizacionesTexto,
+        linking: {
+          disponible: linkingAvailable,
+          remisionesSinVinculo: remisiones.filter(rem => !rem.vinculado).map(rem => rem.id),
+          facturasSinVinculo: facturas.filter(fac => !fac.vinculado).map(fac => fac.id)
+        },
         alertasTexto,
         totals,
         alerts
