@@ -28,45 +28,21 @@
         <div class="card-body pb-0">
           <ul class="nav nav-pills nav-fill nav-wizard" id="dashboardWizard" role="tablist">
             <li class="nav-item" role="presentation">
-              <button class="nav-link active" id="tab-select" data-bs-toggle="tab" data-bs-target="#panel-select" type="button" role="tab" aria-controls="panel-select" aria-selected="true">1. Selección</button>
+              <button class="nav-link active" id="tab-global" data-bs-toggle="tab" data-bs-target="#panel-global" type="button" role="tab" aria-controls="panel-global" aria-selected="true">1. Filtros globales</button>
             </li>
             <li class="nav-item" role="presentation">
-              <button class="nav-link" id="tab-customize" data-bs-toggle="tab" data-bs-target="#panel-customize" type="button" role="tab" aria-controls="panel-customize" aria-selected="false">2. Personaliza</button>
-            </li>
-            <li class="nav-item" role="presentation">
-              <button class="nav-link" id="tab-summary" data-bs-toggle="tab" data-bs-target="#panel-summary" type="button" role="tab" aria-controls="panel-summary" aria-selected="false">3. Revisa y descarga</button>
+              <button class="nav-link" id="tab-personal" data-bs-toggle="tab" data-bs-target="#panel-personal" type="button" role="tab" aria-controls="panel-personal" aria-selected="false">2. Selección personalizada</button>
             </li>
           </ul>
         </div>
         <div class="card-body">
           <div class="tab-content" id="dashboardWizardContent">
-            <div class="tab-pane fade show active" id="panel-select" role="tabpanel" aria-labelledby="tab-select">
-              <div class="row g-3">
-                <div class="col-lg-6">
-                  <label for="empresaSearch" class="form-label">Empresa (búsqueda dinámica)</label>
-                  <input id="empresaSearch" class="form-control" list="empresaOptions" placeholder="Escribe Empresa01, Empresa26...">
-                  <datalist id="empresaOptions"></datalist>
-                  <div class="form-text">Escribe para filtrar. Solo se listan coincidencias.</div>
-                </div>
-                <div class="col-lg-6">
-                  <label for="poSearch" class="form-label">PO / Pedido (con extensiones)</label>
-                  <input id="poSearch" class="form-control" list="poOptions" placeholder="Escribe el número de PO, fecha o monto">
-                  <datalist id="poOptions"></datalist>
-                  <div class="form-text">Cada coincidencia muestra número, fecha y monto para distinguir fácilmente.</div>
-                </div>
-                <div class="col-12">
-                  <label class="form-label">POs seleccionadas para el dashboard y el reporte</label>
-                  <div id="selectedPoContainer" class="selected-po-container">
-                    <p class="text-muted small mb-0">No hay POs seleccionadas. Utiliza el buscador para agregarlas.</p>
-                  </div>
-                  <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-                    <button id="clearSelectionBtn" class="btn btn-outline-secondary btn-sm" type="button">Limpiar selección</button>
-                    <small id="selectedPoHelp" class="text-muted">Puedes agregar varias POs base; el sistema combinará sus extensiones automáticamente.</small>
-                  </div>
-                </div>
+            <div class="tab-pane fade show active" id="panel-global" role="tabpanel" aria-labelledby="tab-global">
+              <div class="mb-4">
+                <h3 class="h5">Configura el alcance global</h3>
+                <p class="text-muted mb-0">Define el filtro del universo antes de elegir pedidos específicos. Puedes volver a este paso en cualquier momento.</p>
               </div>
-
-              <div class="card border-success-subtle shadow-sm mt-4" id="universeControls">
+              <div class="card border-success-subtle shadow-sm" id="universeControls">
                 <div class="card-body">
                   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
                     <div>
@@ -115,10 +91,44 @@
                   <small class="text-muted d-block mt-3">El reporte universo usa el motor PDF directo o CSV personalizable y no requiere seleccionar POs base.</small>
                 </div>
               </div>
+              <div class="d-flex justify-content-end mt-4">
+                <button class="btn btn-primary" type="button" data-wizard-action="next">Continuar con selección personalizada</button>
+              </div>
             </div>
-
-            <div class="tab-pane fade" id="panel-customize" role="tabpanel" aria-labelledby="tab-customize">
-              <div class="row g-4">
+            <div class="tab-pane fade" id="panel-personal" role="tabpanel" aria-labelledby="tab-personal">
+              <div class="mb-4">
+                <h3 class="h5">Selecciona pedidos base y personaliza el reporte</h3>
+                <p class="text-muted mb-0">Agrega las POs que deseas analizar, ajusta el formato y revisa el resumen antes de descargar.</p>
+              </div>
+              <div class="card shadow-sm border-0 mb-4">
+                <div class="card-body">
+                  <div class="row g-3">
+                    <div class="col-lg-6">
+                      <label for="empresaSearch" class="form-label">Empresa (búsqueda dinámica)</label>
+                      <input id="empresaSearch" class="form-control" list="empresaOptions" placeholder="Escribe Empresa01, Empresa26...">
+                      <datalist id="empresaOptions"></datalist>
+                      <div class="form-text">Escribe para filtrar. Solo se listan coincidencias.</div>
+                    </div>
+                    <div class="col-lg-6">
+                      <label for="poSearch" class="form-label">PO / Pedido (con extensiones)</label>
+                      <input id="poSearch" class="form-control" list="poOptions" placeholder="Escribe el número de PO, fecha o monto">
+                      <datalist id="poOptions"></datalist>
+                      <div class="form-text">Cada coincidencia muestra número, fecha y monto para distinguir fácilmente.</div>
+                    </div>
+                    <div class="col-12">
+                      <label class="form-label">POs seleccionadas para el dashboard y el reporte</label>
+                      <div id="selectedPoContainer" class="selected-po-container">
+                        <p class="text-muted small mb-0">No hay POs seleccionadas. Utiliza el buscador para agregarlas.</p>
+                      </div>
+                      <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                        <button id="clearSelectionBtn" class="btn btn-outline-secondary btn-sm" type="button">Limpiar selección</button>
+                        <small id="selectedPoHelp" class="text-muted">Puedes agregar varias POs base; el sistema combinará sus extensiones automáticamente.</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="row g-4 mb-4">
                 <div class="col-lg-6">
                   <div class="card shadow-sm h-100">
                     <div class="card-body">
@@ -204,9 +214,6 @@
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div class="tab-pane fade" id="panel-summary" role="tabpanel" aria-labelledby="tab-summary">
               <div class="card shadow-sm border-primary-subtle mb-4">
                 <div class="card-body">
                   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
@@ -239,40 +246,44 @@
                   </div>
                 </div>
               </div>
-
-              <div id="dashboardContent" class="d-none">
-                <div id="summaryCards" class="row g-3 mb-4"></div>
-                <div class="row g-3 mb-4">
-                  <div class="col-md-4">
-                    <div class="card shadow-sm h-100">
-                      <div class="card-header bg-primary text-white">Remisiones por PO</div>
-                      <div class="card-body"><canvas id="chartRem" height="220"></canvas></div>
-                    </div>
-                  </div>
-                  <div class="col-md-4">
-                    <div class="card shadow-sm h-100">
-                      <div class="card-header bg-warning text-dark">Facturas por PO</div>
-                      <div class="card-body"><canvas id="chartFac" height="220"></canvas></div>
-                    </div>
-                  </div>
-                  <div class="col-md-4">
-                    <div class="card shadow-sm h-100">
-                      <div class="card-header bg-success text-white">Consumo vs Disponible (%)</div>
-                      <div class="card-body"><canvas id="chartJunto" height="220"></canvas></div>
-                    </div>
-                  </div>
-                </div>
-
-                <h3 class="h5 mb-3">Extensiones y consumo específico</h3>
-                <div id="extensionsContainer" class="row g-3 mb-4"></div>
-
-                <h3 class="h5 mb-2">Detalle de POs seleccionadas</h3>
-                <div class="table-responsive">
-                  <table id="poTable" class="table table-hover align-middle"></table>
-                </div>
+              <div class="d-flex justify-content-between align-items-center">
+                <button class="btn btn-outline-secondary" type="button" data-wizard-action="prev">Volver a filtros globales</button>
+                <span class="text-muted small">El tablero inferior refleja tu selección en tiempo real.</span>
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div id="dashboardContent" class="d-none mt-4">
+        <div id="summaryCards" class="row g-3 mb-4"></div>
+        <div class="row g-3 mb-4">
+          <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+              <div class="card-header bg-primary text-white">Remisiones por PO</div>
+              <div class="card-body"><canvas id="chartRem" height="220"></canvas></div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+              <div class="card-header bg-warning text-dark">Facturas por PO</div>
+              <div class="card-body"><canvas id="chartFac" height="220"></canvas></div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+              <div class="card-header bg-success text-white">Consumo vs Disponible (%)</div>
+              <div class="card-body"><canvas id="chartJunto" height="220"></canvas></div>
+            </div>
+          </div>
+        </div>
+
+        <h3 class="h5 mb-3">Extensiones y consumo específico</h3>
+        <div id="extensionsContainer" class="row g-3 mb-4"></div>
+
+        <h3 class="h5 mb-2">Detalle de POs seleccionadas</h3>
+        <div class="table-responsive">
+          <table id="poTable" class="table table-hover align-middle"></table>
         </div>
       </div>
     </section>
