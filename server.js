@@ -341,6 +341,88 @@ function calculateTotals(total, totalRem, totalFac) {
   };
 }
 
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/u;
+
+function normalizeUniverseFilter(filter = {}) {
+  const rawMode = (filter.mode || '').toString().toLowerCase();
+  const parseDate = value => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return DATE_REGEX.test(trimmed) ? trimmed : null;
+  };
+
+  let mode;
+  if (['range', 'rango', 'intervalo'].includes(rawMode)) {
+    mode = 'range';
+  } else if (['single', 'unit', 'unitario', 'día', 'dia', 'unico', 'único'].includes(rawMode)) {
+    mode = 'single';
+  } else {
+    mode = 'global';
+  }
+
+  if (mode === 'range') {
+    const start = parseDate(filter.startDate ?? filter.start ?? filter.from);
+    const end = parseDate(filter.endDate ?? filter.end ?? filter.to);
+    if (!start || !end) {
+      throw new Error('Proporciona fechas de inicio y fin válidas (AAAA-MM-DD) para el filtro por rango.');
+    }
+    if (start > end) {
+      throw new Error('La fecha inicial no puede ser posterior a la fecha final.');
+    }
+    return {
+      mode,
+      startDate: start,
+      endDate: end,
+      label: `Del ${start} al ${end}`,
+      shortLabel: `${start}_a_${end}`,
+      description: 'Periodo específico del universo de POs.',
+      title: 'Reporte del universo por rango',
+      isUniverse: true
+    };
+  }
+
+  if (mode === 'single') {
+    const date = parseDate(filter.date ?? filter.startDate ?? filter.endDate);
+    if (!date) {
+      throw new Error('Proporciona una fecha válida (AAAA-MM-DD) para el filtro unitario.');
+    }
+    return {
+      mode,
+      startDate: date,
+      endDate: date,
+      label: `Fecha ${date}`,
+      shortLabel: date,
+      description: 'Concentrado del universo para un solo día.',
+      title: 'Reporte del universo (1 día)',
+      isUniverse: true
+    };
+  }
+
+  return {
+    mode: 'global',
+    startDate: null,
+    endDate: null,
+    label: 'Global (todas las fechas)',
+    shortLabel: 'global',
+    description: 'Incluye todo el historial disponible en la empresa seleccionada.',
+    title: 'Reporte del universo global',
+    isUniverse: true
+  };
+}
+
+function buildDateFilterClause(field, filter) {
+  if (!filter || filter.mode === 'global') {
+    return { clause: '', params: [] };
+  }
+  if (filter.mode === 'range') {
+    return { clause: ` AND ${field} BETWEEN ? AND ?`, params: [filter.startDate, filter.endDate] };
+  }
+  if (filter.mode === 'single') {
+    return { clause: ` AND ${field} = ?`, params: [filter.startDate] };
+  }
+  return { clause: '', params: [] };
+}
+
 function extractEmpresaNumero(empresa) {
   if (typeof empresa !== 'string') return '';
   const match = empresa.match(/(\d+)/u);
@@ -596,6 +678,86 @@ async function getPoSummaryGroup(empresa, poIds) {
   };
 }
 
+async function getUniverseSummary(empresa, rawFilter) {
+  const filter = normalizeUniverseFilter(rawFilter);
+  return await withFirebirdConnection(empresa, async (db, tables) => {
+    const { clause: poClause, params: poParams } = buildDateFilterClause('f.FECHA_DOC', filter);
+    const totalRows = await queryWithTimeout(
+      db,
+      `SELECT COALESCE(SUM(p.TOT_PARTIDA), 0) AS total
+       FROM ${tables.FACTP} f
+       LEFT JOIN ${tables.PAR_FACTP} p ON f.CVE_DOC = p.CVE_DOC
+       WHERE f.STATUS <> 'C'${poClause}`,
+      poParams
+    );
+    const total = Number(totalRows[0]?.TOTAL ?? totalRows[0]?.total ?? 0);
+
+    const { clause: remClause, params: remParams } = buildDateFilterClause('r.FECHA_DOC', filter);
+    const remRows = await queryWithTimeout(
+      db,
+      `SELECT COALESCE(SUM(pr.TOT_PARTIDA), 0) AS total
+       FROM ${tables.FACTR} r
+       LEFT JOIN ${tables.PAR_FACTR} pr ON r.CVE_DOC = pr.CVE_DOC
+       WHERE r.STATUS <> 'C'${remClause}`,
+      remParams
+    );
+    const totalRem = Number(remRows[0]?.TOTAL ?? remRows[0]?.total ?? 0);
+
+    const { clause: facClause, params: facParams } = buildDateFilterClause('f.FECHA_DOC', filter);
+    const facRows = await queryWithTimeout(
+      db,
+      `SELECT COALESCE(SUM(pf.TOT_PARTIDA), 0) AS total
+       FROM ${tables.FACTF} f
+       LEFT JOIN ${tables.PAR_FACTF} pf ON f.CVE_DOC = pf.CVE_DOC
+       WHERE f.STATUS <> 'C'${facClause}`,
+      facParams
+    );
+    const totalFac = Number(facRows[0]?.TOTAL ?? facRows[0]?.total ?? 0);
+
+    const totals = calculateTotals(total, totalRem, totalFac);
+    const totalsTexto =
+      `Total universo: $${totals.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n` +
+      `Remisiones: $${totals.totalRem.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRem.toFixed(2)}%)\n` +
+      `Facturas: $${totals.totalFac.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcFac.toFixed(2)}%)\n` +
+      `Restante: $${totals.restante.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRest.toFixed(2)}%)`;
+
+    const alerts = [];
+    if (totals.total === 0) {
+      alerts.push(buildAlert('No se encontraron POs activas con el filtro seleccionado.', 'info'));
+    } else if (totals.totalConsumo >= totals.total * 0.1) {
+      alerts.push(
+        buildAlert(
+          `El consumo del universo supera el 10% (${((totals.totalConsumo / totals.total) * 100).toFixed(2)}%)`,
+          'warning'
+        )
+      );
+    }
+
+    const alertasTexto = alerts.length
+      ? alerts.map(alerta => `[${(alerta.type || 'info').toUpperCase()}] ${alerta.message}`).join('\n')
+      : 'Sin alertas generales';
+
+    const empresaLabel = buildEmpresaLabel(empresa);
+
+    return {
+      empresa,
+      empresaNumero: extractEmpresaNumero(empresa),
+      empresaLabel,
+      companyName: empresaLabel,
+      baseId: null,
+      selectedId: `Universo - ${filter.label}`,
+      selectedIds: ['UNIVERSO'],
+      selectedTargets: [],
+      totals,
+      totalsTexto,
+      items: [],
+      alerts,
+      alertasTexto,
+      universe: filter
+    };
+  });
+}
+
 async function tableExists(db, tableName) {
   try {
     const rows = await queryWithTimeout(
@@ -765,7 +927,7 @@ app.put('/report-settings', async (req, res) => {
 
     if (payload.branding) {
       const branding = {};
-      const stringKeys = ['headerTitle', 'headerSubtitle', 'footerText', 'letterheadTop', 'letterheadBottom', 'remColor', 'facColor', 'restanteColor', 'accentColor'];
+      const stringKeys = ['headerTitle', 'headerSubtitle', 'companyName', 'footerText', 'letterheadTop', 'letterheadBottom', 'remColor', 'facColor', 'restanteColor', 'accentColor'];
       stringKeys.forEach(key => {
         if (payload.branding[key] !== undefined) {
           branding[key] = payload.branding[key];
@@ -806,6 +968,33 @@ app.put('/report-settings', async (req, res) => {
   }
 });
 
+app.post('/report-universe', async (req, res) => {
+  const { empresa, filter } = req.body || {};
+  if (!empresa || !empresa.match(/^Empresa\d+$/)) {
+    return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
+  }
+  try {
+    const summary = await getUniverseSummary(empresa, filter || {});
+    const settings = reportSettingsStore.getSettings();
+    if (settings.branding?.companyName) {
+      summary.companyName = settings.branding.companyName;
+    }
+    if (!simplePdf.isAvailable()) {
+      return res.status(503).json({ success: false, message: simplePdf.getUnavailableMessage() });
+    }
+    const buffer = await simplePdf.generate(summary, settings.branding || {});
+    res.set('Content-Type', 'application/pdf');
+    const rawLabel = summary.universe?.shortLabel || 'global';
+    const sanitized = rawLabel.replace(/[^0-9a-zA-Z_-]+/gu, '-');
+    const filenameBase = `universo_${sanitized}`;
+    res.set('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
+    res.send(buffer);
+  } catch (err) {
+    const status = err.message && err.message.includes('Proporciona') ? 400 : 500;
+    res.status(status).json({ success: false, message: 'Error generando reporte universo: ' + err.message });
+  }
+});
+
 app.post('/report', async (req, res) => {
   const { empresa, poId, poIds, engine: requestedEngine } = req.body || {};
   const ids = Array.isArray(poIds) && poIds.length ? poIds : poId ? [poId] : [];
@@ -815,6 +1004,9 @@ app.post('/report', async (req, res) => {
   try {
     const summary = await getPoSummaryGroup(empresa, ids);
     const settings = reportSettingsStore.getSettings();
+    if (settings.branding?.companyName) {
+      summary.companyName = settings.branding.companyName;
+    }
     const engine = ALLOWED_ENGINES.includes(requestedEngine) ? requestedEngine : settings.defaultEngine;
 
     if (engine === 'simple-pdf') {

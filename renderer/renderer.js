@@ -9,7 +9,10 @@ const state = {
   reportSettings: null,
   reportEngines: [],
   selectedEngine: '',
-  editingUserId: null
+  editingUserId: null,
+  universeFilterMode: 'global',
+  universeStartDate: '',
+  universeEndDate: ''
 };
 
 const ALERT_TYPE_CLASS = {
@@ -285,6 +288,7 @@ async function selectEmpresa(value) {
   document.getElementById('dashboardContent').classList.add('d-none');
   destroyCharts();
   renderSelectedPoChips();
+  updateUniverseControls();
   await loadPOs();
 }
 
@@ -609,6 +613,139 @@ async function generateReport() {
   }
 }
 
+function getUniverseFilterLabel(mode, start, end) {
+  if (mode === 'range') {
+    return `Del ${start} al ${end}`;
+  }
+  if (mode === 'single') {
+    return `Fecha ${start}`;
+  }
+  return 'Global (todas las fechas)';
+}
+
+function updateUniverseFilterVisibility() {
+  const mode = state.universeFilterMode;
+  const startGroup = document.getElementById('universeStartDateGroup');
+  const endGroup = document.getElementById('universeEndDateGroup');
+  const startLabel = document.getElementById('universeStartDateLabel');
+  if (startGroup) {
+    startGroup.classList.toggle('d-none', mode === 'global');
+  }
+  if (endGroup) {
+    endGroup.classList.toggle('d-none', mode !== 'range');
+  }
+  if (startLabel) {
+    startLabel.textContent = mode === 'single' ? 'Fecha específica' : 'Fecha inicial';
+  }
+  if (mode === 'global') {
+    state.universeStartDate = '';
+    state.universeEndDate = '';
+    const startInput = document.getElementById('universeStartDate');
+    const endInput = document.getElementById('universeEndDate');
+    if (startInput) startInput.value = '';
+    if (endInput) endInput.value = '';
+  }
+}
+
+function updateUniverseControls() {
+  const button = document.getElementById('generateUniverseReportBtn');
+  if (button) {
+    button.disabled = !state.selectedEmpresa;
+  }
+  const empresaLabel = document.getElementById('universeSelectedEmpresa');
+  if (empresaLabel) {
+    empresaLabel.textContent = state.selectedEmpresa || 'Selecciona una empresa';
+  }
+  const companyLabel = document.getElementById('universeCompanyLabel');
+  if (companyLabel) {
+    companyLabel.textContent = state.reportSettings?.branding?.companyName || 'SITTEL';
+  }
+}
+
+function handleUniverseModeChange(mode) {
+  state.universeFilterMode = mode || 'global';
+  if (state.universeFilterMode !== 'range') {
+    state.universeEndDate = '';
+    const endInput = document.getElementById('universeEndDate');
+    if (endInput && state.universeFilterMode !== 'range') {
+      endInput.value = '';
+    }
+  }
+  updateUniverseFilterVisibility();
+}
+
+async function generateUniverseReport(event) {
+  event?.preventDefault();
+  if (!state.selectedEmpresa) {
+    showAlert('Selecciona primero una empresa para generar el reporte del universo.', 'warning');
+    return;
+  }
+  const mode = state.universeFilterMode;
+  const startInput = document.getElementById('universeStartDate');
+  const endInput = document.getElementById('universeEndDate');
+  const startDate = startInput?.value || state.universeStartDate || '';
+  const endDate = endInput?.value || state.universeEndDate || '';
+  state.universeStartDate = startDate;
+  state.universeEndDate = endDate;
+
+  const payload = { empresa: state.selectedEmpresa, filter: { mode } };
+  if (mode === 'range') {
+    if (!startDate || !endDate) {
+      showAlert('Selecciona las fechas de inicio y fin para el rango.', 'warning');
+      return;
+    }
+    if (startDate > endDate) {
+      showAlert('La fecha inicial no puede ser posterior a la fecha final.', 'warning');
+      return;
+    }
+    payload.filter.startDate = startDate;
+    payload.filter.endDate = endDate;
+  } else if (mode === 'single') {
+    if (!startDate) {
+      showAlert('Selecciona la fecha específica para el reporte unitario.', 'warning');
+      return;
+    }
+    payload.filter.startDate = startDate;
+  }
+
+  const button = document.getElementById('generateUniverseReportBtn');
+  if (button) {
+    button.disabled = true;
+  }
+  try {
+    const response = await fetch('/report-universe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Error generando reporte' }));
+      throw new Error(error.message || 'Error generando reporte');
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const suffix = mode === 'range'
+      ? `${startDate}_a_${endDate}`
+      : mode === 'single'
+        ? startDate
+        : 'global';
+    link.download = `POrpt_universo_${suffix || 'global'}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
+    const label = getUniverseFilterLabel(mode, startDate || '-', endDate || '-');
+    showAlert(`Reporte universo (${label}) generado correctamente.`, 'success');
+  } catch (error) {
+    console.error('Error generando reporte universo:', error);
+    showAlert(error.message || 'No se pudo generar el reporte del universo.', 'danger');
+  } finally {
+    if (button) {
+      button.disabled = !state.selectedEmpresa;
+    }
+  }
+}
+
 function updateReportEngineStatus() {
   const badge = document.getElementById('reportEngineStatus');
   if (!badge) return;
@@ -767,6 +904,7 @@ function renderReportSettingsForm() {
   const brandingMappings = [
     ['brandingHeaderTitle', branding.headerTitle || ''],
     ['brandingHeaderSubtitle', branding.headerSubtitle || ''],
+    ['brandingCompanyName', branding.companyName || ''],
     ['brandingFooterText', branding.footerText || ''],
     ['brandingLetterheadTop', branding.letterheadTop || ''],
     ['brandingLetterheadBottom', branding.letterheadBottom || ''],
@@ -803,6 +941,7 @@ async function loadReportSettings(options = {}) {
       state.selectedEngine = state.reportSettings?.defaultEngine || state.reportEngines[0]?.id;
     }
     renderReportEngineSelector();
+    updateUniverseControls();
     if (requireAdmin) {
       renderReportSettingsForm();
     }
@@ -1087,6 +1226,7 @@ async function handleReportSettingsSubmit(event) {
     branding: {
       headerTitle: getInputValue('brandingHeaderTitle'),
       headerSubtitle: getInputValue('brandingHeaderSubtitle'),
+      companyName: getInputValue('brandingCompanyName'),
       footerText: getInputValue('brandingFooterText'),
       letterheadEnabled: document.getElementById('brandingLetterheadEnabled')?.checked ?? false,
       letterheadTop: getInputValue('brandingLetterheadTop'),
@@ -1174,6 +1314,21 @@ async function setupDashboard() {
   if (adminLink && !isAdmin()) {
     adminLink.classList.add('d-none');
   }
+  const reportSettingsLink = document.getElementById('reportSettingsLink');
+  if (reportSettingsLink && !isAdmin()) {
+    reportSettingsLink.classList.add('d-none');
+  }
+  const universeMode = document.getElementById('universeFilterMode');
+  universeMode?.addEventListener('change', event => handleUniverseModeChange(event.target.value));
+  document.getElementById('universeStartDate')?.addEventListener('change', event => {
+    state.universeStartDate = event.target.value;
+  });
+  document.getElementById('universeEndDate')?.addEventListener('change', event => {
+    state.universeEndDate = event.target.value;
+  });
+  document.getElementById('generateUniverseReportBtn')?.addEventListener('click', generateUniverseReport);
+  handleUniverseModeChange(state.universeFilterMode);
+  updateUniverseControls();
   const engineMenu = document.getElementById('reportEngineMenu');
   engineMenu?.addEventListener('click', event => {
     const button = event.target.closest('button[data-engine]');
@@ -1185,26 +1340,13 @@ async function setupDashboard() {
   showAlert('Selecciona empresa y PO para visualizar el tablero.', 'info', 9000);
 }
 
-async function setupAdmin() {
+async function setupReportSettings() {
   if (!isAdmin()) {
-    showAlert('Solo los administradores pueden acceder a esta sección.', 'danger');
+    showAlert('Solo los administradores pueden acceder a la configuración de reportes.', 'danger');
     window.location.href = 'dashboard.html';
     return;
   }
   await loadReportSettings({ requireAdmin: true });
-  await loadUsers();
-  document.getElementById('loadUsersBtn')?.addEventListener('click', loadUsers);
-  document.getElementById('newUserBtn')?.addEventListener('click', () => openUserModal());
-  const table = document.getElementById('usersTable');
-  table?.addEventListener('click', handleUsersTableClick);
-  const userForm = document.getElementById('userForm');
-  userForm?.addEventListener('submit', handleUserFormSubmit);
-  document.getElementById('userAllCompanies')?.addEventListener('change', event => {
-    setCompaniesFieldDisabled(event.target.checked);
-  });
-  ['userUsername', 'userPassword', 'userPasswordConfirm', 'userCompanies'].forEach(id => {
-    document.getElementById(id)?.addEventListener('input', event => event.target.classList.remove('is-invalid'));
-  });
   document.getElementById('reportSettingsForm')?.addEventListener('submit', handleReportSettingsSubmit);
   document.getElementById('jasperEnabled')?.addEventListener('change', event => {
     const enabled = event.target.checked;
@@ -1218,7 +1360,29 @@ async function setupAdmin() {
   document.getElementById('brandingLetterheadEnabled')?.addEventListener('change', event => {
     toggleBrandingLetterheadFields(!event.target.checked);
   });
-  showAlert('Desde aquí administra usuarios y configuraciones de reportes.', 'info', 7000);
+  showAlert('Actualiza los motores de reporte y la identidad visual desde este panel.', 'info', 7000);
+}
+
+async function setupAdmin() {
+  if (!isAdmin()) {
+    showAlert('Solo los administradores pueden acceder a esta sección.', 'danger');
+    window.location.href = 'dashboard.html';
+    return;
+  }
+  await loadUsers();
+  document.getElementById('loadUsersBtn')?.addEventListener('click', loadUsers);
+  document.getElementById('newUserBtn')?.addEventListener('click', () => openUserModal());
+  const table = document.getElementById('usersTable');
+  table?.addEventListener('click', handleUsersTableClick);
+  const userForm = document.getElementById('userForm');
+  userForm?.addEventListener('submit', handleUserFormSubmit);
+  document.getElementById('userAllCompanies')?.addEventListener('change', event => {
+    setCompaniesFieldDisabled(event.target.checked);
+  });
+  ['userUsername', 'userPassword', 'userPasswordConfirm', 'userCompanies'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', event => event.target.classList.remove('is-invalid'));
+  });
+  showAlert('Desde aquí administra usuarios. Usa el botón “Configuración de reportes” para ajustar los formatos.', 'info', 7000);
 }
 
 function init() {
@@ -1229,6 +1393,8 @@ function init() {
     setupDashboard();
   } else if (path.endsWith('admin.html')) {
     setupAdmin();
+  } else if (path.endsWith('report-settings.html')) {
+    setupReportSettings();
   }
 }
 

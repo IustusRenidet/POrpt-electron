@@ -12,14 +12,15 @@
     <div class="container">
       <a class="navbar-brand fw-bold" href="dashboard.html">POrpt</a>
       <div class="d-flex gap-2">
-        <button class="btn btn-outline-light" onclick="logout()">Cerrar sesión</button>
+        <a id="reportSettingsLink" class="btn btn-outline-light" href="report-settings.html">Configuración de reportes</a>
+        <button class="btn btn-warning" onclick="logout()">Cerrar sesión</button>
       </div>
     </div>
   </nav>
 
   <main class="container my-4">
-    <div class="row g-4">
-      <div class="col-xl-7">
+    <div class="row justify-content-center">
+      <div class="col-xl-10">
         <div class="card shadow-sm h-100">
           <div class="card-header d-flex justify-content-between align-items-center bg-dark text-white">
             <div>
@@ -51,109 +52,6 @@
               <p class="mb-1 fw-semibold">No hay usuarios para mostrar</p>
               <p class="mb-0 small">Crea un nuevo usuario con el botón “Nuevo usuario”.</p>
             </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-xl-5">
-        <div class="card shadow-sm h-100">
-          <div class="card-header bg-body-tertiary">
-            <h2 class="h5 mb-0">Configuración de reportes</h2>
-          </div>
-          <div class="card-body">
-            <p class="text-muted">Selecciona el motor predeterminado y ajusta la configuración de Jasper.</p>
-            <form id="reportSettingsForm" class="vstack gap-3">
-              <div>
-                <label for="defaultReportEngine" class="form-label">Motor predeterminado</label>
-                <select id="defaultReportEngine" name="defaultEngine" class="form-select"></select>
-              </div>
-              <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="jasperEnabled">
-                <label class="form-check-label" for="jasperEnabled">Habilitar JasperReports</label>
-              </div>
-              <div class="row g-3">
-                <div class="col-12">
-                  <label for="jasperCompiledDir" class="form-label">Directorio compilados (.jasper)</label>
-                  <input type="text" id="jasperCompiledDir" class="form-control" placeholder="C:\\Program Files\\porpt\\compiled">
-                </div>
-                <div class="col-12">
-                  <label for="jasperTemplatesDir" class="form-label">Directorio plantillas (.jrxml)</label>
-                  <input type="text" id="jasperTemplatesDir" class="form-control" placeholder="C:\\Program Files\\porpt\\templates">
-                </div>
-                <div class="col-12">
-                  <label for="jasperFontsDir" class="form-label">Directorio de fuentes</label>
-                  <input type="text" id="jasperFontsDir" class="form-control" placeholder="C:\\Program Files\\porpt\\fonts">
-                </div>
-                <div class="col-md-6">
-                  <label for="jasperReportName" class="form-label">Reporte predeterminado</label>
-                  <input type="text" id="jasperReportName" class="form-control" placeholder="poSummary">
-                </div>
-                <div class="col-md-6">
-                  <label for="jasperDataSource" class="form-label">Datasource JSON</label>
-                  <input type="text" id="jasperDataSource" class="form-control" placeholder="poSummaryJson">
-                </div>
-                <div class="col-12">
-                  <label for="jasperJsonQuery" class="form-label">Consulta JSON</label>
-                  <input type="text" id="jasperJsonQuery" class="form-control" placeholder="summary.items">
-                </div>
-              </div>
-              <hr class="text-muted">
-              <div class="vstack gap-3">
-                <div>
-                  <h3 class="h6 mb-1">Personalización visual del reporte PDF</h3>
-                  <p class="text-muted small mb-0">Define títulos, membretes y colores corporativos para los reportes generados desde POrpt.</p>
-                </div>
-                <div class="row g-3">
-                  <div class="col-md-6">
-                    <label for="brandingHeaderTitle" class="form-label">Título del encabezado</label>
-                    <input type="text" id="brandingHeaderTitle" class="form-control" placeholder="Reporte de PEOs - Consumo">
-                  </div>
-                  <div class="col-md-6">
-                    <label for="brandingHeaderSubtitle" class="form-label">Subtítulo / descripción</label>
-                    <input type="text" id="brandingHeaderSubtitle" class="form-control" placeholder="Consumo actualizado del pedido">
-                  </div>
-                  <div class="col-12">
-                    <label for="brandingFooterText" class="form-label">Texto de pie de página</label>
-                    <input type="text" id="brandingFooterText" class="form-control" placeholder="PEOrpt • Aspel SAE 9">
-                  </div>
-                  <div class="col-12">
-                    <div class="form-check form-switch">
-                      <input class="form-check-input" type="checkbox" role="switch" id="brandingLetterheadEnabled">
-                      <label class="form-check-label" for="brandingLetterheadEnabled">Usar membretes personalizados (imágenes superior e inferior)</label>
-                    </div>
-                  </div>
-                  <div class="col-md-6">
-                    <label for="brandingLetterheadTop" class="form-label">Ruta membrete superior</label>
-                    <input type="text" id="brandingLetterheadTop" class="form-control" placeholder="C:\\reportes\\membrete-superior.png">
-                    <div class="form-text">Opcional. Debe ser un archivo accesible desde el servidor.</div>
-                  </div>
-                  <div class="col-md-6">
-                    <label for="brandingLetterheadBottom" class="form-label">Ruta membrete inferior</label>
-                    <input type="text" id="brandingLetterheadBottom" class="form-control" placeholder="C:\\reportes\\membrete-inferior.png">
-                  </div>
-                  <div class="col-md-3">
-                    <label for="brandingRemColor" class="form-label">Color remisiones</label>
-                    <input type="color" id="brandingRemColor" class="form-control form-control-color" value="#2563eb" title="Color remisiones">
-                  </div>
-                  <div class="col-md-3">
-                    <label for="brandingFacColor" class="form-label">Color facturas</label>
-                    <input type="color" id="brandingFacColor" class="form-control form-control-color" value="#dc2626" title="Color facturas">
-                  </div>
-                  <div class="col-md-3">
-                    <label for="brandingRestanteColor" class="form-label">Color restante</label>
-                    <input type="color" id="brandingRestanteColor" class="form-control form-control-color" value="#16a34a" title="Color restante">
-                  </div>
-                  <div class="col-md-3">
-                    <label for="brandingAccentColor" class="form-label">Color de acentos</label>
-                    <input type="color" id="brandingAccentColor" class="form-control form-control-color" value="#1f2937" title="Color de textos">
-                  </div>
-                </div>
-              </div>
-              <div class="d-flex align-items-center justify-content-between gap-3">
-                <span id="jasperStatusBadge" class="badge text-bg-secondary">Sin verificar</span>
-                <button type="submit" class="btn btn-success">Guardar configuración</button>
-              </div>
-              <small class="text-muted">Los cambios se guardan en <code>reports/report-settings.json</code>.</small>
-            </form>
           </div>
         </div>
       </div>
