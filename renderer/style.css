@@ -33,3 +33,42 @@ canvas {
 .btn-outline-danger {
   min-width: 90px;
 }
+
+.avatar-initial {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #2563eb 0%, #4338ca 100%);
+}
+
+.table-hover tbody tr td .badge {
+  font-weight: 500;
+}
+
+.dropdown-menu .dropdown-item small {
+  display: block;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+#reportEngineHelp {
+  min-width: 260px;
+}
+
+#usersEmptyState {
+  border: 1px dashed rgba(37, 99, 235, 0.2);
+  border-radius: 0.75rem;
+}
+
+.modal .form-text {
+  color: #6b7280;
+}
+
+.card-header.bg-dark {
+  background: linear-gradient(135deg, #1f2937 0%, #0f172a 100%) !important;
+}

@@ -4,7 +4,12 @@ const state = {
   selectedEmpresa: '',
   selectedPoId: '',
   charts: new Map(),
-  summary: null
+  summary: null,
+  users: [],
+  reportSettings: null,
+  reportEngines: [],
+  selectedEngine: '',
+  editingUserId: null
 };
 
 const ALERT_TYPE_CLASS = {
@@ -51,6 +56,35 @@ function readSession(key, defaultValue) {
   }
 }
 
+function isAdmin() {
+  return !!readSession('porpt-is-admin', false);
+}
+
+function adminFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (isAdmin()) {
+    headers.set('X-PORPT-ADMIN', 'true');
+  }
+  return fetch(url, { ...options, headers });
+}
+
+function getInputValue(id) {
+  const element = document.getElementById(id);
+  return element ? element.value.trim() : '';
+}
+
+function escapeHtml(value) {
+  if (typeof value !== 'string') {
+    return value ?? '';
+  }
+  return value
+    .replace(/&/gu, '&amp;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;')
+    .replace(/"/gu, '&quot;')
+    .replace(/'/gu, '&#39;');
+}
+
 function destroyCharts() {
   state.charts.forEach(chart => {
     if (chart && typeof chart.destroy === 'function') {
@@ -66,12 +100,32 @@ function formatCurrency(value) {
 
 async function login(event) {
   event?.preventDefault();
-  const username = document.getElementById('username').value.trim();
-  const password = document.getElementById('password').value;
-  if (!username || !password) {
-    showAlert('Ingresa usuario y contraseña.', 'warning');
+  const form = document.getElementById('loginForm');
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
+  const username = usernameInput?.value.trim();
+  const password = passwordInput?.value || '';
+
+  let isValid = true;
+  if (!username) {
+    usernameInput?.classList.add('is-invalid');
+    isValid = false;
+  } else {
+    usernameInput?.classList.remove('is-invalid');
+  }
+
+  if (!password) {
+    passwordInput?.classList.add('is-invalid');
+    isValid = false;
+  } else {
+    passwordInput?.classList.remove('is-invalid');
+  }
+
+  if (!isValid) {
+    form?.classList.add('was-validated');
     return;
   }
+
   try {
     const response = await fetch('/login', {
       method: 'POST',
@@ -424,10 +478,11 @@ async function generateReport() {
     return;
   }
   try {
+    const engine = state.selectedEngine || state.reportSettings?.defaultEngine || 'jasper';
     const response = await fetch('/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ empresa: state.selectedEmpresa, poId: state.selectedPoId })
+      body: JSON.stringify({ empresa: state.selectedEmpresa, poId: state.selectedPoId, engine })
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Error generando reporte' }));
@@ -440,81 +495,347 @@ async function generateReport() {
     link.download = `POrpt_${state.selectedPoId}.pdf`;
     link.click();
     URL.revokeObjectURL(url);
-    showAlert('Reporte Jasper generado correctamente.', 'success');
+    const selectedEngine = state.reportEngines.find(item => item.id === engine);
+    const engineLabel = selectedEngine ? selectedEngine.label : 'Reporte';
+    showAlert(`${engineLabel} generado correctamente.`, 'success');
   } catch (error) {
     console.error('Error generando reporte:', error);
     showAlert(error.message || 'No se pudo generar el reporte.', 'danger');
   }
 }
 
+function updateReportEngineStatus() {
+  const badge = document.getElementById('reportEngineStatus');
+  if (!badge) return;
+  const engineId = state.selectedEngine || state.reportSettings?.defaultEngine;
+  const engine = state.reportEngines.find(item => item.id === engineId);
+  if (!engine) {
+    badge.classList.add('d-none');
+    return;
+  }
+  let text = '';
+  let badgeClass = 'text-bg-secondary';
+  if (engine.id === 'jasper') {
+    if (state.reportSettings?.jasper?.enabled === false) {
+      text = 'Jasper deshabilitado';
+      badgeClass = 'text-bg-secondary';
+    } else if (state.reportSettings?.jasper?.available) {
+      text = 'Jasper listo';
+      badgeClass = 'text-bg-success';
+    } else {
+      text = 'Configura Jasper';
+      badgeClass = 'text-bg-warning text-dark';
+    }
+  } else {
+    text = 'PDF directo disponible';
+    badgeClass = 'text-bg-info text-dark';
+  }
+  badge.textContent = text;
+  badge.className = `badge ${badgeClass}`;
+  badge.classList.remove('d-none');
+}
+
+function renderReportEngineSelector() {
+  const menu = document.getElementById('reportEngineMenu');
+  const label = document.getElementById('reportEngineLabel');
+  if (!menu) return;
+
+  menu.innerHTML = '';
+  if (!Array.isArray(state.reportEngines) || state.reportEngines.length === 0) {
+    if (label) label.textContent = '-';
+    updateReportEngineStatus();
+    return;
+  }
+
+  if (!state.selectedEngine || !state.reportEngines.some(engine => engine.id === state.selectedEngine && engine.available)) {
+    const availableEngine = state.reportEngines.find(engine => engine.available);
+    state.selectedEngine = availableEngine?.id || state.reportSettings?.defaultEngine || state.reportEngines[0].id;
+  }
+
+  state.reportEngines.forEach(engine => {
+    const item = document.createElement('li');
+    item.innerHTML = `
+      <button type="button" class="dropdown-item ${state.selectedEngine === engine.id ? 'active' : ''}" data-engine="${engine.id}" ${engine.available ? '' : 'disabled'}>
+        ${engine.label}
+        <small>${engine.description}</small>
+      </button>
+    `;
+    menu.appendChild(item);
+  });
+
+  const activeEngine = state.reportEngines.find(engine => engine.id === state.selectedEngine);
+  if (label && activeEngine) {
+    label.textContent = activeEngine.label;
+  }
+  updateReportEngineStatus();
+}
+
+function setCompaniesFieldDisabled(disabled) {
+  const input = document.getElementById('userCompanies');
+  if (input) {
+    input.disabled = disabled;
+    if (disabled) {
+      input.classList.remove('is-invalid');
+    }
+  }
+}
+
+function updateJasperStatusBadge() {
+  const badge = document.getElementById('jasperStatusBadge');
+  if (!badge) return;
+  if (!state.reportSettings) {
+    badge.textContent = 'Sin datos';
+    badge.className = 'badge text-bg-secondary';
+    return;
+  }
+  const jasper = state.reportSettings.jasper || {};
+  if (jasper.enabled === false) {
+    badge.textContent = 'Jasper deshabilitado';
+    badge.className = 'badge text-bg-secondary';
+    return;
+  }
+  if (jasper.available) {
+    badge.textContent = 'Jasper listo';
+    badge.className = 'badge text-bg-success';
+  } else {
+    badge.textContent = 'Jasper requiere configuración';
+    badge.className = 'badge text-bg-warning text-dark';
+  }
+}
+
+function toggleJasperFields(disabled) {
+  ['jasperCompiledDir', 'jasperTemplatesDir', 'jasperFontsDir', 'jasperReportName', 'jasperDataSource', 'jasperJsonQuery']
+    .forEach(id => {
+      const input = document.getElementById(id);
+      if (input) {
+        input.disabled = disabled;
+        if (disabled) {
+          input.classList.remove('is-invalid');
+        }
+      }
+    });
+}
+
+function renderReportSettingsForm() {
+  const form = document.getElementById('reportSettingsForm');
+  if (!form || !state.reportSettings) return;
+  const select = document.getElementById('defaultReportEngine');
+  if (select) {
+    select.innerHTML = (state.reportEngines || [])
+      .map(engine => `<option value="${engine.id}" ${engine.available ? '' : 'disabled'}>${engine.label}</option>`)
+      .join('');
+    select.value = state.reportSettings.defaultEngine || select.value;
+  }
+  const jasper = state.reportSettings.jasper || {};
+  const jasperEnabledInput = document.getElementById('jasperEnabled');
+  if (jasperEnabledInput) {
+    jasperEnabledInput.checked = jasper.enabled !== false;
+  }
+  const mappings = [
+    ['jasperCompiledDir', jasper.compiledDir || ''],
+    ['jasperTemplatesDir', jasper.templatesDir || ''],
+    ['jasperFontsDir', jasper.fontsDir || ''],
+    ['jasperReportName', jasper.defaultReport || ''],
+    ['jasperDataSource', jasper.dataSourceName || ''],
+    ['jasperJsonQuery', jasper.jsonQuery || '']
+  ];
+  mappings.forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.value = value;
+    }
+  });
+  toggleJasperFields(jasper.enabled === false);
+  updateJasperStatusBadge();
+}
+
+async function loadReportSettings(options = {}) {
+  const requireAdmin = options.requireAdmin || false;
+  try {
+    const response = await (requireAdmin ? adminFetch('/report-settings') : fetch('/report-settings'));
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.message || 'No fue posible obtener la configuración');
+    }
+    state.reportSettings = data.settings;
+    state.reportEngines = Array.isArray(data.engines) ? data.engines : [];
+    if (!state.selectedEngine || !state.reportEngines.some(engine => engine.id === state.selectedEngine)) {
+      state.selectedEngine = state.reportSettings?.defaultEngine || state.reportEngines[0]?.id;
+    }
+    renderReportEngineSelector();
+    if (requireAdmin) {
+      renderReportSettingsForm();
+    }
+  } catch (error) {
+    console.error('Error cargando configuración de reportes:', error);
+    showAlert(error.message || 'No se pudo cargar la configuración de reportes.', 'danger');
+  }
+}
+
 async function loadUsers() {
   try {
-    const response = await fetch('/users');
+    const response = await adminFetch('/users');
     const data = await response.json();
     if (!data.success) {
       throw new Error(data.message || 'No fue posible obtener usuarios');
     }
-    const tbody = document.querySelector('#usersTable tbody');
-    if (!tbody) return;
-    tbody.innerHTML = data.users
-      .map(user => `
-        <tr>
-          <td>${user.id}</td>
-          <td>${user.usuario}</td>
-          <td>${user.nombre || ''}</td>
-          <td>${Array.isArray(user.empresas) ? user.empresas.join(', ') : user.empresas}</td>
-          <td>
-            <button class="btn btn-sm btn-outline-secondary" data-id="${user.id}" data-action="edit">Editar</button>
-            <button class="btn btn-sm btn-outline-danger" data-id="${user.id}" data-action="delete">Eliminar</button>
-          </td>
-        </tr>
-      `)
-      .join('');
-    showAlert('Usuarios cargados.', 'success');
+    state.users = Array.isArray(data.users) ? data.users : [];
+    renderUsers(state.users);
+    showAlert('Usuarios sincronizados.', 'success');
   } catch (error) {
     console.error('Error cargando usuarios:', error);
     showAlert(error.message || 'No se pudieron cargar los usuarios.', 'danger');
   }
 }
 
-async function editUser(id) {
-  const nuevoNombre = prompt('Nombre (deja vacío para mantener actual):');
-  const nuevasEmpresas = prompt('Empresas asignadas separadas por coma (usa * para todas):');
-  const nuevaPassword = prompt('Nueva contraseña (deja vacío para mantener actual):');
-  const payload = {};
-  if (nuevoNombre !== null && nuevoNombre.trim() !== '') payload.nombre = nuevoNombre.trim();
-  if (nuevasEmpresas !== null && nuevasEmpresas.trim() !== '') {
-    payload.empresas = nuevasEmpresas.trim() === '*'
-      ? '*'
-      : nuevasEmpresas.split(',').map(e => e.trim()).filter(Boolean);
+function getInitials(text) {
+  if (!text) return '?';
+  const parts = text.trim().split(/\s+/u).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+}
+
+function formatCompaniesForDisplay(user) {
+  if (user.empresas === '*') {
+    return '<span class="badge text-bg-primary">Todas</span>';
   }
-  if (nuevaPassword !== null && nuevaPassword.trim() !== '') payload.password = nuevaPassword;
-  if (Object.keys(payload).length === 0) {
-    showAlert('No se modificó ningún dato.', 'info');
+  const companies = Array.isArray(user.empresas) ? user.empresas : [];
+  if (companies.length === 0) {
+    return '<span class="text-muted small">Sin asignar</span>';
+  }
+  return companies
+    .map(empresa => `<span class="badge text-bg-light text-dark me-1 mb-1">${escapeHtml(empresa)}</span>`)
+    .join('');
+}
+
+function renderUsers(users) {
+  const tbody = document.querySelector('#usersTable tbody');
+  const emptyState = document.getElementById('usersEmptyState');
+  if (!tbody) return;
+
+  if (!Array.isArray(users) || users.length === 0) {
+    tbody.innerHTML = '';
+    emptyState?.classList.remove('d-none');
     return;
   }
-  try {
-    const response = await fetch(`/users/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const data = await response.json();
-    if (!data.success) {
-      throw new Error(data.message || 'No se pudo actualizar el usuario');
+
+  emptyState?.classList.add('d-none');
+  tbody.innerHTML = users
+    .map(user => {
+      const roleBadge = user.empresas === '*'
+        ? '<span class="badge text-bg-primary">Administrador</span>'
+        : '<span class="badge text-bg-info text-dark">Colaborador</span>';
+      return `
+        <tr data-id="${user.id}">
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <div class="avatar-initial">${getInitials(user.nombre || user.usuario)}</div>
+              <div>
+                <div class="fw-semibold">@${escapeHtml(user.usuario)}</div>
+                <div class="text-muted small">ID ${user.id}</div>
+              </div>
+            </div>
+          </td>
+          <td>${user.nombre ? escapeHtml(user.nombre) : '<span class="text-muted">Sin nombre</span>'}</td>
+          <td><div class="d-flex flex-wrap gap-1">${formatCompaniesForDisplay(user)}</div></td>
+          <td>${roleBadge}</td>
+          <td class="text-end">
+            <button class="btn btn-sm btn-outline-secondary me-1" data-action="edit" data-id="${user.id}">Editar</button>
+            ${user.usuario === 'admin'
+              ? ''
+              : `<button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="${user.id}">Eliminar</button>`}
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function parseCompaniesInput(value) {
+  return value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function resetUserModal() {
+  const form = document.getElementById('userForm');
+  form?.reset();
+  ['userUsername', 'userPassword', 'userPasswordConfirm', 'userCompanies'].forEach(id => {
+    const input = document.getElementById(id);
+    input?.classList.remove('is-invalid');
+  });
+  const usernameInput = document.getElementById('userUsername');
+  if (usernameInput) {
+    usernameInput.disabled = false;
+  }
+  state.editingUserId = null;
+  setCompaniesFieldDisabled(false);
+}
+
+function openUserModal(user = null) {
+  resetUserModal();
+  const modalTitle = document.getElementById('userModalTitle');
+  const usernameInput = document.getElementById('userUsername');
+  const nameInput = document.getElementById('userName');
+  const allCompaniesInput = document.getElementById('userAllCompanies');
+  const companiesInput = document.getElementById('userCompanies');
+  const submitButton = document.getElementById('userModalSubmit');
+
+  if (user) {
+    state.editingUserId = user.id;
+    modalTitle.textContent = 'Editar usuario';
+    usernameInput.value = user.usuario;
+    usernameInput.disabled = user.usuario === 'admin';
+    nameInput.value = user.nombre || '';
+    allCompaniesInput.checked = user.empresas === '*';
+    if (user.empresas !== '*') {
+      companiesInput.value = Array.isArray(user.empresas) ? user.empresas.join(', ') : '';
     }
-    showAlert('Usuario actualizado.', 'success');
-    await loadUsers();
-  } catch (error) {
-    console.error('Error editando usuario:', error);
-    showAlert(error.message || 'Error editando usuario.', 'danger');
+    submitButton.textContent = 'Actualizar';
+  } else {
+    modalTitle.textContent = 'Nuevo usuario';
+    usernameInput.disabled = false;
+    submitButton.textContent = 'Crear usuario';
+  }
+
+  setCompaniesFieldDisabled(allCompaniesInput.checked);
+  const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('userModal'));
+  modal.show();
+}
+
+function handleUsersTableClick(event) {
+  const button = event.target.closest('button[data-action][data-id]');
+  if (!button) return;
+  const action = button.getAttribute('data-action');
+  const id = button.getAttribute('data-id');
+  if (action === 'edit') {
+    editUser(id);
+  }
+  if (action === 'delete') {
+    deleteUser(id);
   }
 }
 
+function editUser(id) {
+  const user = state.users.find(item => item.id === id);
+  if (!user) {
+    showAlert('No se encontró el usuario seleccionado.', 'warning');
+    return;
+  }
+  openUserModal(user);
+}
+
 async function deleteUser(id) {
-  if (!confirm('¿Eliminar usuario seleccionado?')) return;
+  const user = state.users.find(item => item.id === id);
+  if (!user) {
+    showAlert('No se encontró el usuario seleccionado.', 'warning');
+    return;
+  }
+  if (!confirm(`¿Eliminar al usuario @${user.usuario}?`)) return;
   try {
-    const response = await fetch(`/users/${id}`, { method: 'DELETE' });
+    const response = await adminFetch(`/users/${id}`, { method: 'DELETE' });
     const data = await response.json();
     if (!data.success) {
       throw new Error(data.message || 'No se pudo eliminar');
@@ -524,6 +845,125 @@ async function deleteUser(id) {
   } catch (error) {
     console.error('Error eliminando usuario:', error);
     showAlert(error.message || 'Error eliminando usuario.', 'danger');
+  }
+}
+
+async function handleUserFormSubmit(event) {
+  event.preventDefault();
+  const usernameInput = document.getElementById('userUsername');
+  const nameInput = document.getElementById('userName');
+  const passwordInput = document.getElementById('userPassword');
+  const confirmInput = document.getElementById('userPasswordConfirm');
+  const companiesInput = document.getElementById('userCompanies');
+  const allCompaniesInput = document.getElementById('userAllCompanies');
+
+  const username = usernameInput.value.trim();
+  const nombre = nameInput.value.trim();
+  const password = passwordInput.value;
+  const confirmPassword = confirmInput.value;
+  const allCompanies = allCompaniesInput.checked;
+  const companies = parseCompaniesInput(companiesInput.value);
+
+  [usernameInput, passwordInput, confirmInput, companiesInput].forEach(input => input.classList.remove('is-invalid'));
+
+  let hasError = false;
+  if (!username) {
+    usernameInput.classList.add('is-invalid');
+    hasError = true;
+  }
+
+  const isEdit = !!state.editingUserId;
+  const passwordProvided = password.trim().length > 0;
+  if ((passwordProvided || !isEdit) && password.length < 6) {
+    passwordInput.classList.add('is-invalid');
+    hasError = true;
+  }
+
+  if (passwordProvided || confirmPassword.trim().length > 0) {
+    if (password !== confirmPassword) {
+      confirmInput.classList.add('is-invalid');
+      hasError = true;
+    }
+  }
+
+  if (!allCompanies && companies.length === 0) {
+    companiesInput.classList.add('is-invalid');
+    hasError = true;
+  }
+
+  if (hasError) {
+    return;
+  }
+
+  const payload = {
+    usuario: username,
+    nombre: nombre || null,
+    empresas: allCompanies ? '*' : companies
+  };
+  if (passwordProvided) {
+    payload.password = password;
+  }
+
+  try {
+    const response = await adminFetch(state.editingUserId ? `/users/${state.editingUserId}` : '/users', {
+      method: state.editingUserId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.message || 'No se pudo guardar el usuario');
+    }
+    const modal = bootstrap.Modal.getInstance(document.getElementById('userModal'));
+    modal?.hide();
+    state.editingUserId = null;
+    showAlert(isEdit ? 'Usuario actualizado.' : 'Usuario creado.', 'success');
+    await loadUsers();
+  } catch (error) {
+    console.error('Error guardando usuario:', error);
+    showAlert(error.message || 'No fue posible guardar el usuario.', 'danger');
+  }
+}
+
+async function handleReportSettingsSubmit(event) {
+  event.preventDefault();
+  if (!isAdmin()) {
+    showAlert('Solo un administrador puede actualizar la configuración.', 'danger');
+    return;
+  }
+  const select = document.getElementById('defaultReportEngine');
+  const jasperEnabledInput = document.getElementById('jasperEnabled');
+  const payload = {
+    defaultEngine: select?.value,
+    jasper: {
+      enabled: jasperEnabledInput?.checked ?? true,
+      compiledDir: getInputValue('jasperCompiledDir'),
+      templatesDir: getInputValue('jasperTemplatesDir'),
+      fontsDir: getInputValue('jasperFontsDir'),
+      defaultReport: getInputValue('jasperReportName'),
+      dataSourceName: getInputValue('jasperDataSource'),
+      jsonQuery: getInputValue('jasperJsonQuery')
+    }
+  };
+  try {
+    const response = await adminFetch('/report-settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.message || 'No se pudo actualizar la configuración');
+    }
+    state.reportSettings = data.settings;
+    state.reportEngines = Array.isArray(data.engines) ? data.engines : [];
+    state.selectedEngine = state.reportSettings.defaultEngine;
+    renderReportSettingsForm();
+    renderReportEngineSelector();
+    showAlert('Configuración de reportes actualizada.', 'success');
+  } catch (error) {
+    console.error('Error guardando configuración de reportes:', error);
+    showAlert(error.message || 'No fue posible guardar la configuración de reportes.', 'danger');
   }
 }
 
@@ -537,7 +977,10 @@ function setupLoginPage() {
   const form = document.getElementById('loginForm');
   form?.addEventListener('submit', login);
   document.getElementById('loginButton')?.addEventListener('click', login);
-  showAlert("Instrucción: Usuario admin, contraseña 569OpEGvwh'8", 'info', 10000);
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
+  usernameInput?.addEventListener('input', () => usernameInput.classList.remove('is-invalid'));
+  passwordInput?.addEventListener('input', () => passwordInput.classList.remove('is-invalid'));
 }
 
 async function setupDashboard() {
@@ -561,24 +1004,52 @@ async function setupDashboard() {
   poInput?.addEventListener('input', event => renderPoOptions(event.target.value));
   poInput?.addEventListener('change', event => selectPo(event.target.value));
   document.getElementById('generateReportBtn')?.addEventListener('click', generateReport);
+  const adminLink = document.getElementById('adminLink');
+  if (adminLink && !isAdmin()) {
+    adminLink.classList.add('d-none');
+  }
+  const engineMenu = document.getElementById('reportEngineMenu');
+  engineMenu?.addEventListener('click', event => {
+    const button = event.target.closest('button[data-engine]');
+    if (!button) return;
+    state.selectedEngine = button.getAttribute('data-engine');
+    renderReportEngineSelector();
+  });
+  await loadReportSettings();
   showAlert('Selecciona empresa y PO para visualizar el tablero.', 'info', 9000);
 }
 
-function setupAdmin() {
+async function setupAdmin() {
+  if (!isAdmin()) {
+    showAlert('Solo los administradores pueden acceder a esta sección.', 'danger');
+    window.location.href = 'dashboard.html';
+    return;
+  }
+  await loadReportSettings({ requireAdmin: true });
+  await loadUsers();
   document.getElementById('loadUsersBtn')?.addEventListener('click', loadUsers);
+  document.getElementById('newUserBtn')?.addEventListener('click', () => openUserModal());
   const table = document.getElementById('usersTable');
-  table?.addEventListener('click', event => {
-    const action = event.target.getAttribute('data-action');
-    const id = event.target.getAttribute('data-id');
-    if (!action || !id) return;
-    if (action === 'edit') {
-      editUser(id);
-    }
-    if (action === 'delete') {
-      deleteUser(id);
-    }
+  table?.addEventListener('click', handleUsersTableClick);
+  const userForm = document.getElementById('userForm');
+  userForm?.addEventListener('submit', handleUserFormSubmit);
+  document.getElementById('userAllCompanies')?.addEventListener('change', event => {
+    setCompaniesFieldDisabled(event.target.checked);
   });
-  showAlert('Desde aquí administra usuarios y contraseñas.', 'info', 7000);
+  ['userUsername', 'userPassword', 'userPasswordConfirm', 'userCompanies'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', event => event.target.classList.remove('is-invalid'));
+  });
+  document.getElementById('reportSettingsForm')?.addEventListener('submit', handleReportSettingsSubmit);
+  document.getElementById('jasperEnabled')?.addEventListener('change', event => {
+    const enabled = event.target.checked;
+    if (state.reportSettings && state.reportSettings.jasper) {
+      state.reportSettings.jasper.enabled = enabled;
+    }
+    toggleJasperFields(!enabled);
+    updateJasperStatusBadge();
+    updateReportEngineStatus();
+  });
+  showAlert('Desde aquí administra usuarios y configuraciones de reportes.', 'info', 7000);
 }
 
 function init() {

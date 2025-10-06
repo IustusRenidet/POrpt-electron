@@ -6,6 +6,11 @@ const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const jasperManager = require('./reports/jasper');
+const simplePdf = require('./reports/simple-pdf');
+const reportSettingsStore = require('./reports/settings-store');
+const { ALLOWED_ENGINES } = reportSettingsStore;
+
+const ADMIN_HEADER = 'x-porpt-admin';
 let sqliteDb;
 let serverInstance;
 let initPromise;
@@ -41,6 +46,11 @@ function formatFirebirdDate(value) {
   const month = padTo2(date.getMonth() + 1);
   const day = padTo2(date.getDate());
   return `${year}-${month}-${day}`;
+}
+
+function isAdminRequest(req) {
+  const headerValue = req.headers?.[ADMIN_HEADER];
+  return typeof headerValue === 'string' && headerValue.toLowerCase() === 'true';
 }
 
 app.use(express.json());
@@ -151,6 +161,9 @@ app.post('/login', async (req, res) => {
 });
 
 app.get('/users', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, message: 'Acceso restringido a administradores' });
+  }
   try {
     const users = await allAsync(sqliteDb, 'SELECT id, usuario, nombre, empresas FROM usuarios');
     const mapped = users.map(u => ({
@@ -166,6 +179,9 @@ app.get('/users', async (req, res) => {
 });
 
 app.post('/users', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, message: 'Acceso restringido a administradores' });
+  }
   const { usuario, password, nombre, empresas } = req.body;
   const empresasPayload = empresas === '*'
     ? '*'
@@ -190,6 +206,9 @@ app.post('/users', async (req, res) => {
 });
 
 app.put('/users/:id', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, message: 'Acceso restringido a administradores' });
+  }
   const { id } = req.params;
   const { usuario, password, nombre, empresas } = req.body;
   try {
@@ -217,6 +236,9 @@ app.put('/users/:id', async (req, res) => {
 });
 
 app.delete('/users/:id', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, message: 'Acceso restringido a administradores' });
+  }
   const { id } = req.params;
   try {
     const result = await runAsync(sqliteDb, 'DELETE FROM usuarios WHERE id = ?', [id]);
@@ -581,26 +603,132 @@ app.get('/po-summary/:empresa/:poId', async (req, res) => {
   }
 });
 
+app.get('/report-settings', async (req, res) => {
+  try {
+    const settings = reportSettingsStore.getSettings();
+    const jasperEnabled = settings.jasper.enabled !== false;
+    const jasperAvailable = jasperEnabled && jasperManager.isAvailable();
+    const engines = [
+      {
+        id: 'jasper',
+        label: 'JasperReports',
+        description: 'Usa plantillas JRXML y node-jasper para generar reportes.',
+        available: jasperAvailable
+      },
+      {
+        id: 'simple-pdf',
+        label: 'PDF directo',
+        description: 'Genera un PDF resumido sin depender de Jasper.',
+        available: true
+      }
+    ];
+    res.json({
+      success: true,
+      settings: {
+        ...settings,
+        jasper: {
+          ...settings.jasper,
+          available: jasperAvailable
+        }
+      },
+      engines
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error leyendo configuración de reportes: ' + err.message });
+  }
+});
+
+app.put('/report-settings', async (req, res) => {
+  if (!isAdminRequest(req)) {
+    return res.status(403).json({ success: false, message: 'Acceso restringido a administradores' });
+  }
+  try {
+    const payload = req.body || {};
+    const updates = {};
+
+    if (payload.defaultEngine && ALLOWED_ENGINES.includes(payload.defaultEngine)) {
+      updates.defaultEngine = payload.defaultEngine;
+    }
+
+    if (payload.jasper) {
+      const jasper = {};
+      if (typeof payload.jasper.enabled === 'boolean') jasper.enabled = payload.jasper.enabled;
+      const keys = ['compiledDir', 'templatesDir', 'fontsDir', 'defaultReport', 'dataSourceName', 'jsonQuery'];
+      keys.forEach(key => {
+        if (payload.jasper[key] !== undefined) {
+          jasper[key] = payload.jasper[key];
+        }
+      });
+      updates.jasper = jasper;
+    }
+
+    const updatedSettings = reportSettingsStore.updateSettings(updates);
+    if (updates.jasper) {
+      await jasperManager.reload();
+    }
+
+    const jasperEnabled = updatedSettings.jasper.enabled !== false;
+    const jasperAvailable = jasperEnabled && jasperManager.isAvailable();
+    const engines = [
+      {
+        id: 'jasper',
+        label: 'JasperReports',
+        description: 'Usa plantillas JRXML y node-jasper para generar reportes.',
+        available: jasperAvailable
+      },
+      {
+        id: 'simple-pdf',
+        label: 'PDF directo',
+        description: 'Genera un PDF resumido sin depender de Jasper.',
+        available: true
+      }
+    ];
+
+    res.json({ success: true, settings: { ...updatedSettings, jasper: { ...updatedSettings.jasper, available: jasperAvailable } }, engines });
+  } catch (err) {
+    console.error('Error actualizando configuración de reportes:', err);
+    res.status(500).json({ success: false, message: 'No se pudo actualizar la configuración de reportes: ' + err.message });
+  }
+});
+
 app.post('/report', async (req, res) => {
-  const { empresa, poId } = req.body;
+  const { empresa, poId, engine: requestedEngine } = req.body;
   if (!empresa || !poId) {
     return res.status(400).json({ success: false, message: 'Empresa y PO son obligatorios para el reporte' });
   }
   try {
     const summary = await getPoSummary(empresa, poId);
+    const settings = reportSettingsStore.getSettings();
+    const engine = ALLOWED_ENGINES.includes(requestedEngine) ? requestedEngine : settings.defaultEngine;
+
+    if (engine === 'simple-pdf') {
+      const buffer = await simplePdf.generate(summary);
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Disposition', `attachment; filename=${summary.baseId || 'reporte'}.pdf`);
+      return res.send(buffer);
+    }
+
+    if (settings.jasper.enabled === false) {
+      return res.status(503).json({
+        success: false,
+        message: 'JasperReports está deshabilitado en la configuración.'
+      });
+    }
+
     const jasper = jasperManager.getInstance();
     if (!jasper) {
       return res.status(503).json({
         success: false,
-        message: 'JasperReports no se inicializó. Verifica la configuración en reports/jasper.config.js.'
+        message: 'JasperReports no se inicializó. Verifica la instalación y la configuración.'
       });
     }
+
     const buffer = await jasperManager.generatePoSummary(jasper, summary);
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `attachment; filename=${summary.baseId || 'reporte'}.pdf`);
     res.send(buffer);
   } catch (err) {
-    console.error('Error generando reporte Jasper:', err);
+    console.error('Error generando reporte:', err);
     const status = err.message && err.message.includes('PO') ? 404 : 500;
     res.status(status).json({ success: false, message: 'Error generando reporte: ' + err.message });
   }
@@ -635,6 +763,7 @@ async function init(options = {}) {
           adminUser, hash, null, '*'
         ]);
       }
+      reportSettingsStore.loadSettings();
       await jasperManager.init();
       serverInstance = await new Promise((resolve, reject) => {
         const server = app.listen(listenPort, listenHost, () => {

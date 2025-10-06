@@ -12,8 +12,8 @@
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
     <div class="container">
       <a class="navbar-brand fw-bold" href="#">POrpt</a>
-      <div class="d-flex gap-2">
-        <a class="btn btn-outline-light" href="admin.html">Administrar usuarios</a>
+      <div class="d-flex flex-wrap gap-2">
+        <a id="adminLink" class="btn btn-outline-light" href="admin.html">Administrar usuarios</a>
         <button class="btn btn-warning" onclick="logout()">Salir</button>
       </div>
     </div>
@@ -37,9 +37,16 @@
           <div class="form-text">Cada coincidencia muestra número, fecha y monto para distinguir fácilmente.</div>
         </div>
       </div>
-      <div class="mt-3">
-        <button id="generateReportBtn" class="btn btn-success me-2">Generar reporte Jasper</button>
-        <small class="text-muted">El reporte incluirá gráficas, totales y alertas del PO seleccionado.</small>
+      <div class="mt-3 d-flex flex-wrap align-items-center gap-2">
+        <div class="dropdown">
+          <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="reportEngineDropdown">
+            Modo de reporte: <span id="reportEngineLabel">-</span>
+          </button>
+          <ul class="dropdown-menu" id="reportEngineMenu"></ul>
+        </div>
+        <button id="generateReportBtn" class="btn btn-success">Descargar reporte</button>
+        <span id="reportEngineStatus" class="badge text-bg-secondary d-none"></span>
+        <small id="reportEngineHelp" class="text-muted d-block">El reporte incluirá gráficas, totales y alertas del PO seleccionado.</small>
       </div>
     </section>
 
