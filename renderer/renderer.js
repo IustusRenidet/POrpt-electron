@@ -15,12 +15,23 @@ const state = {
     includeCharts: true,
     includeMovements: true,
     includeObservations: true,
-    includeUniverse: true
+    includeUniverse: true,
+    csv: {
+      includePoResumen: true,
+      includeRemisiones: true,
+      includeFacturas: true,
+      includeTotales: true,
+      includeUniverseInfo: true
+    }
   },
+  customReportName: readSession('porpt-custom-report-name', ''),
   editingUserId: null,
   universeFilterMode: 'global',
   universeStartDate: '',
-  universeEndDate: ''
+  universeEndDate: '',
+  universeFormat: readSession('porpt-universe-format', 'pdf'),
+  universeCustomName: readSession('porpt-universe-report-name', ''),
+  isGeneratingReport: false
 };
 
 const ALERT_TYPE_CLASS = {
@@ -94,6 +105,15 @@ function escapeHtml(value) {
     .replace(/>/gu, '&gt;')
     .replace(/"/gu, '&quot;')
     .replace(/'/gu, '&#39;');
+}
+
+function sanitizeFileName(value, fallback) {
+  const base = typeof value === 'string' ? value.trim() : '';
+  if (!base) {
+    return fallback;
+  }
+  const sanitized = base.replace(/[^0-9a-zA-Z-_]+/gu, '_');
+  return sanitized || fallback;
 }
 
 function destroyCharts() {
@@ -226,6 +246,7 @@ function renderSelectedPoChips() {
     empty.textContent = 'No hay POs seleccionadas. Utiliza el buscador para agregarlas.';
     container.appendChild(empty);
     document.getElementById('dashboardContent')?.classList.add('d-none');
+    renderReportSelectionOverview();
     if (help) {
       help.textContent = 'Puedes agregar varias POs base (el sistema combinará sus extensiones automáticamente).';
     }
@@ -250,6 +271,7 @@ function renderSelectedPoChips() {
     `;
     container.appendChild(chip);
   });
+  renderReportSelectionOverview();
 }
 
 function addPoToSelection(poId) {
@@ -301,6 +323,7 @@ function clearSelectedPos() {
   if (input) {
     input.value = '';
   }
+  renderReportSelectionOverview();
   showAlert('Selección de POs limpiada.', 'info');
 }
 
@@ -580,7 +603,219 @@ function renderAlerts(alerts) {
   alerts.forEach(alert => showAlert(alert.message, alert.type || 'info', 8000));
 }
 
-async function updateSummary() {
+function normalizeCustomizationState(customization = {}) {
+  const csv = customization.csv || {};
+  return {
+    includeCharts: customization.includeCharts !== false,
+    includeMovements: customization.includeMovements !== false,
+    includeObservations: customization.includeObservations !== false,
+    includeUniverse: customization.includeUniverse !== false,
+    csv: {
+      includePoResumen: csv.includePoResumen !== false,
+      includeRemisiones: csv.includeRemisiones !== false,
+      includeFacturas: csv.includeFacturas !== false,
+      includeTotales: csv.includeTotales !== false,
+      includeUniverseInfo: csv.includeUniverseInfo !== false
+    }
+  };
+}
+
+function mergeCustomizationSettings(baseCustomization = {}, overrides) {
+  const normalizedBase = normalizeCustomizationState(baseCustomization);
+  if (!overrides) {
+    return normalizedBase;
+  }
+  const merged = {
+    ...normalizedBase,
+    ...overrides,
+    csv: {
+      ...normalizedBase.csv,
+      ...(overrides.csv || {})
+    }
+  };
+  return normalizeCustomizationState(merged);
+}
+
+function buildCustomizationBadgesMarkup() {
+  const config = normalizeCustomizationState(state.customization);
+  const badges = [];
+  badges.push({ label: config.includeCharts ? 'Gráficas activas' : 'Sin gráficas', active: config.includeCharts });
+  badges.push({ label: config.includeMovements ? 'Movimientos incluidos' : 'Ocultar movimientos', active: config.includeMovements });
+  badges.push({ label: config.includeObservations ? 'Observaciones visibles' : 'Sin observaciones', active: config.includeObservations });
+  badges.push({ label: config.includeUniverse ? 'Bloque universo' : 'Ocultar universo', active: config.includeUniverse });
+
+  const csvConfig = config.csv || {};
+  badges.push({ label: csvConfig.includePoResumen ? 'CSV con resumen de PO' : 'CSV sin resumen de PO', active: csvConfig.includePoResumen });
+  badges.push({ label: csvConfig.includeRemisiones ? 'CSV con remisiones' : 'CSV sin remisiones', active: csvConfig.includeRemisiones });
+  badges.push({ label: csvConfig.includeFacturas ? 'CSV con facturas' : 'CSV sin facturas', active: csvConfig.includeFacturas });
+  badges.push({ label: csvConfig.includeTotales ? 'CSV con totales' : 'CSV sin totales', active: csvConfig.includeTotales });
+  badges.push({ label: csvConfig.includeUniverseInfo ? 'CSV con datos de universo' : 'CSV sin datos de universo', active: csvConfig.includeUniverseInfo });
+
+  return badges
+    .map(badge => `
+      <span class="customization-badge ${badge.active ? 'on' : 'off'}">${escapeHtml(badge.label)}</span>
+    `)
+    .join('');
+}
+
+function renderCustomizationSummary() {
+  const container = document.getElementById('customizationSummary');
+  if (!container) return;
+  container.innerHTML = buildCustomizationBadgesMarkup();
+}
+
+function applySavedCustomization() {
+  const saved = readSession('porpt-customization', null);
+  if (!saved) return;
+  state.customization = mergeCustomizationSettings(state.customization, saved);
+}
+
+function setCustomizationControlStates() {
+  const config = normalizeCustomizationState(state.customization);
+  document.querySelectorAll('[data-customization-toggle]').forEach(input => {
+    const key = input.getAttribute('data-customization-toggle');
+    if (!key) return;
+    const group = input.getAttribute('data-customization-group');
+    const value = group === 'csv' ? config.csv?.[key] !== false : config[key] !== false;
+    input.checked = !!value;
+  });
+}
+
+function handleCustomizationToggleChange(event) {
+  const input = event.target;
+  if (!input || input.type !== 'checkbox') return;
+  const key = input.getAttribute('data-customization-toggle');
+  if (!key) return;
+  const group = input.getAttribute('data-customization-group');
+  if (group === 'csv') {
+    state.customization = {
+      ...state.customization,
+      csv: {
+        ...state.customization.csv,
+        [key]: input.checked
+      }
+    };
+  } else {
+    state.customization = {
+      ...state.customization,
+      [key]: input.checked
+    };
+  }
+  state.customization = normalizeCustomizationState(state.customization);
+  saveSession('porpt-customization', state.customization);
+  renderCustomizationSummary();
+  updateReportOverviewMeta();
+}
+
+function setupCustomizationControls() {
+  setCustomizationControlStates();
+  document.querySelectorAll('[data-customization-toggle]').forEach(input => {
+    input.removeEventListener('change', handleCustomizationToggleChange);
+    input.addEventListener('change', handleCustomizationToggleChange);
+  });
+}
+
+function handleReportFileNameChange(event) {
+  state.customReportName = event.target.value.trim();
+  saveSession('porpt-custom-report-name', state.customReportName);
+  updateReportOverviewMeta();
+}
+
+function handleUniverseFileNameChange(event) {
+  state.universeCustomName = event.target.value.trim();
+  saveSession('porpt-universe-report-name', state.universeCustomName);
+}
+
+function renderReportSelectionOverview() {
+  const container = document.getElementById('reportSelectionOverview');
+  if (!container) return;
+  const empresaBadge = document.getElementById('overviewEmpresaBadge');
+  if (empresaBadge) {
+    empresaBadge.textContent = state.selectedEmpresa || 'Sin empresa';
+  }
+  const countBadge = document.getElementById('overviewPoCount');
+  if (countBadge) {
+    const count = state.selectedPoIds.length;
+    countBadge.textContent = count === 1 ? '1 PO base' : `${count} POs base`;
+  }
+  const help = document.getElementById('reportDownloadHelp');
+  if (state.selectedPoIds.length === 0 || !state.selectedEmpresa) {
+    container.innerHTML = '<p class="text-muted mb-0">Selecciona una empresa y al menos una PO en la pestaña "Selección".</p>';
+    if (help) {
+      help.textContent = 'Aún no hay suficientes datos para preparar el reporte.';
+    }
+    return;
+  }
+  if (!state.summary) {
+    container.innerHTML = '<p class="text-muted mb-0">Cuando el dashboard termine de cargar, verás aquí el resumen del reporte.</p>';
+    if (help) {
+      help.textContent = 'Actualiza el dashboard para habilitar la descarga.';
+    }
+    return;
+  }
+  const items = Array.isArray(state.summary.items) ? state.summary.items : [];
+  if (items.length === 0) {
+    container.innerHTML = '<p class="text-muted mb-0">No se encontraron POs activas con la selección actual.</p>';
+    if (help) {
+      help.textContent = 'Verifica los filtros o selecciona otra PO.';
+    }
+    return;
+  }
+  const rows = items
+    .map(item => {
+      const total = formatCurrency(item.total || 0);
+      const restante = formatCurrency(item.totals?.restante ?? 0);
+      return `
+        <li class="list-group-item d-flex flex-wrap justify-content-between gap-2">
+          <div>
+            <span class="fw-semibold">${escapeHtml(item.id || '')}</span>
+            <span class="text-muted">• ${escapeHtml(item.fecha || '')}</span>
+          </div>
+          <div class="text-end">
+            <span class="badge text-bg-primary-subtle text-primary-emphasis me-2">Total $${total}</span>
+            <span class="badge text-bg-success-subtle text-success-emphasis">Restante $${restante}</span>
+          </div>
+        </li>
+      `;
+    })
+    .join('');
+  container.innerHTML = `
+    <ul class="list-group list-group-flush rounded-4 border">
+      ${rows}
+    </ul>
+  `;
+  if (help) {
+    help.textContent = 'Todo listo. Revisa el resumen y después descarga el reporte.';
+  }
+}
+
+function updateReportOverviewMeta() {
+  const engineLabel = document.getElementById('overviewEngineLabel');
+  const formatLabel = document.getElementById('overviewFormatLabel');
+  if (engineLabel) {
+    const engine = state.reportEngines.find(item => item.id === state.selectedEngine);
+    engineLabel.textContent = engine ? engine.label : 'Sin seleccionar';
+  }
+  if (formatLabel) {
+    formatLabel.textContent = getFormatLabel(state.selectedFormat);
+  }
+  const filenameLabel = document.getElementById('overviewFilename');
+  if (filenameLabel) {
+    const custom = state.customReportName?.trim();
+    filenameLabel.textContent = custom ? `${custom}.${state.selectedFormat}` : 'Se generará automáticamente';
+  }
+}
+
+function isSummarySynced() {
+  if (!state.summary) return false;
+  const summaryIds = Array.isArray(state.summary.selectedIds) ? [...state.summary.selectedIds].sort() : [];
+  const selected = [...state.selectedPoIds].sort();
+  if (summaryIds.length !== selected.length) return false;
+  return selected.every((value, index) => value === summaryIds[index]);
+}
+
+async function updateSummary(options = {}) {
+  const silent = options.silent === true;
   if (!state.selectedEmpresa || state.selectedPoIds.length === 0) return;
   try {
     const response = await fetch('/po-summary', {
@@ -598,8 +833,11 @@ async function updateSummary() {
     attachTableHandlers(state.summary);
     renderCharts(state.summary);
     renderAlerts(state.summary.alerts || []);
-    showAlert('Dashboard actualizado con la selección de POs.', 'success');
+    if (!silent) {
+      showAlert('Dashboard actualizado con la selección de POs.', 'success');
+    }
     document.getElementById('dashboardContent')?.classList.remove('d-none');
+    renderReportSelectionOverview();
   } catch (error) {
     console.error('Error actualizando resumen:', error);
     showAlert(error.message || 'No se pudo actualizar el dashboard', 'danger');
@@ -607,21 +845,37 @@ async function updateSummary() {
 }
 
 async function generateReport() {
+  if (state.isGeneratingReport) {
+    return false;
+  }
   if (!state.selectedEmpresa || state.selectedPoIds.length === 0) {
     showAlert('Selecciona primero una empresa y al menos una PO base.', 'warning');
-    return;
+    return false;
   }
+  const formatSelect = document.getElementById('reportFormatSelect');
+  if (formatSelect) {
+    state.selectedFormat = formatSelect.value;
+  }
+  const filenameInput = document.getElementById('reportFileNameInput');
+  if (filenameInput) {
+    state.customReportName = filenameInput.value.trim();
+    saveSession('porpt-custom-report-name', state.customReportName);
+  }
+  const engine = state.selectedEngine || state.reportSettings?.defaultEngine || 'jasper';
+  const format = state.selectedFormat || state.reportSettings?.export?.defaultFormat || 'pdf';
+  const customization = normalizeCustomizationState(state.customization);
+  state.isGeneratingReport = true;
   try {
-    const engine = state.selectedEngine || state.reportSettings?.defaultEngine || 'jasper';
-    const formatSelect = document.getElementById('reportFormatSelect');
-    if (formatSelect) {
-      state.selectedFormat = formatSelect.value;
-    }
-    const format = state.selectedFormat || state.reportSettings?.export?.defaultFormat || 'pdf';
     const response = await fetch('/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ empresa: state.selectedEmpresa, poIds: state.selectedPoIds, engine, format })
+      body: JSON.stringify({
+        empresa: state.selectedEmpresa,
+        poIds: state.selectedPoIds,
+        engine,
+        format,
+        customization
+      })
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Error generando reporte' }));
@@ -631,27 +885,190 @@ async function generateReport() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const filename = state.selectedPoIds.length === 1
+    const defaultFilename = state.selectedPoIds.length === 1
       ? `POrpt_${state.selectedPoIds[0]}`
       : `POrpt_${state.selectedPoIds.length}_POs`;
     const contentType = response.headers.get('Content-Type') || '';
-    const extension = contentType.includes('pdf')
-      ? 'pdf'
-      : contentType.includes('csv')
-        ? 'csv'
-        : contentType.includes('json') && format === 'json'
-          ? 'json'
-          : format || 'pdf';
-    link.download = `${filename}.${extension}`;
+    let extension = 'pdf';
+    if (contentType.includes('csv')) {
+      extension = 'csv';
+    } else if (contentType.includes('json')) {
+      extension = 'json';
+    } else if (contentType.includes('pdf')) {
+      extension = 'pdf';
+    } else if (format) {
+      extension = format;
+    }
+    const filenameBase = sanitizeFileName(state.customReportName, defaultFilename);
+    link.download = `${filenameBase}.${extension}`;
     link.click();
     URL.revokeObjectURL(url);
     const selectedEngine = state.reportEngines.find(item => item.id === engine);
     const engineLabel = selectedEngine ? selectedEngine.label : 'Reporte';
     const formatLabel = getFormatLabel(format);
     showAlert(`${engineLabel} (${formatLabel}) generado correctamente.`, 'success');
+    return true;
   } catch (error) {
     console.error('Error generando reporte:', error);
     showAlert(error.message || 'No se pudo generar el reporte.', 'danger');
+    return false;
+  } finally {
+    state.isGeneratingReport = false;
+  }
+}
+
+function populateReportPreview() {
+  const summary = state.summary;
+  if (!summary) return;
+  const empresaElement = document.getElementById('previewEmpresa');
+  if (empresaElement) {
+    empresaElement.textContent = summary.companyName || summary.empresaLabel || state.selectedEmpresa || '-';
+  }
+  const engineElement = document.getElementById('previewEngine');
+  if (engineElement) {
+    const engine = state.reportEngines.find(item => item.id === state.selectedEngine);
+    engineElement.textContent = engine ? engine.label : 'Sin seleccionar';
+  }
+  const formatElement = document.getElementById('previewFormat');
+  if (formatElement) {
+    formatElement.textContent = getFormatLabel(state.selectedFormat);
+  }
+  const filenameElement = document.getElementById('previewFileName');
+  if (filenameElement) {
+    const defaultBase = summary.selectedIds && summary.selectedIds.length
+      ? summary.selectedIds.join('_')
+      : summary.baseId || 'reporte';
+    const filenameBase = sanitizeFileName(state.customReportName, defaultBase);
+    filenameElement.textContent = `${filenameBase}.${state.selectedFormat}`;
+  }
+  const poList = document.getElementById('previewPoList');
+  if (poList) {
+    const items = Array.isArray(summary.items) ? summary.items : [];
+    if (items.length === 0) {
+      poList.innerHTML = '<li class="list-group-item text-muted">Sin POs detalladas para esta selección.</li>';
+    } else {
+      poList.innerHTML = items
+        .map(item => {
+          const total = formatCurrency(item.total || 0);
+          const restante = formatCurrency(item.totals?.restante ?? 0);
+          return `
+            <li class="list-group-item d-flex justify-content-between gap-2">
+              <div>
+                <span class="fw-semibold">${escapeHtml(item.id || '')}</span>
+                <span class="text-muted">• ${escapeHtml(item.fecha || '')}</span>
+              </div>
+              <div class="text-end">
+                <span class="badge text-bg-primary-subtle text-primary-emphasis me-2">$${total}</span>
+                <span class="badge text-bg-success-subtle text-success-emphasis">Restante $${restante}</span>
+              </div>
+            </li>
+          `;
+        })
+        .join('');
+    }
+  }
+  const totalsList = document.getElementById('previewTotals');
+  if (totalsList) {
+    const totals = summary.totals || {};
+    totalsList.innerHTML = `
+      <li class="list-group-item d-flex justify-content-between">
+        <span>Total autorizado</span>
+        <span class="fw-semibold">$${formatCurrency(totals.total || 0)}</span>
+      </li>
+      <li class="list-group-item d-flex justify-content-between">
+        <span>Remisiones</span>
+        <span class="fw-semibold">$${formatCurrency(totals.totalRem || 0)}</span>
+      </li>
+      <li class="list-group-item d-flex justify-content-between">
+        <span>Facturas</span>
+        <span class="fw-semibold">$${formatCurrency(totals.totalFac || 0)}</span>
+      </li>
+      <li class="list-group-item d-flex justify-content-between">
+        <span>Disponible</span>
+        <span class="fw-semibold">$${formatCurrency(totals.restante || 0)}</span>
+      </li>
+    `;
+  }
+  const customizationContainer = document.getElementById('previewCustomization');
+  if (customizationContainer) {
+    customizationContainer.innerHTML = buildCustomizationBadgesMarkup();
+  }
+  const alertsList = document.getElementById('previewAlerts');
+  if (alertsList) {
+    const alerts = Array.isArray(summary.alerts) ? summary.alerts : [];
+    if (alerts.length === 0) {
+      alertsList.innerHTML = '<li class="list-group-item text-muted">Sin alertas registradas.</li>';
+    } else {
+      const topAlerts = alerts.slice(0, 3);
+      alertsList.innerHTML = topAlerts
+        .map(alert => `
+          <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+            <span>${escapeHtml(alert.message)}</span>
+            <span class="badge text-bg-${mapAlertType(alert.type || 'info')}">${escapeHtml((alert.type || 'info').toUpperCase())}</span>
+          </li>
+        `)
+        .join('');
+      if (alerts.length > 3) {
+        alertsList.innerHTML += `
+          <li class="list-group-item text-muted">${alerts.length - 3} alerta(s) adicional(es)...</li>
+        `;
+      }
+    }
+  }
+}
+
+async function openReportPreview(event) {
+  event?.preventDefault();
+  if (!state.selectedEmpresa || state.selectedPoIds.length === 0) {
+    showAlert('Selecciona primero una empresa y al menos una PO base.', 'warning');
+    return;
+  }
+  const formatSelect = document.getElementById('reportFormatSelect');
+  if (formatSelect) {
+    state.selectedFormat = formatSelect.value;
+  }
+  const filenameInput = document.getElementById('reportFileNameInput');
+  if (filenameInput) {
+    state.customReportName = filenameInput.value.trim();
+    saveSession('porpt-custom-report-name', state.customReportName);
+  }
+  if (!isSummarySynced()) {
+    await updateSummary({ silent: true });
+  }
+  if (!state.summary) {
+    showAlert('No fue posible preparar el resumen para la descarga.', 'danger');
+    return;
+  }
+  updateReportOverviewMeta();
+  renderCustomizationSummary();
+  renderReportSelectionOverview();
+  populateReportPreview();
+  const modalElement = document.getElementById('reportPreviewModal');
+  if (!modalElement) {
+    await generateReport();
+    return;
+  }
+  const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+  modal.show();
+}
+
+async function confirmReportDownload(event) {
+  event?.preventDefault();
+  const button = document.getElementById('confirmReportDownloadBtn');
+  const modalElement = document.getElementById('reportPreviewModal');
+  const modal = modalElement ? bootstrap.Modal.getInstance(modalElement) : null;
+  const originalContent = button ? button.innerHTML : '';
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Generando...';
+  }
+  const success = await generateReport();
+  if (button) {
+    button.disabled = false;
+    button.innerHTML = originalContent || 'Descargar ahora';
+  }
+  if (success && modal) {
+    modal.hide();
   }
 }
 
@@ -702,6 +1119,14 @@ function updateUniverseControls() {
   if (companyLabel) {
     companyLabel.textContent = state.reportSettings?.branding?.companyName || 'SITTEL';
   }
+  const formatSelect = document.getElementById('universeFormat');
+  if (formatSelect) {
+    formatSelect.value = state.universeFormat || 'pdf';
+  }
+  const filenameInput = document.getElementById('universeFileName');
+  if (filenameInput) {
+    filenameInput.value = state.universeCustomName || '';
+  }
 }
 
 function handleUniverseModeChange(mode) {
@@ -729,8 +1154,23 @@ async function generateUniverseReport(event) {
   const endDate = endInput?.value || state.universeEndDate || '';
   state.universeStartDate = startDate;
   state.universeEndDate = endDate;
+  const formatSelect = document.getElementById('universeFormat');
+  if (formatSelect) {
+    state.universeFormat = formatSelect.value;
+    saveSession('porpt-universe-format', state.universeFormat);
+  }
+  const filenameInput = document.getElementById('universeFileName');
+  if (filenameInput) {
+    state.universeCustomName = filenameInput.value.trim();
+    saveSession('porpt-universe-report-name', state.universeCustomName);
+  }
 
-  const payload = { empresa: state.selectedEmpresa, filter: { mode } };
+  const payload = {
+    empresa: state.selectedEmpresa,
+    filter: { mode },
+    format: state.universeFormat || 'pdf',
+    customization: state.customization
+  };
   if (mode === 'range') {
     if (!startDate || !endDate) {
       showAlert('Selecciona las fechas de inicio y fin para el rango.', 'warning');
@@ -773,11 +1213,22 @@ async function generateUniverseReport(event) {
       : mode === 'single'
         ? startDate
         : 'global';
-    link.download = `POrpt_universo_${suffix || 'global'}.pdf`;
+    const contentType = response.headers.get('Content-Type') || '';
+    let extension = 'pdf';
+    if (contentType.includes('csv')) {
+      extension = 'csv';
+    } else if (contentType.includes('json')) {
+      extension = 'json';
+    } else if (payload.format && payload.format !== 'pdf') {
+      extension = payload.format;
+    }
+    const baseName = sanitizeFileName(state.universeCustomName, `POrpt_universo_${suffix || 'global'}`);
+    link.download = `${baseName}.${extension}`;
     link.click();
     URL.revokeObjectURL(url);
     const label = getUniverseFilterLabel(mode, startDate || '-', endDate || '-');
-    showAlert(`Reporte universo (${label}) generado correctamente.`, 'success');
+    const formatLabel = getFormatLabel(payload.format);
+    showAlert(`Reporte universo (${label}) generado en ${formatLabel}.`, 'success');
   } catch (error) {
     console.error('Error generando reporte universo:', error);
     showAlert(error.message || 'No se pudo generar el reporte del universo.', 'danger');
@@ -852,6 +1303,7 @@ function renderReportEngineSelector() {
     label.textContent = activeEngine.label;
   }
   updateReportEngineStatus();
+  updateReportOverviewMeta();
 }
 
 function renderReportFormatSelect() {
@@ -877,6 +1329,7 @@ function renderReportFormatSelect() {
       : availableFormats[0];
   select.value = selected;
   state.selectedFormat = selected;
+  updateReportOverviewMeta();
 }
 
 function setCompaniesFieldDisabled(disabled) {
@@ -1034,11 +1487,12 @@ function renderReportSettingsForm() {
   }
   state.reportFormatsCatalog = formatCatalog;
   const customization = state.reportSettings.customization || {};
+  state.customization = mergeCustomizationSettings(customization);
   const customizationMappings = [
-    ['customIncludeCharts', customization.includeCharts !== false],
-    ['customIncludeMovements', customization.includeMovements !== false],
-    ['customIncludeObservations', customization.includeObservations !== false],
-    ['customIncludeUniverse', customization.includeUniverse !== false]
+    ['customIncludeCharts', state.customization.includeCharts !== false],
+    ['customIncludeMovements', state.customization.includeMovements !== false],
+    ['customIncludeObservations', state.customization.includeObservations !== false],
+    ['customIncludeUniverse', state.customization.includeUniverse !== false]
   ];
   customizationMappings.forEach(([id, value]) => {
     const input = document.getElementById(id);
@@ -1046,12 +1500,20 @@ function renderReportSettingsForm() {
       input.checked = value;
     }
   });
-  state.customization = {
-    includeCharts: customization.includeCharts !== false,
-    includeMovements: customization.includeMovements !== false,
-    includeObservations: customization.includeObservations !== false,
-    includeUniverse: customization.includeUniverse !== false
-  };
+  const csvCustomization = state.customization.csv || {};
+  const csvMappings = [
+    ['customCsvIncludePoResumen', csvCustomization.includePoResumen !== false],
+    ['customCsvIncludeRemisiones', csvCustomization.includeRemisiones !== false],
+    ['customCsvIncludeFacturas', csvCustomization.includeFacturas !== false],
+    ['customCsvIncludeTotales', csvCustomization.includeTotales !== false],
+    ['customCsvIncludeUniverseInfo', csvCustomization.includeUniverseInfo !== false]
+  ];
+  csvMappings.forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.checked = value;
+    }
+  });
   const mappings = [
     ['jasperCompiledDir', jasper.compiledDir || ''],
     ['jasperTemplatesDir', jasper.templatesDir || ''],
@@ -1405,7 +1867,14 @@ async function handleReportSettingsSubmit(event) {
       includeCharts: document.getElementById('customIncludeCharts')?.checked ?? true,
       includeMovements: document.getElementById('customIncludeMovements')?.checked ?? true,
       includeObservations: document.getElementById('customIncludeObservations')?.checked ?? true,
-      includeUniverse: document.getElementById('customIncludeUniverse')?.checked ?? true
+      includeUniverse: document.getElementById('customIncludeUniverse')?.checked ?? true,
+      csv: {
+        includePoResumen: document.getElementById('customCsvIncludePoResumen')?.checked ?? true,
+        includeRemisiones: document.getElementById('customCsvIncludeRemisiones')?.checked ?? true,
+        includeFacturas: document.getElementById('customCsvIncludeFacturas')?.checked ?? true,
+        includeTotales: document.getElementById('customCsvIncludeTotales')?.checked ?? true,
+        includeUniverseInfo: document.getElementById('customCsvIncludeUniverseInfo')?.checked ?? true
+      }
     },
     branding: {
       headerTitle: getInputValue('brandingHeaderTitle'),
@@ -1494,7 +1963,7 @@ async function setupDashboard() {
       selectPo(event.target.value);
     }
   });
-  document.getElementById('generateReportBtn')?.addEventListener('click', generateReport);
+  document.getElementById('generateReportBtn')?.addEventListener('click', openReportPreview);
   document.getElementById('clearSelectionBtn')?.addEventListener('click', clearSelectedPos);
   document.getElementById('selectedPoContainer')?.addEventListener('click', event => {
     const button = event.target.closest('button[data-action="remove-po"]');
@@ -1518,6 +1987,19 @@ async function setupDashboard() {
   document.getElementById('universeEndDate')?.addEventListener('change', event => {
     state.universeEndDate = event.target.value;
   });
+  const universeFormatSelect = document.getElementById('universeFormat');
+  if (universeFormatSelect) {
+    universeFormatSelect.value = state.universeFormat || 'pdf';
+    universeFormatSelect.addEventListener('change', event => {
+      state.universeFormat = event.target.value || 'pdf';
+      saveSession('porpt-universe-format', state.universeFormat);
+    });
+  }
+  const universeFileInput = document.getElementById('universeFileName');
+  if (universeFileInput) {
+    universeFileInput.value = state.universeCustomName || '';
+    universeFileInput.addEventListener('input', handleUniverseFileNameChange);
+  }
   document.getElementById('generateUniverseReportBtn')?.addEventListener('click', generateUniverseReport);
   handleUniverseModeChange(state.universeFilterMode);
   updateUniverseControls();
@@ -1531,8 +2013,20 @@ async function setupDashboard() {
   const formatSelect = document.getElementById('reportFormatSelect');
   formatSelect?.addEventListener('change', event => {
     state.selectedFormat = event.target.value;
+    updateReportOverviewMeta();
   });
+  const reportNameInput = document.getElementById('reportFileNameInput');
+  if (reportNameInput) {
+    reportNameInput.value = state.customReportName || '';
+    reportNameInput.addEventListener('input', handleReportFileNameChange);
+  }
+  document.getElementById('confirmReportDownloadBtn')?.addEventListener('click', confirmReportDownload);
   await loadReportSettings();
+  applySavedCustomization();
+  setupCustomizationControls();
+  renderCustomizationSummary();
+  updateReportOverviewMeta();
+  renderReportSelectionOverview();
   showAlert('Selecciona empresa y PO para visualizar el tablero.', 'info', 9000);
 }
 
