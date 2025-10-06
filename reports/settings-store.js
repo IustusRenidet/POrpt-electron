@@ -3,6 +3,7 @@ const path = require('path');
 
 const SETTINGS_FILE = path.join(__dirname, 'report-settings.json');
 const ALLOWED_ENGINES = ['jasper', 'simple-pdf'];
+const ALLOWED_FORMATS = ['pdf', 'csv', 'json'];
 
 const defaultSettings = {
   defaultEngine: 'jasper',
@@ -14,6 +15,16 @@ const defaultSettings = {
     defaultReport: '',
     dataSourceName: '',
     jsonQuery: ''
+  },
+  export: {
+    defaultFormat: 'pdf',
+    availableFormats: ['pdf', 'csv', 'json']
+  },
+  customization: {
+    includeCharts: true,
+    includeMovements: true,
+    includeObservations: true,
+    includeUniverse: true
   },
   branding: {
     headerTitle: 'Reporte de PEOs - Consumo',
@@ -79,11 +90,34 @@ function sanitizeBrandingConfig(branding = {}) {
   };
 }
 
+function sanitizeExportConfig(exportConfig = {}) {
+  const catalog = Array.isArray(exportConfig.availableFormats)
+    ? exportConfig.availableFormats.filter(format => ALLOWED_FORMATS.includes(format))
+    : defaultSettings.export.availableFormats;
+  const unique = Array.from(new Set(['pdf', ...catalog]));
+  const defaultFormat = ALLOWED_FORMATS.includes(exportConfig.defaultFormat) ? exportConfig.defaultFormat : unique[0];
+  return {
+    defaultFormat,
+    availableFormats: unique
+  };
+}
+
+function sanitizeCustomizationConfig(customization = {}) {
+  return {
+    includeCharts: customization.includeCharts !== false,
+    includeMovements: customization.includeMovements !== false,
+    includeObservations: customization.includeObservations !== false,
+    includeUniverse: customization.includeUniverse !== false
+  };
+}
+
 function normalizeSettings(rawSettings = {}) {
   const merged = {
     ...defaultSettings,
     ...rawSettings,
     jasper: sanitizeJasperConfig(rawSettings.jasper),
+    export: sanitizeExportConfig(rawSettings.export),
+    customization: sanitizeCustomizationConfig(rawSettings.customization),
     branding: sanitizeBrandingConfig(rawSettings.branding)
   };
 
@@ -146,6 +180,14 @@ function updateSettings(partial = {}) {
       ...current.jasper,
       ...(partial.jasper || {})
     },
+    export: sanitizeExportConfig({
+      ...current.export,
+      ...(partial.export || {})
+    }),
+    customization: sanitizeCustomizationConfig({
+      ...current.customization,
+      ...(partial.customization || {})
+    }),
     branding: sanitizeBrandingConfig({
       ...current.branding,
       ...(partial.branding || {})
@@ -156,6 +198,7 @@ function updateSettings(partial = {}) {
 
 module.exports = {
   ALLOWED_ENGINES,
+  ALLOWED_FORMATS,
   SETTINGS_FILE,
   defaultSettings,
   loadSettings,

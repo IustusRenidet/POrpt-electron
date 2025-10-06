@@ -7,8 +7,9 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const jasperManager = require('./reports/jasper');
 const simplePdf = require('./reports/simple-pdf');
+const exporters = require('./reports/exporters');
 const reportSettingsStore = require('./reports/settings-store');
-const { ALLOWED_ENGINES } = reportSettingsStore;
+const { ALLOWED_ENGINES, ALLOWED_FORMATS } = reportSettingsStore;
 
 const ADMIN_HEADER = 'x-porpt-admin';
 let sqliteDb;
@@ -894,7 +895,8 @@ app.get('/report-settings', async (req, res) => {
           available: jasperAvailable
         }
       },
-      engines
+      engines,
+      formats: ALLOWED_FORMATS
     });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Error leyendo configuración de reportes: ' + err.message });
@@ -923,6 +925,34 @@ app.put('/report-settings', async (req, res) => {
         }
       });
       updates.jasper = jasper;
+    }
+
+    if (payload.export) {
+      const exportCfg = {};
+      if (payload.export.defaultFormat && ALLOWED_FORMATS.includes(payload.export.defaultFormat)) {
+        exportCfg.defaultFormat = payload.export.defaultFormat;
+      }
+      if (Array.isArray(payload.export.availableFormats)) {
+        const filtered = payload.export.availableFormats.filter(format => ALLOWED_FORMATS.includes(format));
+        if (filtered.length) {
+          exportCfg.availableFormats = Array.from(new Set(['pdf', ...filtered]));
+        }
+      }
+      if (Object.keys(exportCfg).length) {
+        updates.export = exportCfg;
+      }
+    }
+
+    if (payload.customization) {
+      const customization = {};
+      ['includeCharts', 'includeMovements', 'includeObservations', 'includeUniverse'].forEach(key => {
+        if (payload.customization[key] !== undefined) {
+          customization[key] = !!payload.customization[key];
+        }
+      });
+      if (Object.keys(customization).length) {
+        updates.customization = customization;
+      }
     }
 
     if (payload.branding) {
@@ -961,7 +991,12 @@ app.put('/report-settings', async (req, res) => {
       }
     ];
 
-    res.json({ success: true, settings: { ...updatedSettings, jasper: { ...updatedSettings.jasper, available: jasperAvailable } }, engines });
+    res.json({
+      success: true,
+      settings: { ...updatedSettings, jasper: { ...updatedSettings.jasper, available: jasperAvailable } },
+      engines,
+      formats: ALLOWED_FORMATS
+    });
   } catch (err) {
     console.error('Error actualizando configuración de reportes:', err);
     res.status(500).json({ success: false, message: 'No se pudo actualizar la configuración de reportes: ' + err.message });
@@ -982,7 +1017,7 @@ app.post('/report-universe', async (req, res) => {
     if (!simplePdf.isAvailable()) {
       return res.status(503).json({ success: false, message: simplePdf.getUnavailableMessage() });
     }
-    const buffer = await simplePdf.generate(summary, settings.branding || {});
+    const buffer = await simplePdf.generate(summary, settings.branding || {}, settings.customization || {});
     res.set('Content-Type', 'application/pdf');
     const rawLabel = summary.universe?.shortLabel || 'global';
     const sanitized = rawLabel.replace(/[^0-9a-zA-Z_-]+/gu, '-');
@@ -996,7 +1031,7 @@ app.post('/report-universe', async (req, res) => {
 });
 
 app.post('/report', async (req, res) => {
-  const { empresa, poId, poIds, engine: requestedEngine } = req.body || {};
+  const { empresa, poId, poIds, engine: requestedEngine, format: requestedFormat } = req.body || {};
   const ids = Array.isArray(poIds) && poIds.length ? poIds : poId ? [poId] : [];
   if (!empresa || ids.length === 0) {
     return res.status(400).json({ success: false, message: 'Empresa y PO son obligatorios para el reporte' });
@@ -1008,19 +1043,50 @@ app.post('/report', async (req, res) => {
       summary.companyName = settings.branding.companyName;
     }
     const engine = ALLOWED_ENGINES.includes(requestedEngine) ? requestedEngine : settings.defaultEngine;
+    const availableFormats = Array.isArray(settings.export?.availableFormats)
+      ? settings.export.availableFormats.filter(item => ALLOWED_FORMATS.includes(item))
+      : ['pdf'];
+    if (!availableFormats.includes('pdf')) {
+      availableFormats.unshift('pdf');
+    }
+    const normalizedRequestFormat = typeof requestedFormat === 'string' ? requestedFormat.toLowerCase() : '';
+    const defaultFormat = availableFormats.includes(settings.export?.defaultFormat)
+      ? settings.export.defaultFormat
+      : 'pdf';
+    let format = availableFormats.includes(normalizedRequestFormat) ? normalizedRequestFormat : defaultFormat;
+    if (engine === 'jasper' && format !== 'pdf') {
+      format = 'pdf';
+    }
+    const filenameBase = summary.selectedIds && summary.selectedIds.length
+      ? summary.selectedIds.join('_')
+      : summary.baseId || 'reporte';
 
     if (engine === 'simple-pdf') {
-      if (!simplePdf.isAvailable()) {
+      if (format === 'pdf' && !simplePdf.isAvailable()) {
         return res.status(503).json({
           success: false,
           message: simplePdf.getUnavailableMessage()
         });
       }
-      const buffer = await simplePdf.generate(summary, settings.branding || {});
+      if (format === 'csv') {
+        const buffer = exporters.createCsv(summary);
+        res.set('Content-Type', 'text/csv; charset=utf-8');
+        res.set('Content-Disposition', `attachment; filename=${filenameBase}.csv`);
+        return res.send(buffer);
+      }
+      if (format === 'json') {
+        const buffer = exporters.createJson(summary, {
+          engine,
+          format,
+          empresa,
+          selectedIds: summary.selectedIds
+        });
+        res.set('Content-Type', 'application/json');
+        res.set('Content-Disposition', `attachment; filename=${filenameBase}.json`);
+        return res.send(buffer);
+      }
+      const buffer = await simplePdf.generate(summary, settings.branding || {}, settings.customization || {});
       res.set('Content-Type', 'application/pdf');
-      const filenameBase = summary.selectedIds && summary.selectedIds.length
-        ? summary.selectedIds.join('_')
-        : summary.baseId || 'reporte';
       res.set('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
       return res.send(buffer);
     }
@@ -1042,9 +1108,6 @@ app.post('/report', async (req, res) => {
 
     const buffer = await jasperManager.generatePoSummary(jasper, summary);
     res.set('Content-Type', 'application/pdf');
-    const filenameBase = summary.selectedIds && summary.selectedIds.length
-      ? summary.selectedIds.join('_')
-      : summary.baseId || 'reporte';
     res.set('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
     res.send(buffer);
   } catch (err) {

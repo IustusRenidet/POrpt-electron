@@ -9,6 +9,20 @@
     "dataSourceName": "poSummaryJson",
     "jsonQuery": "summary.items"
   },
+  "export": {
+    "defaultFormat": "pdf",
+    "availableFormats": [
+      "pdf",
+      "csv",
+      "json"
+    ]
+  },
+  "customization": {
+    "includeCharts": true,
+    "includeMovements": true,
+    "includeObservations": true,
+    "includeUniverse": true
+  },
   "branding": {
     "headerTitle": "Reporte de PEOs - Consumo",
     "headerSubtitle": "",

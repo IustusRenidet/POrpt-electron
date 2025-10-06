@@ -9,6 +9,14 @@ const state = {
   reportSettings: null,
   reportEngines: [],
   selectedEngine: '',
+  reportFormatsCatalog: [],
+  selectedFormat: 'pdf',
+  customization: {
+    includeCharts: true,
+    includeMovements: true,
+    includeObservations: true,
+    includeUniverse: true
+  },
   editingUserId: null,
   universeFilterMode: 'global',
   universeStartDate: '',
@@ -99,6 +107,26 @@ function destroyCharts() {
 
 function formatCurrency(value) {
   return value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const FORMAT_LABEL_MAP = {
+  pdf: 'PDF (predeterminado)',
+  csv: 'CSV (hoja de cálculo)',
+  json: 'JSON (datos crudos)'
+};
+
+const FORMAT_DESCRIPTION_MAP = {
+  csv: 'Ideal para abrir en Excel u hojas de cálculo.',
+  json: 'Incluye toda la información del resumen en formato estructurado.'
+};
+
+function getFormatLabel(format) {
+  if (!format) return 'Formato';
+  return FORMAT_LABEL_MAP[format] || format.toUpperCase();
+}
+
+function getFormatDescription(format) {
+  return FORMAT_DESCRIPTION_MAP[format] || '';
 }
 
 async function login(event) {
@@ -585,10 +613,15 @@ async function generateReport() {
   }
   try {
     const engine = state.selectedEngine || state.reportSettings?.defaultEngine || 'jasper';
+    const formatSelect = document.getElementById('reportFormatSelect');
+    if (formatSelect) {
+      state.selectedFormat = formatSelect.value;
+    }
+    const format = state.selectedFormat || state.reportSettings?.export?.defaultFormat || 'pdf';
     const response = await fetch('/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ empresa: state.selectedEmpresa, poIds: state.selectedPoIds, engine })
+      body: JSON.stringify({ empresa: state.selectedEmpresa, poIds: state.selectedPoIds, engine, format })
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Error generando reporte' }));
@@ -601,12 +634,21 @@ async function generateReport() {
     const filename = state.selectedPoIds.length === 1
       ? `POrpt_${state.selectedPoIds[0]}`
       : `POrpt_${state.selectedPoIds.length}_POs`;
-    link.download = `${filename}.pdf`;
+    const contentType = response.headers.get('Content-Type') || '';
+    const extension = contentType.includes('pdf')
+      ? 'pdf'
+      : contentType.includes('csv')
+        ? 'csv'
+        : contentType.includes('json') && format === 'json'
+          ? 'json'
+          : format || 'pdf';
+    link.download = `${filename}.${extension}`;
     link.click();
     URL.revokeObjectURL(url);
     const selectedEngine = state.reportEngines.find(item => item.id === engine);
     const engineLabel = selectedEngine ? selectedEngine.label : 'Reporte';
-    showAlert(`${engineLabel} generado correctamente.`, 'success');
+    const formatLabel = getFormatLabel(format);
+    showAlert(`${engineLabel} (${formatLabel}) generado correctamente.`, 'success');
   } catch (error) {
     console.error('Error generando reporte:', error);
     showAlert(error.message || 'No se pudo generar el reporte.', 'danger');
@@ -812,6 +854,31 @@ function renderReportEngineSelector() {
   updateReportEngineStatus();
 }
 
+function renderReportFormatSelect() {
+  const select = document.getElementById('reportFormatSelect');
+  if (!select) return;
+  const availableFormats = (Array.isArray(state.reportSettings?.export?.availableFormats)
+    ? state.reportSettings.export.availableFormats
+    : ['pdf']).filter(format => {
+    if (!state.reportFormatsCatalog || state.reportFormatsCatalog.length === 0) return true;
+    return state.reportFormatsCatalog.includes(format);
+  });
+  if (availableFormats.length === 0) {
+    availableFormats.push('pdf');
+  }
+  select.innerHTML = availableFormats
+    .map(format => `<option value="${format}">${getFormatLabel(format)}</option>`)
+    .join('');
+  const defaultFormat = state.reportSettings?.export?.defaultFormat;
+  const selected = availableFormats.includes(state.selectedFormat)
+    ? state.selectedFormat
+    : availableFormats.includes(defaultFormat)
+      ? defaultFormat
+      : availableFormats[0];
+  select.value = selected;
+  state.selectedFormat = selected;
+}
+
 function setCompaniesFieldDisabled(disabled) {
   const input = document.getElementById('userCompanies');
   if (input) {
@@ -870,6 +937,49 @@ function toggleBrandingLetterheadFields(disabled) {
   });
 }
 
+function parseDialogFilters(filtersAttr) {
+  if (!filtersAttr) return undefined;
+  try {
+    const parsed = JSON.parse(filtersAttr);
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch (error) {
+    console.warn('No se pudieron interpretar los filtros del selector de archivos:', error);
+    return undefined;
+  }
+}
+
+function setupPathPickers(root = document) {
+  if (!root) return;
+  const buttons = root.querySelectorAll('[data-select-path]');
+  buttons.forEach(button => {
+    button.addEventListener('click', async () => {
+      if (!window.electronAPI || typeof window.electronAPI.selectPath !== 'function') {
+        showAlert('El selector nativo no está disponible en esta versión. Ingresa la ruta manualmente.', 'info');
+        return;
+      }
+      const targetId = button.getAttribute('data-select-target');
+      if (!targetId) return;
+      const input = document.getElementById(targetId);
+      const type = button.getAttribute('data-select-type') || 'file';
+      const filters = parseDialogFilters(button.getAttribute('data-select-filters'));
+      try {
+        const selectedPath = await window.electronAPI.selectPath({
+          type,
+          defaultPath: input?.value || undefined,
+          filters
+        });
+        if (selectedPath && input) {
+          input.value = selectedPath;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      } catch (error) {
+        console.error('Error al seleccionar ruta:', error);
+        showAlert('No se pudo abrir el selector de archivos.', 'danger');
+      }
+    });
+  });
+}
+
 function renderReportSettingsForm() {
   const form = document.getElementById('reportSettingsForm');
   if (!form || !state.reportSettings) return;
@@ -885,6 +995,63 @@ function renderReportSettingsForm() {
   if (jasperEnabledInput) {
     jasperEnabledInput.checked = jasper.enabled !== false;
   }
+  const exportCfg = state.reportSettings.export || {};
+  const formatCatalog = Array.isArray(state.reportFormatsCatalog) && state.reportFormatsCatalog.length
+    ? state.reportFormatsCatalog
+    : Array.from(new Set(['pdf', ...(Array.isArray(exportCfg.availableFormats) ? exportCfg.availableFormats : [])]));
+  const availableFormats = (Array.isArray(exportCfg.availableFormats) && exportCfg.availableFormats.length
+    ? exportCfg.availableFormats
+    : ['pdf']).filter(format => formatCatalog.includes(format));
+  const defaultFormat = formatCatalog.includes(exportCfg.defaultFormat)
+    ? exportCfg.defaultFormat
+    : availableFormats[0] || formatCatalog[0] || 'pdf';
+  const defaultFormatSelect = document.getElementById('exportDefaultFormat');
+  if (defaultFormatSelect) {
+    defaultFormatSelect.innerHTML = formatCatalog
+      .map(format => `<option value="${format}">${getFormatLabel(format)}</option>`)
+      .join('');
+    defaultFormatSelect.value = defaultFormat;
+  }
+  const formatsContainer = document.getElementById('exportFormatsContainer');
+  if (formatsContainer) {
+    formatsContainer.innerHTML = formatCatalog
+      .map(format => {
+        const id = `exportFormat-${format}`;
+        const checked = format === 'pdf' ? true : availableFormats.includes(format);
+        const disabledAttr = format === 'pdf' ? ' disabled' : '';
+        const description = getFormatDescription(format);
+        return `
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="${id}" value="${format}" data-format-option ${checked ? 'checked' : ''}${disabledAttr}>
+            <label class="form-check-label" for="${id}">${getFormatLabel(format)}${description ? `<span class="d-block small text-muted">${description}</span>` : ''}</label>
+          </div>
+        `;
+      })
+      .join('');
+  }
+  if (!availableFormats.includes(state.selectedFormat)) {
+    state.selectedFormat = defaultFormat;
+  }
+  state.reportFormatsCatalog = formatCatalog;
+  const customization = state.reportSettings.customization || {};
+  const customizationMappings = [
+    ['customIncludeCharts', customization.includeCharts !== false],
+    ['customIncludeMovements', customization.includeMovements !== false],
+    ['customIncludeObservations', customization.includeObservations !== false],
+    ['customIncludeUniverse', customization.includeUniverse !== false]
+  ];
+  customizationMappings.forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.checked = value;
+    }
+  });
+  state.customization = {
+    includeCharts: customization.includeCharts !== false,
+    includeMovements: customization.includeMovements !== false,
+    includeObservations: customization.includeObservations !== false,
+    includeUniverse: customization.includeUniverse !== false
+  };
   const mappings = [
     ['jasperCompiledDir', jasper.compiledDir || ''],
     ['jasperTemplatesDir', jasper.templatesDir || ''],
@@ -925,6 +1092,7 @@ function renderReportSettingsForm() {
   }
   toggleBrandingLetterheadFields(!(branding.letterheadEnabled === true));
   updateJasperStatusBadge();
+  renderReportFormatSelect();
 }
 
 async function loadReportSettings(options = {}) {
@@ -937,10 +1105,15 @@ async function loadReportSettings(options = {}) {
     }
     state.reportSettings = data.settings;
     state.reportEngines = Array.isArray(data.engines) ? data.engines : [];
+    state.reportFormatsCatalog = Array.isArray(data.formats) ? data.formats : state.reportFormatsCatalog;
+    if (state.reportSettings?.export?.defaultFormat) {
+      state.selectedFormat = state.reportSettings.export.defaultFormat;
+    }
     if (!state.selectedEngine || !state.reportEngines.some(engine => engine.id === state.selectedEngine)) {
       state.selectedEngine = state.reportSettings?.defaultEngine || state.reportEngines[0]?.id;
     }
     renderReportEngineSelector();
+    renderReportFormatSelect();
     updateUniverseControls();
     if (requireAdmin) {
       renderReportSettingsForm();
@@ -1223,6 +1396,17 @@ async function handleReportSettingsSubmit(event) {
       dataSourceName: getInputValue('jasperDataSource'),
       jsonQuery: getInputValue('jasperJsonQuery')
     },
+    export: {
+      defaultFormat: document.getElementById('exportDefaultFormat')?.value || 'pdf',
+      availableFormats: Array.from(document.querySelectorAll('#exportFormatsContainer input[data-format-option]:checked'))
+        .map(input => input.value)
+    },
+    customization: {
+      includeCharts: document.getElementById('customIncludeCharts')?.checked ?? true,
+      includeMovements: document.getElementById('customIncludeMovements')?.checked ?? true,
+      includeObservations: document.getElementById('customIncludeObservations')?.checked ?? true,
+      includeUniverse: document.getElementById('customIncludeUniverse')?.checked ?? true
+    },
     branding: {
       headerTitle: getInputValue('brandingHeaderTitle'),
       headerSubtitle: getInputValue('brandingHeaderSubtitle'),
@@ -1237,6 +1421,9 @@ async function handleReportSettingsSubmit(event) {
       accentColor: document.getElementById('brandingAccentColor')?.value
     }
   };
+  if (!payload.export.availableFormats.includes('pdf')) {
+    payload.export.availableFormats.unshift('pdf');
+  }
   try {
     const response = await adminFetch('/report-settings', {
       method: 'PUT',
@@ -1249,9 +1436,14 @@ async function handleReportSettingsSubmit(event) {
     }
     state.reportSettings = data.settings;
     state.reportEngines = Array.isArray(data.engines) ? data.engines : [];
+    state.reportFormatsCatalog = Array.isArray(data.formats) ? data.formats : state.reportFormatsCatalog;
+    if (state.reportSettings?.export?.defaultFormat) {
+      state.selectedFormat = state.reportSettings.export.defaultFormat;
+    }
     state.selectedEngine = state.reportSettings.defaultEngine;
     renderReportSettingsForm();
     renderReportEngineSelector();
+    renderReportFormatSelect();
     showAlert('Configuración de reportes actualizada.', 'success');
   } catch (error) {
     console.error('Error guardando configuración de reportes:', error);
@@ -1336,6 +1528,10 @@ async function setupDashboard() {
     state.selectedEngine = button.getAttribute('data-engine');
     renderReportEngineSelector();
   });
+  const formatSelect = document.getElementById('reportFormatSelect');
+  formatSelect?.addEventListener('change', event => {
+    state.selectedFormat = event.target.value;
+  });
   await loadReportSettings();
   showAlert('Selecciona empresa y PO para visualizar el tablero.', 'info', 9000);
 }
@@ -1360,6 +1556,7 @@ async function setupReportSettings() {
   document.getElementById('brandingLetterheadEnabled')?.addEventListener('change', event => {
     toggleBrandingLetterheadFields(!event.target.checked);
   });
+  setupPathPickers();
   showAlert('Actualiza los motores de reporte y la identidad visual desde este panel.', 'info', 7000);
 }
 
