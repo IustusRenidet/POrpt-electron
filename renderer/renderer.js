@@ -125,9 +125,78 @@ function destroyCharts() {
   state.charts.clear();
 }
 
-function formatCurrency(value) {
-  return value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function normalizeNumber(value) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
 }
+
+function roundTo(value, decimals = 2) {
+  const factor = 10 ** decimals;
+  return Math.round(normalizeNumber(value) * factor) / factor;
+}
+
+function clampPercentage(value, decimals = 2) {
+  const normalized = roundTo(value, decimals);
+  return Math.min(100, Math.max(0, normalized));
+}
+
+function formatCurrency(value) {
+  const amount = normalizeNumber(value);
+  return amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatPercentageValue(value, decimals = 2) {
+  return roundTo(value, decimals).toFixed(decimals);
+}
+
+function formatPercentageLabel(value, decimals = 2) {
+  return `${formatPercentageValue(value, decimals)}%`;
+}
+
+function computePercentagesFromTotals(totals = {}) {
+  const total = normalizeNumber(totals.total);
+  if (total <= 0) {
+    return { rem: 0, fac: 0, rest: 0 };
+  }
+  const totalRem = normalizeNumber(totals.totalRem);
+  const totalFac = normalizeNumber(totals.totalFac);
+  const restanteAmount = normalizeNumber(
+    totals.restante != null ? totals.restante : total - (totalRem + totalFac)
+  );
+  const rem = clampPercentage((totalRem / total) * 100);
+  const fac = clampPercentage((totalFac / total) * 100);
+  let rest = clampPercentage((restanteAmount / total) * 100);
+  if (roundTo(rem + fac + rest, 2) !== 100) {
+    rest = clampPercentage(100 - (rem + fac));
+  }
+  return { rem, fac, rest };
+}
+
+function getTotalsWithDefaults(totals) {
+  return {
+    total: 0,
+    totalRem: 0,
+    totalFac: 0,
+    totalConsumo: 0,
+    restante: 0,
+    porcRem: 0,
+    porcFac: 0,
+    porcRest: 0,
+    ...(totals || {})
+  };
+}
+
+const AXIS_CURRENCY_FORMATTER = new Intl.NumberFormat('es-MX', {
+  style: 'currency',
+  currency: 'MXN',
+  maximumFractionDigits: 0
+});
+
+const CHART_COLORS = {
+  rem: '#2563eb',
+  fac: '#f97316',
+  rest: '#16a34a'
+};
 
 const FORMAT_LABEL_MAP = {
   pdf: 'PDF (predeterminado)',
@@ -381,7 +450,25 @@ async function selectPo(poId) {
 function renderSummaryCards(summary) {
   const container = document.getElementById('summaryCards');
   if (!container) return;
-  const totals = summary.totals;
+  const rawTotals = getTotalsWithDefaults(summary.totals);
+  const total = normalizeNumber(rawTotals.total);
+  const totalRem = normalizeNumber(rawTotals.totalRem);
+  const totalFac = normalizeNumber(rawTotals.totalFac);
+  const restante = rawTotals.restante != null
+    ? normalizeNumber(rawTotals.restante)
+    : Math.max(total - (totalRem + totalFac), 0);
+  const totalConsumo = rawTotals.totalConsumo != null
+    ? normalizeNumber(rawTotals.totalConsumo)
+    : roundTo(totalRem + totalFac);
+  const totals = {
+    ...rawTotals,
+    total,
+    totalRem,
+    totalFac,
+    restante,
+    totalConsumo
+  };
+  const percentages = computePercentagesFromTotals(totals);
   const selectionCount = (summary.selectedIds || []).length || 0;
   const selectionLabel = selectionCount === 1
     ? '1 PEO base (extensiones incluidas)'
@@ -402,7 +489,7 @@ function renderSummaryCards(summary) {
         <div class="card-body">
           <h5 class="card-title text-info">Consumo acumulado</h5>
           <p class="display-6 fw-bold">$${formatCurrency(totals.totalConsumo)}</p>
-          <p class="text-muted mb-0">${totals.porcRem.toFixed(2)}% Remisiones · ${totals.porcFac.toFixed(2)}% Facturas</p>
+          <p class="text-muted mb-0">${formatPercentageLabel(percentages.rem)} Remisiones · ${formatPercentageLabel(percentages.fac)} Facturas</p>
         </div>
       </div>
     </div>
@@ -411,7 +498,7 @@ function renderSummaryCards(summary) {
         <div class="card-body">
           <h5 class="card-title text-success">Disponible</h5>
           <p class="display-6 fw-bold">$${formatCurrency(totals.restante)}</p>
-          <p class="text-muted mb-0">${totals.porcRest.toFixed(2)}% restante del presupuesto autorizado.</p>
+          <p class="text-muted mb-0">${formatPercentageLabel(percentages.rest)} restante del presupuesto autorizado.</p>
         </div>
       </div>
     </div>
@@ -446,19 +533,34 @@ function renderTable(summary) {
         adjustmentDetails.push(subtotalHtml);
       }
       const totalCellDetails = adjustmentDetails.join('');
+      const totals = getTotalsWithDefaults(item.totals);
+      const totalBase = normalizeNumber(totals.total || totalAmount);
+      const totalRem = normalizeNumber(totals.totalRem);
+      const totalFac = normalizeNumber(totals.totalFac);
+      const restante = totals.restante != null
+        ? normalizeNumber(totals.restante)
+        : Math.max(totalBase - (totalRem + totalFac), 0);
+      const normalizedTotals = {
+        ...totals,
+        total: totalBase,
+        totalRem,
+        totalFac,
+        restante
+      };
+      const percentages = computePercentagesFromTotals(normalizedTotals);
       return `
       <tr data-po="${item.id}">
         <td class="fw-semibold">${item.id}</td>
         <td>${item.fecha || '-'}</td>
         <td>$${formatCurrency(totalAmount)}${totalCellDetails}</td>
-        <td>$${formatCurrency(item.totals.totalRem)} (${item.totals.porcRem.toFixed(2)}%)</td>
-        <td>$${formatCurrency(item.totals.totalFac)} (${item.totals.porcFac.toFixed(2)}%)</td>
-        <td>$${formatCurrency(item.totals.restante)} (${item.totals.porcRest.toFixed(2)}%)</td>
+        <td>$${formatCurrency(normalizedTotals.totalRem)} (${formatPercentageLabel(percentages.rem)})</td>
+        <td>$${formatCurrency(normalizedTotals.totalFac)} (${formatPercentageLabel(percentages.fac)})</td>
+        <td>$${formatCurrency(normalizedTotals.restante)} (${formatPercentageLabel(percentages.rest)})</td>
         <td>
           <button class="btn btn-outline-primary btn-sm" data-po="${item.id}" data-action="show-modal">Detalle</button>
         </td>
       </tr>
-    `;
+      `;
     })
     .join('');
   table.innerHTML = `
@@ -551,115 +653,235 @@ function attachTableHandlers(summary) {
 
 function renderCharts(summary) {
   destroyCharts();
-  const items = summary.items;
+  const items = summary.items || [];
   if (!items.length) return;
-  const remLabels = items.map(item => item.id);
-  const remData = items.map(item => Number(item.totals.totalRem.toFixed(2)));
-  const facData = items.map(item => Number(item.totals.totalFac.toFixed(2)));
+
+  const entries = items.map(item => {
+    const totals = getTotalsWithDefaults(item.totals);
+    const totalBase = normalizeNumber(totals.total || item.total);
+    const restante = totals.restante != null
+      ? normalizeNumber(totals.restante)
+      : Math.max(totalBase - (normalizeNumber(totals.totalRem) + normalizeNumber(totals.totalFac)), 0);
+    const normalizedTotals = {
+      ...totals,
+      total: totalBase,
+      restante
+    };
+    return {
+      label: item.id,
+      total: roundTo(totalBase),
+      totalRem: roundTo(normalizedTotals.totalRem),
+      totalFac: roundTo(normalizedTotals.totalFac),
+      restante: roundTo(restante),
+      percentages: computePercentagesFromTotals(normalizedTotals)
+    };
+  });
+
+  const labels = entries.map(entry => entry.label);
   const ctxRem = document.getElementById('chartRem');
   const ctxFac = document.getElementById('chartFac');
   const ctxStack = document.getElementById('chartJunto');
-  if (ctxRem) {
-    state.charts.set('rem', new Chart(ctxRem.getContext('2d'), {
+
+  const barChartsMeta = [
+    { canvas: ctxRem, key: 'rem', amountKey: 'totalRem', percKey: 'rem', label: 'Remisiones', color: CHART_COLORS.rem },
+    { canvas: ctxFac, key: 'fac', amountKey: 'totalFac', percKey: 'fac', label: 'Facturas', color: CHART_COLORS.fac }
+  ];
+
+  barChartsMeta.forEach(meta => {
+    if (!meta.canvas) return;
+    const dataset = {
+      label: `${meta.label} ($)`,
+      data: entries.map(entry => entry[meta.amountKey]),
+      backgroundColor: meta.color,
+      borderRadius: 8,
+      maxBarThickness: 48
+    };
+    const chart = new Chart(meta.canvas.getContext('2d'), {
       type: 'bar',
-      data: {
-        labels: remLabels,
-        datasets: [{
-          label: 'Remisiones ($)',
-          data: remData,
-          backgroundColor: '#2563eb'
-        }]
-      },
+      data: { labels, datasets: [dataset] },
       options: {
         responsive: true,
-        plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true } }
-      }
-    }));
-  }
-  if (ctxFac) {
-    state.charts.set('fac', new Chart(ctxFac.getContext('2d'), {
-      type: 'bar',
-      data: {
-        labels: remLabels,
-        datasets: [{
-          label: 'Facturas ($)',
-          data: facData,
-          backgroundColor: '#f97316'
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true } }
-      }
-    }));
-  }
-  if (ctxStack) {
-    state.charts.set('stack', new Chart(ctxStack.getContext('2d'), {
-      type: 'bar',
-      data: {
-        labels: remLabels,
-        datasets: [
-          {
-            label: 'Remisiones %',
-            data: items.map(item => Number(item.totals.porcRem.toFixed(2))),
-            backgroundColor: '#2563eb'
-          },
-          {
-            label: 'Facturas %',
-            data: items.map(item => Number(item.totals.porcFac.toFixed(2))),
-            backgroundColor: '#f97316'
-          },
-          {
-            label: 'Disponible %',
-            data: items.map(item => Number(item.totals.porcRest.toFixed(2))),
-            backgroundColor: '#16a34a'
+        maintainAspectRatio: false,
+        animation: { duration: 400 },
+        layout: { padding: { top: 12, right: 16, bottom: 12, left: 8 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title(context) {
+                return entries[context[0].dataIndex].label;
+              },
+              label(context) {
+                const entry = entries[context.dataIndex];
+                return `${meta.label}: $${formatCurrency(entry[meta.amountKey])} (${formatPercentageLabel(entry.percentages[meta.percKey])})`;
+              }
+            }
           }
-        ]
-      },
-      options: {
-        responsive: true,
+        },
         scales: {
-          x: { stacked: true },
-          y: { stacked: true, beginAtZero: true, max: 100 }
+          x: {
+            grid: { display: false },
+            ticks: { color: '#475569' }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(148, 163, 184, 0.25)', borderDash: [4, 4] },
+            ticks: {
+              color: '#475569',
+              callback: value => AXIS_CURRENCY_FORMATTER.format(value)
+            }
+          }
         }
       }
-    }));
+    });
+    state.charts.set(meta.key, chart);
+  });
+
+  if (ctxStack) {
+    const stackMeta = [
+      { label: 'Remisiones', percKey: 'rem', amountKey: 'totalRem', color: CHART_COLORS.rem },
+      { label: 'Facturas', percKey: 'fac', amountKey: 'totalFac', color: CHART_COLORS.fac },
+      { label: 'Disponible', percKey: 'rest', amountKey: 'restante', color: CHART_COLORS.rest }
+    ];
+    const chart = new Chart(ctxStack.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: stackMeta.map(meta => ({
+          label: `${meta.label} %`,
+          data: entries.map(entry => entry.percentages[meta.percKey]),
+          backgroundColor: meta.color,
+          borderRadius: 6,
+          stack: 'total'
+        }))
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 12, right: 16, bottom: 8, left: 8 } },
+        animation: { duration: 400 },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { usePointStyle: true, padding: 16 }
+          },
+          tooltip: {
+            callbacks: {
+              title(context) {
+                return entries[context[0].dataIndex].label;
+              },
+              label(context) {
+                const meta = stackMeta[context.datasetIndex];
+                const entry = entries[context.dataIndex];
+                return `${meta.label}: $${formatCurrency(entry[meta.amountKey])} (${formatPercentageLabel(entry.percentages[meta.percKey])})`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            stacked: true,
+            grid: { display: false },
+            ticks: { color: '#475569' }
+          },
+          y: {
+            stacked: true,
+            beginAtZero: true,
+            max: 100,
+            grid: { color: 'rgba(148, 163, 184, 0.25)', borderDash: [4, 4] },
+            ticks: {
+              color: '#475569',
+              callback: value => `${formatPercentageValue(value)}%`
+            }
+          }
+        }
+      }
+    });
+    state.charts.set('stack', chart);
   }
+
   const extensionContainer = document.getElementById('extensionsContainer');
   if (extensionContainer) {
+    const donutMeta = [
+      { label: 'Remisiones', amountKey: 'totalRem', percKey: 'rem', color: CHART_COLORS.rem, labelClass: 'metric-rem' },
+      { label: 'Facturas', amountKey: 'totalFac', percKey: 'fac', color: CHART_COLORS.fac, labelClass: 'metric-fac' },
+      { label: 'Disponible', amountKey: 'restante', percKey: 'rest', color: CHART_COLORS.rest, labelClass: 'metric-rest' }
+    ];
     extensionContainer.innerHTML = '';
-    items.forEach((item, index) => {
-      const restante = Math.max(item.total - (item.totals.totalRem + item.totals.totalFac), 0);
+    entries.forEach((entry, index) => {
       const card = document.createElement('div');
       card.className = 'col-md-6 col-lg-4';
       card.innerHTML = `
-        <div class="card h-100 shadow-sm">
+        <div class="card h-100 shadow-sm chart-card">
           <div class="card-body">
-            <h5 class="card-title">${item.id}</h5>
-            <p class="small text-muted mb-2">$${formatCurrency(item.total)} totales</p>
-            <canvas id="extChart-${index}" height="220"></canvas>
+            <div>
+              <h5 class="card-title mb-1">${entry.label}</h5>
+              <p class="small text-muted mb-0">Autorizado: $${formatCurrency(entry.total)}</p>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="extChart-${index}"></canvas>
+            </div>
+            <div class="chart-metrics mt-2">
+              ${donutMeta
+                .map(meta => `
+                  <div class="metric-row">
+                    <span class="metric-label ${meta.labelClass}">${meta.label}</span>
+                    <span>$${formatCurrency(entry[meta.amountKey])} · ${formatPercentageLabel(entry.percentages[meta.percKey])}</span>
+                  </div>
+                `)
+                .join('')}
+            </div>
           </div>
         </div>
       `;
       extensionContainer.appendChild(card);
       const canvas = card.querySelector('canvas');
-      state.charts.set(`ext-${index}`, new Chart(canvas.getContext('2d'), {
+      const dataset = {
+        data: donutMeta.map(meta => entry[meta.amountKey]),
+        backgroundColor: donutMeta.map(meta => meta.color),
+        hoverOffset: 8,
+        metaInfo: donutMeta.map(meta => ({
+          label: meta.label,
+          amount: entry[meta.amountKey],
+          percentage: entry.percentages[meta.percKey]
+        }))
+      };
+      const chart = new Chart(canvas.getContext('2d'), {
         type: 'doughnut',
         data: {
-          labels: ['Remisiones', 'Facturas', 'Disponible'],
-          datasets: [{
-            data: [item.totals.totalRem, item.totals.totalFac, restante],
-            backgroundColor: ['#2563eb', '#f97316', '#16a34a']
-          }]
+          labels: donutMeta.map(meta => meta.label),
+          datasets: [dataset]
         },
         options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '60%',
+          layout: { padding: 6 },
           plugins: {
-            legend: { position: 'bottom' }
+            legend: {
+              position: 'bottom',
+              labels: { usePointStyle: true, padding: 16 }
+            },
+            tooltip: {
+              callbacks: {
+                title() {
+                  return entry.label;
+                },
+                label(context) {
+                  const info = dataset.metaInfo?.[context.dataIndex];
+                  if (info) {
+                    return `${info.label}: $${formatCurrency(info.amount)} (${formatPercentageLabel(info.percentage)})`;
+                  }
+                  const total = dataset.data.reduce((sum, value) => sum + value, 0);
+                  const percentage = total > 0 ? (context.parsed / total) * 100 : 0;
+                  return `${context.label}: $${formatCurrency(context.parsed)} (${formatPercentageLabel(percentage)})`;
+                }
+              }
+            }
           }
         }
-      }));
+      });
+      state.charts.set(`ext-${index}`, chart);
     });
   }
 }

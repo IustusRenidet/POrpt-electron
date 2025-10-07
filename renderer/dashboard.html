@@ -259,21 +259,33 @@
         <div id="summaryCards" class="row g-3 mb-4"></div>
         <div class="row g-3 mb-4">
           <div class="col-md-4">
-            <div class="card shadow-sm h-100">
+            <div class="card shadow-sm h-100 chart-card">
               <div class="card-header bg-primary text-white">Remisiones por PO</div>
-              <div class="card-body"><canvas id="chartRem" height="220"></canvas></div>
+              <div class="card-body">
+                <div class="chart-wrapper">
+                  <canvas id="chartRem"></canvas>
+                </div>
+              </div>
             </div>
           </div>
           <div class="col-md-4">
-            <div class="card shadow-sm h-100">
+            <div class="card shadow-sm h-100 chart-card">
               <div class="card-header bg-warning text-dark">Facturas por PO</div>
-              <div class="card-body"><canvas id="chartFac" height="220"></canvas></div>
+              <div class="card-body">
+                <div class="chart-wrapper">
+                  <canvas id="chartFac"></canvas>
+                </div>
+              </div>
             </div>
           </div>
           <div class="col-md-4">
-            <div class="card shadow-sm h-100">
+            <div class="card shadow-sm h-100 chart-card">
               <div class="card-header bg-success text-white">Consumo vs Disponible (%)</div>
-              <div class="card-body"><canvas id="chartJunto" height="220"></canvas></div>
+              <div class="card-body">
+                <div class="chart-wrapper">
+                  <canvas id="chartJunto"></canvas>
+                </div>
+              </div>
             </div>
           </div>
         </div>
