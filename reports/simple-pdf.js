@@ -111,8 +111,42 @@ function formatCurrency(value) {
   });
 }
 
+function roundTo(value, decimals = 2) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) {
+    return 0;
+  }
+  const factor = 10 ** decimals;
+  return Math.round(number * factor) / factor;
+}
+
+function clampPercentage(value) {
+  const normalized = roundTo(value);
+  const clamped = Math.min(100, Math.max(0, normalized));
+  return roundTo(clamped);
+}
+
 function formatPercentage(value) {
-  return `${Number(value || 0).toFixed(1)}%`;
+  return `${roundTo(value, 2).toFixed(2)}%`;
+}
+
+function computePercentages(totals = {}) {
+  const total = Number(totals.total || 0);
+  if (total <= 0) {
+    return { rem: 0, fac: 0, rest: 0 };
+  }
+  const totalRem = Number(totals.totalRem || 0);
+  const totalFac = Number(totals.totalFac || 0);
+  const restanteAmount = Number(
+    totals.restante != null ? totals.restante : total - (totalRem + totalFac)
+  );
+  const rem = clampPercentage((totalRem / total) * 100);
+  const fac = clampPercentage((totalFac / total) * 100);
+  let rest = clampPercentage((restanteAmount / total) * 100);
+  if (roundTo(rem + fac + rest) !== 100) {
+    rest = clampPercentage(100 - (rem + fac));
+  }
+  return { rem, fac, rest };
 }
 
 function ensureSpace(doc, requiredHeight = 0, options = {}) {
@@ -640,27 +674,29 @@ function drawSummaryBox(doc, summary) {
   const totals = summary.totals || {};
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  ensureSpace(doc, 90);
+  ensureSpace(doc, 80);
   const top = doc.y;
+  const percentages = computePercentages(totals);
+  const consumoPercentage = roundTo(percentages.rem + percentages.fac);
   doc.save();
   doc.lineWidth(1);
   doc.rect(startX, top, width, 62).fillAndStroke('#f7f7f7', '#d1d5db');
   doc.fillColor('#111827').font('Helvetica').fontSize(12);
   doc.text(
-    `Consumido (Rem+Fac): ${formatCurrency(totals.totalConsumo)} (${formatPercentage((totals.porcRem || 0) + (totals.porcFac || 0))})`,
+    `Consumido (Rem+Fac): ${formatCurrency(totals.totalConsumo)} (${formatPercentage(consumoPercentage)})`,
     startX + 10,
     top + 12,
     { width: width / 2 }
   );
   doc.text(
-    `Restante: ${formatCurrency(totals.restante)} (${formatPercentage(totals.porcRest || 0)})`,
+    `Restante: ${formatCurrency(totals.restante)} (${formatPercentage(percentages.rest)})`,
     startX + width / 2,
     top + 12,
     { width: width / 2 - 10 }
   );
   doc.fillColor('#6b7280').fontSize(11);
   doc.text(
-    `Nota: Porcentajes calculados sobre el total autorizado (${formatCurrency(totals.total)}).`,
+    `Nota: Porcentajes recalculados sobre el total autorizado (${formatCurrency(totals.total)}).`,
     startX + 10,
     top + 32,
     { width: width - 20 }
@@ -673,12 +709,16 @@ function drawStackedBar(doc, summary, branding) {
   const totals = summary.totals || {};
   const startX = doc.page.margins.left + 20;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right - 40;
-  ensureSpace(doc, 200);
+  ensureSpace(doc, 180);
   const top = doc.y;
-  const height = 36;
-  const remWidth = (width * (totals.porcRem || 0)) / 100;
-  const facWidth = (width * (totals.porcFac || 0)) / 100;
-  const restWidth = width - remWidth - facWidth;
+  const height = 34;
+  const percentages = computePercentages(totals);
+  const remWidth = (width * percentages.rem) / 100;
+  const facWidth = (width * percentages.fac) / 100;
+  let restWidth = width - remWidth - facWidth;
+  if (restWidth < 0) {
+    restWidth = 0;
+  }
 
   doc
     .font('Helvetica-Bold')
@@ -721,16 +761,17 @@ function drawStackedBar(doc, summary, branding) {
   const restLabelX = restWidth > 0
     ? startX + remWidth + facWidth + restWidth / 2 - 60
     : startX + remWidth + facWidth - 60;
-  doc.text(`Rem: ${formatPercentage(totals.porcRem || 0)}`, remLabelX, barTop - 14, { width: 80, align: 'center' });
-  doc.text(`Fac: ${formatPercentage(totals.porcFac || 0)}`, facLabelX, barTop - 14, { width: 80, align: 'center' });
-  doc.text(`Restante: ${formatPercentage(totals.porcRest || 0)}`, restLabelX, barTop - 14, {
+  doc.text(`Rem: ${formatPercentage(percentages.rem)}`, remLabelX, barTop - 14, { width: 80, align: 'center' });
+  doc.text(`Fac: ${formatPercentage(percentages.fac)}`, facLabelX, barTop - 14, { width: 80, align: 'center' });
+  doc.text(`Restante: ${formatPercentage(percentages.rest)}`, restLabelX, barTop - 14, {
     width: 120,
     align: 'center'
   });
   doc.y = barTop + height + 30;
 
-  drawLegend(doc, branding, totals, startX, doc.y);
-  doc.moveDown(1.5);
+  const legendEntries = buildLegendEntries(totals, percentages, branding);
+  drawLegend(doc, legendEntries, startX, doc.y);
+  doc.moveDown(1.2);
 }
 
 function drawPieSlice(doc, centerX, centerY, radius, startAngle, endAngle, color) {
@@ -745,10 +786,11 @@ function drawPieSlice(doc, centerX, centerY, radius, startAngle, endAngle, color
 
 function drawPieChart(doc, summary, branding) {
   const totals = summary.totals || {};
-  ensureSpace(doc, 320);
+  ensureSpace(doc, 260);
   const centerX = doc.page.width / 2;
-  const centerY = doc.y + 120;
-  const radius = 105;
+  const centerY = doc.y + 110;
+  const radius = 95;
+  const percentages = computePercentages(totals);
   doc
     .font('Helvetica-Bold')
     .fontSize(16)
@@ -757,12 +799,12 @@ function drawPieChart(doc, summary, branding) {
       width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
       align: 'center'
     });
-  doc.y += 20;
+  doc.y += 18;
 
   const angles = [
-    { value: totals.porcRem || 0, color: branding.remColor, label: 'Remisiones' },
-    { value: totals.porcFac || 0, color: branding.facColor, label: 'Facturas' },
-    { value: totals.porcRest || 0, color: branding.restanteColor, label: 'Restante' }
+    { value: percentages.rem, color: branding.remColor, label: 'Remisiones' },
+    { value: percentages.fac, color: branding.facColor, label: 'Facturas' },
+    { value: percentages.rest, color: branding.restanteColor, label: 'Restante' }
   ];
   let currentAngle = -90;
   angles.forEach(segment => {
@@ -773,18 +815,23 @@ function drawPieChart(doc, summary, branding) {
   });
 
   doc.font('Helvetica').fontSize(11).fillColor('#111827');
-  drawLegend(doc, branding, totals, centerX + radius + 25, centerY - 80);
-  doc.y = centerY + radius + 40;
+  const legendEntries = buildLegendEntries(totals, percentages, branding);
+  const legendX = Math.min(centerX + radius + 24, doc.page.width - doc.page.margins.right - 240);
+  drawLegend(doc, legendEntries, legendX, centerY - radius);
+  doc.y = Math.max(doc.y, centerY + radius + 32);
 }
 
-function drawLegend(doc, branding, totals, startX, startY) {
+function buildLegendEntries(totals, percentages, branding) {
+  return [
+    { label: `Remisiones: ${formatPercentage(percentages.rem)} (${formatCurrency(totals.totalRem)})`, color: branding.remColor },
+    { label: `Facturas: ${formatPercentage(percentages.fac)} (${formatCurrency(totals.totalFac)})`, color: branding.facColor },
+    { label: `Restante: ${formatPercentage(percentages.rest)} (${formatCurrency(totals.restante)})`, color: branding.restanteColor }
+  ];
+}
+
+function drawLegend(doc, entries, startX, startY) {
   const availableWidth = Math.max(doc.page.width - doc.page.margins.right - startX, 160);
   const legendWidth = Math.min(availableWidth, 260);
-  const entries = [
-    { label: `Remisiones: ${formatPercentage(totals.porcRem || 0)} (${formatCurrency(totals.totalRem)})`, color: branding.remColor },
-    { label: `Facturas: ${formatPercentage(totals.porcFac || 0)} (${formatCurrency(totals.totalFac)})`, color: branding.facColor },
-    { label: `Restante: ${formatPercentage(totals.porcRest || 0)} (${formatCurrency(totals.restante)})`, color: branding.restanteColor }
-  ];
   entries.forEach((entry, index) => {
     const y = startY + index * 22;
     doc.save().rect(startX, y, 14, 14).fill(entry.color).restore();
