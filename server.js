@@ -573,13 +573,13 @@ async function fetchFacturas(
 
   if (normalizedDocAntPo.length > 0) {
     const placeholders = normalizedDocAntPo.map(() => '?').join(',');
-    conditions.push(`TRIM(${alias}.DOC_ANT) IN (${placeholders})`);
+    conditions.push(`(TRIM(${alias}.DOC_ANT) IN (${placeholders}) AND UPPER(TRIM(${alias}.TIP_DOC_ANT)) = 'P')`);
     params.push(...normalizedDocAntPo);
   }
 
   if (normalizedDocAntRem.length > 0) {
     const placeholders = normalizedDocAntRem.map(() => '?').join(',');
-    conditions.push(`TRIM(${alias}.DOC_ANT) IN (${placeholders})`);
+    conditions.push(`(TRIM(${alias}.DOC_ANT) IN (${placeholders}) AND UPPER(TRIM(${alias}.TIP_DOC_ANT)) = 'R')`);
     params.push(...normalizedDocAntRem);
   }
 
@@ -637,7 +637,12 @@ async function getPoSummary(empresa, poId) {
     }
     const remDocIds = [];
     const factDocIdsFromPo = [];
+    const factDocAntFromPo = new Set();
     poRows.forEach(row => {
+      const id = (row.ID || row.id || '').trim();
+      if (id) {
+        factDocAntFromPo.add(id);
+      }
       const tipDocRaw = row.TIP_DOC_SIG ?? row.tip_doc_sig;
       const docSigRaw = row.DOC_SIG ?? row.doc_sig;
       const tipDoc = typeof tipDocRaw === 'string' ? tipDocRaw.trim().toUpperCase() : '';
@@ -655,6 +660,7 @@ async function getPoSummary(empresa, poId) {
     const remRows = await fetchRemisiones(db, tables.FACTR, { docIds: remDocIds });
     const remDataById = new Map();
     const factDocIdsFromRem = new Set();
+    const factDocAntFromRem = new Set();
 
     remRows.forEach(row => {
       const remId = (row.ID || row.id || '').trim();
@@ -667,6 +673,7 @@ async function getPoSummary(empresa, poId) {
       const tipDocSig = typeof tipDocSigRaw === 'string' ? tipDocSigRaw.trim().toUpperCase() : '';
       const docSigRaw = row.DOC_SIG ?? row.doc_sig ?? '';
       const docSig = typeof docSigRaw === 'string' ? docSigRaw.trim() : '';
+      factDocAntFromRem.add(remId);
       if (tipDocSig === 'F' && docSig) {
         factDocIdsFromRem.add(docSig);
       }
@@ -680,6 +687,8 @@ async function getPoSummary(empresa, poId) {
     });
 
     const factRows = await fetchFacturas(db, tables.FACTF, {
+      docAntPoValues: Array.from(factDocAntFromPo),
+      docAntRemValues: Array.from(factDocAntFromRem),
       docIds: [...factDocIdsFromPo, ...factDocIdsFromRem]
     });
 
