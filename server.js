@@ -329,13 +329,8 @@ function getCompanyTables(empresa) {
   return {
     num,
     FACTP: `FACTP${num}`,
-    PAR_FACTP: `PAR_FACTP${num}`,
     FACTR: `FACTR${num}`,
-    PAR_FACTR: `PAR_FACTR${num}`,
-    FACTF: `FACTF${num}`,
-    PAR_FACTF: `PAR_FACTF${num}`,
-    DOCTOSIG: `DOCTOSIG${num}`,
-    CLIE: `CLIE${num}`
+    FACTF: `FACTF${num}`
   };
 }
 
@@ -510,76 +505,133 @@ function normalizeDocKey(value) {
   return value.trim().toUpperCase();
 }
 
-function createLinkCollection() {
-  return { keys: new Set(), values: new Set() };
-}
-
-function addDocumentToCollection(collection, docId) {
-  if (!collection) return;
-  const normalized = normalizeDocKey(docId);
-  if (!normalized) return;
-  collection.keys.add(normalized);
-  const trimmed = typeof docId === 'string' ? docId.trim() : '';
-  if (trimmed) {
-    collection.values.add(trimmed);
-  }
-}
-
-function createEmptyLinkEntry() {
-  return {
-    remisiones: createLinkCollection(),
-    facturas: createLinkCollection(),
-    notasVenta: createLinkCollection(),
-    cotizacionesPosteriores: createLinkCollection(),
-    cotizacionesOrigen: createLinkCollection()
-  };
-}
-
-function buildPoLinkMap(poIds = [], docRows = []) {
-  const map = {};
-  poIds.forEach(id => {
-    const key = normalizeDocKey(id);
-    if (!key) return;
-    map[key] = createEmptyLinkEntry();
-  });
-  docRows.forEach(row => {
+function collectDocSigLinks(rows = []) {
+  const map = new Map();
+  rows.forEach(row => {
     const tipDocSigRaw = row?.TIP_DOC_SIG ?? row?.tip_doc_sig;
-    const tipDocAntRaw = row?.TIP_DOC_ANT ?? row?.tip_doc_ant;
     const docSigRaw = row?.DOC_SIG ?? row?.doc_sig;
-    const docAntRaw = row?.DOC_ANT ?? row?.doc_ant;
-    const tipDocSig = typeof tipDocSigRaw === 'string' ? tipDocSigRaw.trim().toUpperCase() : '';
-    const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
-    const docSig = normalizePoId(docSigRaw);
-    const docAnt = normalizePoId(docAntRaw);
     const docSigKey = normalizeDocKey(docSigRaw);
-    const docAntKey = normalizeDocKey(docAntRaw);
-
-    const antEntry = map[docAntKey];
-    if (antEntry) {
-      switch (tipDocSig) {
-        case 'R':
-          addDocumentToCollection(antEntry.remisiones, docSig);
-          break;
-        case 'F':
-          addDocumentToCollection(antEntry.facturas, docSig);
-          break;
-        case 'V':
-          addDocumentToCollection(antEntry.notasVenta, docSig);
-          break;
-        case 'C':
-          addDocumentToCollection(antEntry.cotizacionesPosteriores, docSig);
-          break;
-        default:
-          break;
-      }
+    if (!docSigKey) return;
+    const tipDocSig = typeof tipDocSigRaw === 'string' ? tipDocSigRaw.trim().toUpperCase() : '';
+    if (!['R', 'F'].includes(tipDocSig)) return;
+    const poIdRaw = row?.CVE_DOC ?? row?.ID ?? row?.id ?? '';
+    const poKey = normalizeDocKey(poIdRaw);
+    if (!poKey) return;
+    const entry = map.get(docSigKey) || { type: tipDocSig, poKeys: new Set(), values: new Set() };
+    entry.poKeys.add(poKey);
+    const trimmedValue = typeof docSigRaw === 'string' ? docSigRaw.trim() : '';
+    if (trimmedValue) {
+      entry.values.add(trimmedValue);
     }
-
-    const sigEntry = map[docSigKey];
-    if (sigEntry && tipDocAnt === 'C') {
-      addDocumentToCollection(sigEntry.cotizacionesOrigen, docAnt);
-    }
+    map.set(docSigKey, entry);
   });
   return map;
+}
+
+function uniqueNormalizedValues(values = []) {
+  const set = new Set();
+  values.forEach(value => {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (trimmed) {
+      set.add(trimmed);
+    }
+  });
+  return Array.from(set);
+}
+
+async function fetchRemisiones(db, tableName, { docAntValues = [], docIds = [] } = {}) {
+  if (!tableName) return [];
+  const alias = 'r';
+  const conditions = [];
+  const params = [];
+  const normalizedDocAnt = uniqueNormalizedValues(docAntValues);
+  const normalizedDocIds = uniqueNormalizedValues(docIds);
+
+  if (normalizedDocAnt.length > 0) {
+    const placeholders = normalizedDocAnt.map(() => '?').join(',');
+    conditions.push(`TRIM(${alias}.DOC_ANT) IN (${placeholders})`);
+    params.push(...normalizedDocAnt);
+  }
+
+  if (normalizedDocIds.length > 0) {
+    const placeholders = normalizedDocIds.map(() => '?').join(',');
+    conditions.push(`TRIM(${alias}.CVE_DOC) IN (${placeholders})`);
+    params.push(...normalizedDocIds);
+  }
+
+  if (conditions.length === 0) {
+    return [];
+  }
+
+  const whereClause = conditions.map(condition => `(${condition})`).join(' OR ');
+  const query = `
+    SELECT
+      TRIM(${alias}.CVE_DOC) AS id,
+      ${alias}.FECHA_DOC AS fecha,
+      COALESCE(SUM(${alias}.IMPORTE), 0) AS importe,
+      MAX(${alias}.TIP_DOC_SIG) AS tip_doc_sig,
+      MAX(${alias}.DOC_SIG) AS doc_sig,
+      MAX(${alias}.TIP_DOC_ANT) AS tip_doc_ant,
+      MAX(${alias}.DOC_ANT) AS doc_ant
+    FROM ${tableName} ${alias}
+    WHERE ${alias}.STATUS <> 'C' AND (${whereClause})
+    GROUP BY ${alias}.CVE_DOC, ${alias}.FECHA_DOC
+    ORDER BY TRIM(${alias}.CVE_DOC)
+  `;
+  return await queryWithTimeout(db, query, params);
+}
+
+async function fetchFacturas(
+  db,
+  tableName,
+  { docAntPoValues = [], docAntRemValues = [], docIds = [] } = {}
+) {
+  if (!tableName) return [];
+  const alias = 'f';
+  const conditions = [];
+  const params = [];
+  const normalizedDocAntPo = uniqueNormalizedValues(docAntPoValues);
+  const normalizedDocAntRem = uniqueNormalizedValues(docAntRemValues);
+  const normalizedDocIds = uniqueNormalizedValues(docIds);
+
+  if (normalizedDocAntPo.length > 0) {
+    const placeholders = normalizedDocAntPo.map(() => '?').join(',');
+    conditions.push(`TRIM(${alias}.DOC_ANT) IN (${placeholders})`);
+    params.push(...normalizedDocAntPo);
+  }
+
+  if (normalizedDocAntRem.length > 0) {
+    const placeholders = normalizedDocAntRem.map(() => '?').join(',');
+    conditions.push(`TRIM(${alias}.DOC_ANT) IN (${placeholders})`);
+    params.push(...normalizedDocAntRem);
+  }
+
+  if (normalizedDocIds.length > 0) {
+    const placeholders = normalizedDocIds.map(() => '?').join(',');
+    conditions.push(`TRIM(${alias}.CVE_DOC) IN (${placeholders})`);
+    params.push(...normalizedDocIds);
+  }
+
+  if (conditions.length === 0) {
+    return [];
+  }
+
+  const whereClause = conditions.map(condition => `(${condition})`).join(' OR ');
+  const query = `
+    SELECT
+      TRIM(${alias}.CVE_DOC) AS id,
+      ${alias}.FECHA_DOC AS fecha,
+      COALESCE(SUM(${alias}.IMPORTE), 0) AS importe,
+      MAX(${alias}.TIP_DOC_SIG) AS tip_doc_sig,
+      MAX(${alias}.DOC_SIG) AS doc_sig,
+      MAX(${alias}.TIP_DOC_ANT) AS tip_doc_ant,
+      MAX(${alias}.DOC_ANT) AS doc_ant
+    FROM ${tableName} ${alias}
+    WHERE ${alias}.STATUS <> 'C' AND (${whereClause})
+    GROUP BY ${alias}.CVE_DOC, ${alias}.FECHA_DOC
+    ORDER BY TRIM(${alias}.CVE_DOC)
+  `;
+  return await queryWithTimeout(db, query, params);
 }
 
 async function buildDocSigAdjustments(db, tables, poRows = []) {
@@ -589,7 +641,7 @@ async function buildDocSigAdjustments(db, tables, poRows = []) {
   };
 
   poRows.forEach(row => {
-    const tipDocRaw = row?.TIP_DOC ?? row?.tip_doc;
+    const tipDocRaw = row?.TIP_DOC_SIG ?? row?.tip_doc_sig;
     const docSigRaw = row?.DOC_SIG ?? row?.doc_sig;
     const tipDoc = typeof tipDocRaw === 'string' ? tipDocRaw.trim().toUpperCase() : '';
     const docSig = typeof docSigRaw === 'string' ? docSigRaw.trim() : '';
@@ -662,7 +714,7 @@ async function getPoSummary(empresa, poId) {
          f.FECHA_DOC AS fecha,
          COALESCE(f.IMPORTE, 0) AS importe,
          COALESCE(f.CAN_TOT, 0) AS subtotal,
-         TRIM(f.TIP_DOC) AS tip_doc,
+         TRIM(f.TIP_DOC_SIG) AS tip_doc_sig,
          TRIM(f.DOC_SIG) AS doc_sig
        FROM ${tables.FACTP} f
        WHERE f.STATUS <> 'C' AND (TRIM(f.CVE_DOC) = ? OR TRIM(f.CVE_DOC) LIKE ?)
@@ -672,161 +724,158 @@ async function getPoSummary(empresa, poId) {
     if (poRows.length === 0) {
       throw new Error(`No se encontró información para el PO ${targetPo}`);
     }
-    const poIds = [...new Set(poRows.map(row => (row.ID || row.id || '').trim()))];
-    const placeholders = poIds.map(() => '?').join(',');
-    let remRows = [];
-    let factRows = [];
-    if (poIds.length > 0) {
-      remRows = await queryWithTimeout(
-        db,
-        `SELECT
-           TRIM(r.CVE_DOC) AS id,
-           TRIM(r.CVE_PEDI) AS po,
-           r.FECHA_DOC AS fecha,
-           COALESCE(SUM(r.IMPORTE), 0) AS monto
-         FROM ${tables.FACTR} r
-         WHERE r.STATUS <> 'C' AND TRIM(r.CVE_PEDI) IN (${placeholders})
-         GROUP BY r.CVE_DOC, r.CVE_PEDI, r.FECHA_DOC
-         ORDER BY TRIM(r.CVE_DOC)`,
-        poIds
-      );
-      factRows = await queryWithTimeout(
-        db,
-        `SELECT
-           TRIM(f.CVE_DOC) AS id,
-           TRIM(f.CVE_PEDI) AS po,
-           f.FECHA_DOC AS fecha,
-           COALESCE(SUM(f.IMPORTE), 0) AS monto
-         FROM ${tables.FACTF} f
-         WHERE f.STATUS <> 'C' AND TRIM(f.CVE_PEDI) IN (${placeholders})
-         GROUP BY f.CVE_DOC, f.CVE_PEDI, f.FECHA_DOC
-         ORDER BY TRIM(f.CVE_DOC)`,
-        poIds
-      );
-    }
+    const poMap = new Map();
+    poRows.forEach(row => {
+      const id = (row.ID || row.id || '').trim();
+      const key = normalizeDocKey(id);
+      if (!key) return;
+      poMap.set(key, { id, row });
+    });
 
-    const linkingAvailable = tables.DOCTOSIG ? await tableExists(db, tables.DOCTOSIG) : false;
-    const docLinkRows = linkingAvailable && poIds.length > 0
-      ? await queryWithTimeout(
-          db,
-          `SELECT
-             TRIM(d.TIP_DOC_SIG) AS TIP_DOC_SIG,
-             TRIM(d.DOC_SIG) AS DOC_SIG,
-             TRIM(d.TIP_DOC_ANT) AS TIP_DOC_ANT,
-             TRIM(d.DOC_ANT) AS DOC_ANT
-           FROM ${tables.DOCTOSIG} d
-           WHERE TRIM(d.DOC_ANT) IN (${placeholders})
-              OR TRIM(d.DOC_SIG) IN (${placeholders})`,
-          [...poIds, ...poIds]
-        )
-      : [];
-    const docLinkMap = buildPoLinkMap(poIds, docLinkRows);
+    const poIds = Array.from(poMap.values()).map(entry => entry.id);
+    const docSigLinks = collectDocSigLinks(poRows);
+    const remDocCandidates = [];
+    const factDocCandidatesFromPo = [];
+    docSigLinks.forEach(entry => {
+      if (entry.type === 'R') {
+        entry.values.forEach(value => remDocCandidates.push(value));
+      }
+      if (entry.type === 'F') {
+        entry.values.forEach(value => factDocCandidatesFromPo.push(value));
+      }
+    });
+
+    const remRows = await fetchRemisiones(db, tables.FACTR, {
+      docAntValues: poIds,
+      docIds: remDocCandidates
+    });
+
+    const remKeyToId = new Map();
+    const remToPoKeys = new Map();
+    const remDataByPoKey = new Map();
+    const factDocCandidatesFromRem = new Set();
+
+    remRows.forEach(row => {
+      const remId = (row.ID || row.id || '').trim();
+      if (!remId) return;
+      const remKey = normalizeDocKey(remId);
+      remKeyToId.set(remKey, remId);
+      const monto = Number(row.IMPORTE ?? row.importe ?? 0);
+      const fecha = row.FECHA ?? row.fecha ?? row.FECHA_DOC ?? null;
+      const tipDocSigRaw = row.TIP_DOC_SIG ?? row.tip_doc_sig;
+      const tipDocSig = typeof tipDocSigRaw === 'string' ? tipDocSigRaw.trim().toUpperCase() : '';
+      const docSigRaw = row.DOC_SIG ?? row.doc_sig ?? '';
+      if (tipDocSig === 'F') {
+        const trimmed = typeof docSigRaw === 'string' ? docSigRaw.trim() : '';
+        if (trimmed) {
+          factDocCandidatesFromRem.add(trimmed);
+        }
+      }
+      const tipDocAntRaw = row.TIP_DOC_ANT ?? row.tip_doc_ant;
+      const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+      const docAntRaw = row.DOC_ANT ?? row.doc_ant ?? '';
+      const docAntKey = normalizeDocKey(docAntRaw);
+      const associatedPoKeys = new Set();
+      if (tipDocAnt === 'P' && docAntKey && poMap.has(docAntKey)) {
+        associatedPoKeys.add(docAntKey);
+      }
+      const linkEntry = docSigLinks.get(remKey);
+      if (linkEntry) {
+        linkEntry.poKeys.forEach(poKey => associatedPoKeys.add(poKey));
+      }
+      remToPoKeys.set(remKey, associatedPoKeys);
+      if (associatedPoKeys.size === 0) {
+        return;
+      }
+      associatedPoKeys.forEach(poKey => {
+        if (!remDataByPoKey.has(poKey)) {
+          remDataByPoKey.set(poKey, new Map());
+        }
+        const docsMap = remDataByPoKey.get(poKey);
+        const existing = docsMap.get(remKey);
+        if (existing) {
+          existing.monto += monto;
+          if (!existing.fecha && fecha) {
+            existing.fecha = fecha;
+          }
+        } else {
+          docsMap.set(remKey, {
+            id: remId,
+            fecha,
+            monto,
+            vinculado: true
+          });
+        }
+      });
+    });
+
+    const factRows = await fetchFacturas(db, tables.FACTF, {
+      docAntPoValues: poIds,
+      docAntRemValues: Array.from(remKeyToId.values()),
+      docIds: [...factDocCandidatesFromPo, ...factDocCandidatesFromRem]
+    });
+
+    const factDataByPoKey = new Map();
+
+    factRows.forEach(row => {
+      const facId = (row.ID || row.id || '').trim();
+      if (!facId) return;
+      const facKey = normalizeDocKey(facId);
+      const monto = Number(row.IMPORTE ?? row.importe ?? 0);
+      const fecha = row.FECHA ?? row.fecha ?? row.FECHA_DOC ?? null;
+      const tipDocAntRaw = row.TIP_DOC_ANT ?? row.tip_doc_ant;
+      const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+      const docAntRaw = row.DOC_ANT ?? row.doc_ant ?? '';
+      const docAntKey = normalizeDocKey(docAntRaw);
+      const associatedPoKeys = new Set();
+      if (tipDocAnt === 'P' && docAntKey && poMap.has(docAntKey)) {
+        associatedPoKeys.add(docAntKey);
+      }
+      if (tipDocAnt === 'R' && docAntKey) {
+        const remPoKeys = remToPoKeys.get(docAntKey);
+        if (remPoKeys) {
+          remPoKeys.forEach(poKey => associatedPoKeys.add(poKey));
+        }
+      }
+      const linkEntry = docSigLinks.get(facKey);
+      if (linkEntry) {
+        linkEntry.poKeys.forEach(poKey => associatedPoKeys.add(poKey));
+      }
+      if (associatedPoKeys.size === 0) {
+        return;
+      }
+      associatedPoKeys.forEach(poKey => {
+        if (!factDataByPoKey.has(poKey)) {
+          factDataByPoKey.set(poKey, new Map());
+        }
+        const docsMap = factDataByPoKey.get(poKey);
+        const existing = docsMap.get(facKey);
+        if (existing) {
+          existing.monto += monto;
+          if (!existing.fecha && fecha) {
+            existing.fecha = fecha;
+          }
+        } else {
+          docsMap.set(facKey, {
+            id: facId,
+            fecha,
+            monto,
+            vinculado: true
+          });
+        }
+      });
+    });
+
     const docSigAdjustments = await buildDocSigAdjustments(db, tables, poRows);
-
-    const linkedDocsData = {
-      remisiones: {},
-      facturas: {}
-    };
-
-    if (linkingAvailable && docLinkRows.length > 0) {
-      const remisionesSet = new Set();
-      const facturasSet = new Set();
-      Object.values(docLinkMap).forEach(entry => {
-        entry?.remisiones?.values?.forEach(id => {
-          const value = typeof id === 'string' ? id.trim() : '';
-          if (value) {
-            remisionesSet.add(value);
-          }
-        });
-        entry?.facturas?.values?.forEach(id => {
-          const value = typeof id === 'string' ? id.trim() : '';
-          if (value) {
-            facturasSet.add(value);
-          }
-        });
-      });
-
-      if (remisionesSet.size > 0) {
-        const remDocs = Array.from(remisionesSet);
-        const placeholdersRem = remDocs.map(() => '?').join(',');
-        const remLinkedRows = await queryWithTimeout(
-          db,
-          `SELECT
-             TRIM(r.CVE_DOC) AS id,
-             r.FECHA_DOC AS fecha,
-             COALESCE(r.IMPORTE, 0) AS monto
-           FROM ${tables.FACTR} r
-           WHERE TRIM(r.CVE_DOC) IN (${placeholdersRem})`,
-          remDocs
-        );
-        remLinkedRows.forEach(row => {
-          const key = normalizeDocKey(row.ID || row.id || '');
-          if (!key) return;
-          const current = linkedDocsData.remisiones[key] || { id: (row.ID || row.id || '').trim(), monto: 0, fecha: row.FECHA || row.fecha };
-          current.monto += Number(row.MONTO ?? row.monto ?? row.IMPORTE ?? row.importe ?? 0);
-          if (!current.fecha && (row.FECHA || row.fecha)) {
-            current.fecha = row.FECHA || row.fecha;
-          }
-          linkedDocsData.remisiones[key] = current;
-        });
-      }
-
-      if (facturasSet.size > 0) {
-        const facDocs = Array.from(facturasSet);
-        const placeholdersFac = facDocs.map(() => '?').join(',');
-        const facLinkedRows = await queryWithTimeout(
-          db,
-          `SELECT
-             TRIM(f.CVE_DOC) AS id,
-             f.FECHA_DOC AS fecha,
-             COALESCE(f.IMPORTE, 0) AS monto
-           FROM ${tables.FACTF} f
-           WHERE TRIM(f.CVE_DOC) IN (${placeholdersFac})`,
-          facDocs
-        );
-        facLinkedRows.forEach(row => {
-          const key = normalizeDocKey(row.ID || row.id || '');
-          if (!key) return;
-          const current = linkedDocsData.facturas[key] || { id: (row.ID || row.id || '').trim(), monto: 0, fecha: row.FECHA || row.fecha };
-          current.monto += Number(row.MONTO ?? row.monto ?? row.IMPORTE ?? row.importe ?? 0);
-          if (!current.fecha && (row.FECHA || row.fecha)) {
-            current.fecha = row.FECHA || row.fecha;
-          }
-          linkedDocsData.facturas[key] = current;
-        });
-      }
-    }
-
-    const remisionesMap = remRows.reduce((acc, row) => {
-      const key = (row.PO || row.po || '').trim();
-      if (!acc[key]) acc[key] = [];
-      acc[key].push({
-        id: (row.ID || row.id || '').trim(),
-        fecha: formatFirebirdDate(row.FECHA || row.fecha),
-        monto: Number(row.MONTO ?? row.monto ?? 0)
-      });
-      return acc;
-    }, {});
-
-    const facturasMap = factRows.reduce((acc, row) => {
-      const key = (row.PO || row.po || '').trim();
-      if (!acc[key]) acc[key] = [];
-      acc[key].push({
-        id: (row.ID || row.id || '').trim(),
-        fecha: formatFirebirdDate(row.FECHA || row.fecha),
-        monto: Number(row.MONTO ?? row.monto ?? 0)
-      });
-      return acc;
-    }, {});
+    const linkingAvailable = true;
 
     const items = poRows.map(row => {
       const id = (row.ID || row.id || '').trim();
       const key = normalizeDocKey(id);
-      const linkEntry = docLinkMap[key] || createEmptyLinkEntry();
       const fecha = formatFirebirdDate(row.FECHA || row.fecha);
       const totalOriginal = Number(row.IMPORTE ?? row.importe ?? row.TOTAL ?? row.total ?? 0);
       const subtotal = Number(row.SUBTOTAL ?? row.subtotal ?? row.CAN_TOT ?? row.can_tot ?? 0);
-      const tipDocRaw = row.TIP_DOC ?? row.tip_doc;
+      const tipDocRaw = row.TIP_DOC_SIG ?? row.tip_doc_sig;
       const docSigRaw = row.DOC_SIG ?? row.doc_sig;
       const tipDoc = typeof tipDocRaw === 'string' ? tipDocRaw.trim().toUpperCase() : '';
       const docSig = typeof docSigRaw === 'string' ? docSigRaw.trim() : '';
@@ -854,68 +903,31 @@ async function getPoSummary(empresa, poId) {
           };
         }
       }
-      let remisiones = (remisionesMap[id] || []).map(rem => {
-        const remId = (rem.id || '').trim();
-        const remKey = normalizeDocKey(remId);
-        const vinculado = linkingAvailable && linkEntry.remisiones.keys.has(remKey);
+      const remDocsMap = remDataByPoKey.get(key) || new Map();
+      const factDocsMap = factDataByPoKey.get(key) || new Map();
+      const remisiones = Array.from(remDocsMap.values()).map(rem => {
+        const monto = Number(rem.monto || 0);
         return {
-          ...rem,
-          porcentaje: total > 0 ? (rem.monto / total) * 100 : 0,
-          vinculado
+          id: rem.id,
+          fecha: formatFirebirdDate(rem.fecha),
+          monto,
+          porcentaje: total > 0 ? (monto / total) * 100 : 0,
+          vinculado: rem.vinculado !== false
         };
       });
-      let facturas = (facturasMap[id] || []).map(fac => {
-        const facId = (fac.id || '').trim();
-        const facKey = normalizeDocKey(facId);
-        const vinculado = linkingAvailable && linkEntry.facturas.keys.has(facKey);
+      const facturas = Array.from(factDocsMap.values()).map(fac => {
+        const monto = Number(fac.monto || 0);
         return {
-          ...fac,
-          porcentaje: total > 0 ? (fac.monto / total) * 100 : 0,
-          vinculado
+          id: fac.id,
+          fecha: formatFirebirdDate(fac.fecha),
+          monto,
+          porcentaje: total > 0 ? (monto / total) * 100 : 0,
+          vinculado: fac.vinculado !== false
         };
       });
-      if (linkingAvailable) {
-        const remisionesKeys = new Set(remisiones.map(rem => normalizeDocKey(rem.id)));
-        const remisionesExtras = Array.from(linkEntry.remisiones.values).map(value => {
-          const remKey = normalizeDocKey(value);
-          if (!remKey || remisionesKeys.has(remKey)) return null;
-          const data = linkedDocsData.remisiones[remKey];
-          if (!data) return null;
-          const monto = Number(data.monto || 0);
-          return {
-            id: data.id || value,
-            fecha: formatFirebirdDate(data.fecha),
-            monto,
-            porcentaje: total > 0 ? (monto / total) * 100 : 0,
-            vinculado: true
-          };
-        }).filter(Boolean);
-        if (remisionesExtras.length > 0) {
-          remisiones = [...remisiones, ...remisionesExtras];
-        }
-
-        const facturasKeys = new Set(facturas.map(fac => normalizeDocKey(fac.id)));
-        const facturasExtras = Array.from(linkEntry.facturas.values).map(value => {
-          const facKey = normalizeDocKey(value);
-          if (!facKey || facturasKeys.has(facKey)) return null;
-          const data = linkedDocsData.facturas[facKey];
-          if (!data) return null;
-          const monto = Number(data.monto || 0);
-          return {
-            id: data.id || value,
-            fecha: formatFirebirdDate(data.fecha),
-            monto,
-            porcentaje: total > 0 ? (monto / total) * 100 : 0,
-            vinculado: true
-          };
-        }).filter(Boolean);
-        if (facturasExtras.length > 0) {
-          facturas = [...facturas, ...facturasExtras];
-        }
-      }
-      const notasVenta = Array.from(linkEntry.notasVenta.values).sort((a, b) => a.localeCompare(b, 'es-MX'));
-      const cotizacionesOrigen = Array.from(linkEntry.cotizacionesOrigen.values).sort((a, b) => a.localeCompare(b, 'es-MX'));
-      const cotizacionesPosteriores = Array.from(linkEntry.cotizacionesPosteriores.values).sort((a, b) => a.localeCompare(b, 'es-MX'));
+      const notasVenta = [];
+      const cotizacionesOrigen = [];
+      const cotizacionesPosteriores = [];
       const totalRem = remisiones.reduce((sum, item) => sum + item.monto, 0);
       const totalFac = facturas.reduce((sum, item) => sum + item.monto, 0);
       const totals = calculateTotals(total, totalRem, totalFac);
@@ -936,30 +948,21 @@ async function getPoSummary(empresa, poId) {
       if (totals.totalConsumo >= total * 0.1 && total > 0) {
         alerts.push(buildAlert(`El consumo del PO ${id} ha alcanzado el ${(totals.totalConsumo / total * 100).toFixed(2)}%`, 'warning'));
       }
-      if (linkingAvailable) {
-        const remSinVinculo = remisiones.filter(rem => !rem.vinculado);
-        if (remSinVinculo.length > 0) {
-          alerts.push(
-            buildAlert(
-              `Remisiones sin vínculo DOCTOSIG: ${remSinVinculo.map(rem => rem.id).join(', ')}`,
-              'warning'
-            )
-          );
-        }
-        const facSinVinculo = facturas.filter(fac => !fac.vinculado);
-        if (facSinVinculo.length > 0) {
-          alerts.push(
-            buildAlert(
-              `Facturas sin vínculo DOCTOSIG: ${facSinVinculo.map(fac => fac.id).join(', ')}`,
-              'warning'
-            )
-          );
-        }
-      } else if ((remisiones.length > 0 || facturas.length > 0)) {
+      const remSinVinculo = remisiones.filter(rem => !rem.vinculado);
+      if (remSinVinculo.length > 0) {
         alerts.push(
           buildAlert(
-            'No fue posible validar vínculos DOCTOSIG para este pedido (tabla no disponible).',
-            'info'
+            `Remisiones sin relación mediante TIP_DOC_SIG/TIP_DOC_ANT: ${remSinVinculo.map(rem => rem.id).join(', ')}`,
+            'warning'
+          )
+        );
+      }
+      const facSinVinculo = facturas.filter(fac => !fac.vinculado);
+      if (facSinVinculo.length > 0) {
+        alerts.push(
+          buildAlert(
+            `Facturas sin relación mediante TIP_DOC_SIG/TIP_DOC_ANT: ${facSinVinculo.map(fac => fac.id).join(', ')}`,
+            'warning'
           )
         );
       }
@@ -967,10 +970,7 @@ async function getPoSummary(empresa, poId) {
         ? remisiones
             .map(rem => {
               const baseLinea = `${rem.id} • ${formatFirebirdDate(rem.fecha)} • $${rem.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${rem.porcentaje.toFixed(2)}%)`;
-              if (!linkingAvailable) {
-                return baseLinea;
-              }
-              return `${baseLinea} • ${rem.vinculado ? 'Vinculada en DOCTOSIG' : 'Sin vínculo en DOCTOSIG'}`;
+              return `${baseLinea} • ${rem.vinculado ? 'Relación detectada por TIP_DOC' : 'Sin relación por TIP_DOC'}`;
             })
             .join('\n')
         : 'Sin remisiones registradas';
@@ -978,30 +978,12 @@ async function getPoSummary(empresa, poId) {
         ? facturas
             .map(fac => {
               const baseLinea = `${fac.id} • ${formatFirebirdDate(fac.fecha)} • $${fac.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${fac.porcentaje.toFixed(2)}%)`;
-              if (!linkingAvailable) {
-                return baseLinea;
-              }
-              return `${baseLinea} • ${fac.vinculado ? 'Vinculada en DOCTOSIG' : 'Sin vínculo en DOCTOSIG'}`;
+              return `${baseLinea} • ${fac.vinculado ? 'Relación detectada por TIP_DOC' : 'Sin relación por TIP_DOC'}`;
             })
             .join('\n')
         : 'Sin facturas registradas';
-      const notasVentaTexto = notasVenta.length
-        ? notasVenta.join('\n')
-        : linkingAvailable
-          ? 'Sin notas de venta vinculadas'
-          : 'Validación de notas de venta no disponible (tabla DOCTOSIG).';
-      const cotizacionesPartes = [];
-      if (cotizacionesOrigen.length > 0) {
-        cotizacionesPartes.push(`Cotización origen (TIP_DOC_ANT = C): ${cotizacionesOrigen.join(', ')}`);
-      }
-      if (cotizacionesPosteriores.length > 0) {
-        cotizacionesPartes.push(`Cotizaciones vinculadas al pedido: ${cotizacionesPosteriores.join(', ')}`);
-      }
-      const cotizacionesTexto = cotizacionesPartes.length
-        ? cotizacionesPartes.join('\n')
-        : linkingAvailable
-          ? 'Sin cotizaciones relacionadas'
-          : 'Validación de cotizaciones no disponible (tabla DOCTOSIG).';
+      const notasVentaTexto = 'Seguimiento de notas de venta no disponible.';
+      const cotizacionesTexto = 'Seguimiento de cotizaciones no disponible.';
       const alertasTexto = alerts.length
         ? alerts.map(alerta => `[${alerta.type.toUpperCase()}] ${alerta.message}`).join('\n')
         : 'Sin alertas';
@@ -1220,20 +1202,6 @@ async function getUniverseSummary(empresa, rawFilter) {
       universe: filter
     };
   });
-}
-
-async function tableExists(db, tableName) {
-  try {
-    const rows = await queryWithTimeout(
-      db,
-      "SELECT 1 AS CNT FROM RDB$RELATIONS WHERE TRIM(UPPER(RDB$RELATION_NAME)) = UPPER(?)",
-      [tableName]
-    );
-    return rows.length > 0;
-  } catch (err) {
-    console.warn(`Error verificando existencia de tabla ${tableName}: ${err.message}`);
-    return false;
-  }
 }
 
 app.get('/pos/:empresa', async (req, res) => {
