@@ -56,7 +56,14 @@
                     </div>
                   </div>
                   <div class="row g-3 mt-1 align-items-end">
-                    <div class="col-md-4">
+                    <div class="col-12 col-md-6 col-lg-4">
+                      <label for="universeEmpresaSelect" class="form-label">Empresa para el reporte</label>
+                      <select id="universeEmpresaSelect" class="form-select">
+                        <option value="">Selecciona una empresa</option>
+                      </select>
+                      <div class="form-text">Define desde aquí la empresa base del reporte universo.</div>
+                    </div>
+                    <div class="col-12 col-md-6 col-lg-4">
                       <label for="universeFilterMode" class="form-label">Filtro del universo</label>
                       <select id="universeFilterMode" class="form-select">
                         <option value="global">Global (todas las fechas)</option>
@@ -64,17 +71,17 @@
                         <option value="single">Unitario (1 día)</option>
                       </select>
                     </div>
-                    <div class="col-md-4 d-none" id="universeStartDateGroup">
+                    <div class="col-12 col-md-6 col-lg-4 d-none" id="universeStartDateGroup">
                       <label for="universeStartDate" id="universeStartDateLabel" class="form-label">Fecha inicial</label>
                       <input type="date" id="universeStartDate" class="form-control">
                     </div>
-                    <div class="col-md-4 d-none" id="universeEndDateGroup">
+                    <div class="col-12 col-md-6 col-lg-4 d-none" id="universeEndDateGroup">
                       <label for="universeEndDate" class="form-label">Fecha final</label>
                       <input type="date" id="universeEndDate" class="form-control">
                     </div>
                   </div>
                   <div class="row g-3 mt-1 align-items-end">
-                    <div class="col-md-4">
+                    <div class="col-12 col-md-4">
                       <label for="universeFormat" class="form-label">Formato de salida</label>
                       <select id="universeFormat" class="form-select">
                         <option value="pdf">PDF detallado</option>
@@ -82,7 +89,7 @@
                         <option value="json">JSON estructurado</option>
                       </select>
                     </div>
-                    <div class="col-md-8">
+                    <div class="col-12 col-md-8">
                       <label for="universeFileName" class="form-label">Nombre del archivo (opcional)</label>
                       <input type="text" id="universeFileName" class="form-control" placeholder="universo_SITTEL">
                       <div class="form-text">No incluyas la extensión; se agregará automáticamente según el formato elegido.</div>
@@ -265,6 +272,7 @@
                 <div class="chart-wrapper">
                   <canvas id="chartRem"></canvas>
                 </div>
+                <div class="chart-metrics mt-2" id="chartRemMetrics"></div>
               </div>
             </div>
           </div>
@@ -275,6 +283,7 @@
                 <div class="chart-wrapper">
                   <canvas id="chartFac"></canvas>
                 </div>
+                <div class="chart-metrics mt-2" id="chartFacMetrics"></div>
               </div>
             </div>
           </div>
@@ -285,6 +294,7 @@
                 <div class="chart-wrapper">
                   <canvas id="chartJunto"></canvas>
                 </div>
+                <div class="chart-metrics mt-2" id="chartStackMetrics"></div>
               </div>
             </div>
           </div>

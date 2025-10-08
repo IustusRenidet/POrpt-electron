@@ -283,6 +283,20 @@ function renderEmpresaOptions(filterText = '') {
     });
 }
 
+function renderUniverseEmpresaSelect() {
+  const select = document.getElementById('universeEmpresaSelect');
+  if (!select) return;
+  const currentValue = state.selectedEmpresa || '';
+  select.innerHTML = '<option value="">Selecciona una empresa</option>';
+  state.empresas.forEach(empresa => {
+    const option = document.createElement('option');
+    option.value = empresa;
+    option.textContent = empresa;
+    select.appendChild(option);
+  });
+  select.value = currentValue;
+}
+
 function renderPoOptions(filterText = '') {
   const datalist = document.getElementById('poOptions');
   if (!datalist) return;
@@ -404,7 +418,15 @@ async function selectEmpresa(value) {
   if (state.selectedEmpresa === value) return;
   state.selectedEmpresa = value;
   state.selectedPoIds = [];
-  document.getElementById('poSearch').value = '';
+  const poInput = document.getElementById('poSearch');
+  if (poInput) {
+    poInput.value = '';
+  }
+  const empresaInput = document.getElementById('empresaSearch');
+  if (empresaInput) {
+    empresaInput.value = value;
+  }
+  renderUniverseEmpresaSelect();
   document.getElementById('dashboardContent').classList.add('d-none');
   destroyCharts();
   renderSelectedPoChips();
@@ -675,6 +697,75 @@ function renderCharts(summary) {
       restante: roundTo(restante),
       percentages: computePercentagesFromTotals(normalizedTotals)
     };
+  });
+
+  const aggregatedTotals = entries.reduce((acc, entry) => ({
+    total: acc.total + entry.total,
+    totalRem: acc.totalRem + entry.totalRem,
+    totalFac: acc.totalFac + entry.totalFac,
+    restante: acc.restante + entry.restante
+  }), { total: 0, totalRem: 0, totalFac: 0, restante: 0 });
+  const aggregatedPercentages = computePercentagesFromTotals(aggregatedTotals);
+
+  const mainMetrics = [
+    {
+      containerId: 'chartRemMetrics',
+      rows: [
+        {
+          label: 'Remisiones',
+          className: 'metric-rem',
+          amount: aggregatedTotals.totalRem,
+          percentage: aggregatedPercentages.rem
+        }
+      ]
+    },
+    {
+      containerId: 'chartFacMetrics',
+      rows: [
+        {
+          label: 'Facturas',
+          className: 'metric-fac',
+          amount: aggregatedTotals.totalFac,
+          percentage: aggregatedPercentages.fac
+        }
+      ]
+    },
+    {
+      containerId: 'chartStackMetrics',
+      rows: [
+        {
+          label: 'Remisiones',
+          className: 'metric-rem',
+          amount: aggregatedTotals.totalRem,
+          percentage: aggregatedPercentages.rem
+        },
+        {
+          label: 'Facturas',
+          className: 'metric-fac',
+          amount: aggregatedTotals.totalFac,
+          percentage: aggregatedPercentages.fac
+        },
+        {
+          label: 'Disponible',
+          className: 'metric-rest',
+          amount: aggregatedTotals.restante,
+          percentage: aggregatedPercentages.rest
+        }
+      ]
+    }
+  ];
+
+  mainMetrics.forEach(definition => {
+    const container = document.getElementById(definition.containerId);
+    if (!container) return;
+    container.innerHTML = definition.rows
+      .map(row => `
+        <div class="metric-row">
+          <span class="metric-label ${row.className}">${row.label}</span>
+          <span>$${formatCurrency(row.amount)} · ${formatPercentageLabel(row.percentage)}</span>
+        </div>
+      `)
+      .join('');
   });
 
   const labels = entries.map(entry => entry.label);
@@ -2269,6 +2360,7 @@ async function setupDashboard() {
     }
   }
   renderEmpresaOptions();
+  renderUniverseEmpresaSelect();
   renderSelectedPoChips();
   const empresaInput = document.getElementById('empresaSearch');
   empresaInput?.addEventListener('input', event => renderEmpresaOptions(event.target.value));
@@ -2289,6 +2381,24 @@ async function setupDashboard() {
     if (!button) return;
     const baseId = button.getAttribute('data-po');
     removePoFromSelection(baseId);
+  });
+  document.getElementById('universeEmpresaSelect')?.addEventListener('change', event => {
+    const value = event.target.value;
+    if (!value) {
+      state.selectedEmpresa = '';
+      state.selectedPoIds = [];
+      destroyCharts();
+      renderSelectedPoChips();
+      updateUniverseControls();
+      const empresaInput = document.getElementById('empresaSearch');
+      if (empresaInput) {
+        empresaInput.value = '';
+      }
+      renderUniverseEmpresaSelect();
+      document.getElementById('dashboardContent')?.classList.add('d-none');
+      return;
+    }
+    selectEmpresa(value);
   });
   const adminLink = document.getElementById('adminLink');
   if (adminLink && !isAdmin()) {
