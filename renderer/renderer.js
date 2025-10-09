@@ -141,6 +141,17 @@ function clampPercentage(value, decimals = 2) {
   return Math.min(100, Math.max(0, normalized));
 }
 
+function computeResponsiveChartHeight(itemCount) {
+  const count = Number(itemCount) || 0;
+  if (count <= 1) {
+    return 220;
+  }
+  const base = 220;
+  const perItem = 26;
+  const computed = base + Math.max(0, count - 4) * perItem;
+  return Math.min(420, Math.max(200, computed));
+}
+
 function formatCurrency(value) {
   const amount = normalizeNumber(value);
   return amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -437,21 +448,44 @@ function renderExtensionSelection() {
     const variants = getSuggestedVariants(baseId);
     const detail = ensureSelectedPoDetail(baseId);
     const selectedVariants = detail ? Array.from(detail.variants) : [baseId];
-    const selectedCount = selectedVariants.length;
-    const badgeLabel = selectedCount === 1
-      ? 'Solo base seleccionada'
-      : `${selectedCount} variantes incluidas`;
+    const totalVariants = Math.max(variants.length, selectedVariants.length, 1);
+    const selectedCount = Math.min(selectedVariants.length, totalVariants);
+    const badgeLabel = `${selectedCount}/${totalVariants} seleccionadas`;
+    const poMeta = getPoMetadataByBase(baseId);
 
-    const card = document.createElement('div');
-    card.className = 'card shadow-sm border border-primary-subtle mb-3';
-    const rows = document.createElement('div');
-    rows.className = 'row g-2';
+    const card = document.createElement('section');
+    card.className = 'extension-selection-card';
+    card.dataset.baseId = baseId;
+
+    const header = document.createElement('div');
+    header.className = 'extension-selection-header';
+    const authorizedText = poMeta
+      ? `Autorizado: $${formatCurrency(poMeta.total || 0)}. Marca solo las extensiones que suman consumo.`
+      : 'Marca solo las extensiones que suman consumo.';
+    header.innerHTML = `
+      <div>
+        <h5>PO ${escapeHtml(baseId)}</h5>
+        <p>${escapeHtml(authorizedText)}</p>
+      </div>
+      <span class="extension-selection-badge">${escapeHtml(badgeLabel)}</span>
+    `;
+    card.appendChild(header);
+
+    const actions = document.createElement('div');
+    actions.className = 'extension-selection-actions';
+    actions.innerHTML = `
+      <button type="button" class="btn btn-outline-primary" data-action="select-all" data-base-id="${escapeHtml(baseId)}">Seleccionar todas</button>
+      <button type="button" class="btn btn-outline-secondary" data-action="select-base" data-base-id="${escapeHtml(baseId)}">Solo base</button>
+      <button type="button" class="btn btn-outline-info" data-action="invert-selection" data-base-id="${escapeHtml(baseId)}">Invertir selección</button>
+    `;
+    card.appendChild(actions);
+
+    const optionsGrid = document.createElement('div');
+    optionsGrid.className = 'extension-selection-options';
 
     variants.forEach(variant => {
-      const col = document.createElement('div');
-      col.className = 'col-12 col-md-6';
-      const formCheck = document.createElement('div');
-      formCheck.className = 'form-check form-switch';
+      const option = document.createElement('div');
+      option.className = 'extension-option form-check form-switch';
       const input = document.createElement('input');
       input.className = 'form-check-input';
       input.type = 'checkbox';
@@ -464,40 +498,46 @@ function renderExtensionSelection() {
       } else {
         input.checked = selectedVariants.includes(variant.id);
       }
+
       const label = document.createElement('label');
-      label.className = 'form-check-label small';
+      label.className = 'form-check-label extension-option-label';
       label.setAttribute('for', input.id);
-      const suggestionBadge = variant.id === baseId
-        ? '<span class="badge text-bg-secondary ms-2">Base</span>'
-        : variant.isExtension !== false
-          ? '<span class="badge text-bg-info-subtle text-info-emphasis ms-2">Sugerencia</span>'
-          : '';
-      label.innerHTML = `${escapeHtml(variant.display || variant.id)}${suggestionBadge}`;
-      formCheck.appendChild(input);
-      formCheck.appendChild(label);
-      col.appendChild(formCheck);
-      rows.appendChild(col);
+      const title = escapeHtml(variant.display || variant.id);
+      const metaParts = [];
+      if (variant.fecha) {
+        metaParts.push(`Fecha: ${escapeHtml(variant.fecha)}`);
+      }
+      const totalValue = normalizeNumber(variant.total);
+      if (totalValue > 0) {
+        metaParts.push(`Autorizado: $${formatCurrency(totalValue)}`);
+      }
+      const badges = [];
+      if (variant.id === baseId) {
+        badges.push('<span class="badge text-bg-secondary">Base</span>');
+      } else if (variant.isExtension === false) {
+        badges.push('<span class="badge text-bg-warning-subtle text-warning-emphasis">Manual</span>');
+      } else {
+        badges.push('<span class="badge text-bg-info-subtle text-info-emphasis">Extensión</span>');
+      }
+      label.innerHTML = `
+        <span class="extension-option-title">${title}</span>
+        ${metaParts.length ? `<span class="extension-option-meta">${metaParts.join(' · ')}</span>` : ''}
+        ${badges.length ? `<div class="extension-option-badges">${badges.join('')}</div>` : ''}
+      `;
+
+      option.appendChild(input);
+      option.appendChild(label);
+      optionsGrid.appendChild(option);
     });
 
     if (variants.length <= 1) {
-      const col = document.createElement('div');
-      col.className = 'col-12';
-      col.innerHTML = '<p class="text-muted small mb-0">Sin extensiones adicionales registradas para esta PO.</p>';
-      rows.appendChild(col);
+      const empty = document.createElement('p');
+      empty.className = 'extension-selection-empty';
+      empty.textContent = 'Sin extensiones adicionales registradas para esta PO.';
+      optionsGrid.appendChild(empty);
     }
 
-    card.innerHTML = `
-      <div class="card-body">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-          <div>
-            <h5 class="card-title h6 mb-0">PO ${escapeHtml(baseId)}</h5>
-            <p class="text-muted small mb-0">Marca únicamente las extensiones que deban sumarse al consumo.</p>
-          </div>
-          <span class="badge text-bg-light text-dark">${escapeHtml(badgeLabel)}</span>
-        </div>
-      </div>
-    `;
-    card.querySelector('.card-body').appendChild(rows);
+    card.appendChild(optionsGrid);
     container.appendChild(card);
   });
 }
@@ -522,6 +562,62 @@ function handleExtensionSelectionChange(event) {
       detail.variants.add(baseId);
     }
   }
+  renderSelectedPoChips();
+  updateSummary({ silent: true });
+}
+
+function handleExtensionSelectionAction(event) {
+  const button = event.target.closest('button[data-action][data-base-id]');
+  if (!button) return;
+  const baseId = button.dataset.baseId;
+  const action = button.dataset.action;
+  if (!baseId || !action) return;
+  const detail = ensureSelectedPoDetail(baseId);
+  if (!detail) return;
+  const card = button.closest('.extension-selection-card');
+  const checkboxes = Array.from(
+    card?.querySelectorAll('input[type="checkbox"][data-base-id]') || []
+  );
+  if (!checkboxes.length) return;
+
+  const mutableSet = detail.variants instanceof Set ? detail.variants : new Set(detail.variants || []);
+
+  if (action === 'select-all') {
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = true;
+      if (!checkbox.disabled) {
+        mutableSet.add(checkbox.value);
+      }
+    });
+  } else if (action === 'select-base') {
+    mutableSet.clear();
+    mutableSet.add(baseId);
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = checkbox.value === baseId;
+    });
+  } else if (action === 'invert-selection') {
+    checkboxes.forEach(checkbox => {
+      if (checkbox.value === baseId) {
+        checkbox.checked = true;
+        return;
+      }
+      if (mutableSet.has(checkbox.value)) {
+        mutableSet.delete(checkbox.value);
+        checkbox.checked = false;
+      } else {
+        mutableSet.add(checkbox.value);
+        checkbox.checked = true;
+      }
+    });
+    if (!mutableSet.size) {
+      mutableSet.add(baseId);
+    }
+  } else {
+    return;
+  }
+
+  mutableSet.add(baseId);
+  detail.variants = mutableSet;
   renderSelectedPoChips();
   updateSummary({ silent: true });
 }
@@ -575,7 +671,7 @@ function renderSelectedPoChips() {
     const label = state.selectedPoIds.length === 1
       ? '1 PEO base seleccionada'
       : `${state.selectedPoIds.length} PEOs base seleccionadas`;
-    help.textContent = `${label}. Ajusta las extensiones en la tarjeta inferior o quita cualquiera dando clic en la “x”.`;
+    help.textContent = `${label}. Usa las tarjetas inferiores para activar extensiones, los accesos rápidos o quita cualquiera dando clic en la “x”.`;
   }
   state.selectedPoIds.forEach(baseId => {
     const chip = document.createElement('span');
@@ -1053,7 +1149,7 @@ function renderCharts(summary) {
   const ctxRem = document.getElementById('chartRem');
   const ctxFac = document.getElementById('chartFac');
   const ctxStack = document.getElementById('chartJunto');
-  const dynamicHeight = Math.max(190, chartEntries.length * 38);
+  const dynamicHeight = computeResponsiveChartHeight(chartEntries.length);
 
   const barChartsMeta = [
     { canvas: ctxRem, key: 'rem', amountKey: 'totalRem', percKey: 'rem', label: 'Remisiones', color: CHART_COLORS.rem },
@@ -1065,7 +1161,10 @@ function renderCharts(summary) {
     const wrapper = meta.canvas.closest('.chart-wrapper');
     if (wrapper) {
       wrapper.style.minHeight = `${dynamicHeight}px`;
+      wrapper.style.maxHeight = `${Math.max(dynamicHeight, 240)}px`;
     }
+    meta.canvas.height = dynamicHeight;
+    meta.canvas.style.height = `${dynamicHeight}px`;
     const dataset = {
       label: `${meta.label} ($)`,
       data: chartEntries.map(entry => entry.totals[meta.amountKey]),
@@ -1119,7 +1218,10 @@ function renderCharts(summary) {
     const wrapper = ctxStack.closest('.chart-wrapper');
     if (wrapper) {
       wrapper.style.minHeight = `${dynamicHeight}px`;
+      wrapper.style.maxHeight = `${Math.max(dynamicHeight, 240)}px`;
     }
+    ctxStack.height = dynamicHeight;
+    ctxStack.style.height = `${dynamicHeight}px`;
     const stackMeta = [
       { label: 'Remisiones', percKey: 'rem', amountKey: 'totalRem', color: CHART_COLORS.rem },
       { label: 'Facturas', percKey: 'fac', amountKey: 'totalFac', color: CHART_COLORS.fac },
@@ -1191,37 +1293,38 @@ function renderCharts(summary) {
     ];
     extensionContainer.innerHTML = '';
     chartEntries.forEach((entry, index) => {
-      const card = document.createElement('div');
-      card.className = 'col-md-6 col-xl-4';
+      const card = document.createElement('article');
+      card.className = 'card h-100 shadow-sm chart-card';
       const variantBadge = entry.variantCount === 1 ? 'Solo base' : `${entry.variantCount} variantes`;
+      const donutHeight = Math.min(320, Math.max(220, 180 + Math.max(entry.variantCount - 1, 0) * 22));
       card.innerHTML = `
-        <div class="card h-100 shadow-sm chart-card">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-start gap-3">
-              <div>
-                <h5 class="card-title mb-1">${escapeHtml(entry.label)}</h5>
-                <p class="small text-muted mb-0">Autorizado: $${formatCurrency(entry.totals.total)}</p>
-              </div>
-              <span class="badge text-bg-light text-dark">${escapeHtml(variantBadge)}</span>
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <h5 class="card-title mb-1">${escapeHtml(entry.label)}</h5>
+              <p class="small text-muted mb-0">Autorizado: $${formatCurrency(entry.totals.total)}</p>
             </div>
-            <div class="chart-wrapper mt-2">
-              <canvas id="extChart-${index}"></canvas>
-            </div>
-            <div class="chart-metrics mt-2">
-              ${donutMeta
-                .map(meta => `
-                  <div class="metric-row">
-                    <span class="metric-label ${meta.labelClass}">${meta.label}</span>
-                    <span>$${formatCurrency(entry.totals[meta.amountKey])} · ${formatPercentageLabel(entry.percentages[meta.percKey])}</span>
-                  </div>
-                `)
-                .join('')}
-            </div>
+            <span class="badge text-bg-light text-dark">${escapeHtml(variantBadge)}</span>
+          </div>
+          <div class="chart-wrapper mt-2" style="min-height: ${donutHeight}px">
+            <canvas id="extChart-${index}"></canvas>
+          </div>
+          <div class="chart-metrics mt-2">
+            ${donutMeta
+              .map(meta => `
+                <div class="metric-row">
+                  <span class="metric-label ${meta.labelClass}">${meta.label}</span>
+                  <span>$${formatCurrency(entry.totals[meta.amountKey])} · ${formatPercentageLabel(entry.percentages[meta.percKey])}</span>
+                </div>
+              `)
+              .join('')}
           </div>
         </div>
       `;
       extensionContainer.appendChild(card);
       const canvas = card.querySelector('canvas');
+      canvas.height = donutHeight;
+      canvas.style.height = `${donutHeight}px`;
       const dataset = {
         data: donutMeta.map(meta => entry.totals[meta.amountKey]),
         backgroundColor: donutMeta.map(meta => meta.color),
@@ -2727,6 +2830,7 @@ async function setupDashboard() {
     removePoFromSelection(baseId);
   });
   document.getElementById('extensionSelectionContainer')?.addEventListener('change', handleExtensionSelectionChange);
+  document.getElementById('extensionSelectionContainer')?.addEventListener('click', handleExtensionSelectionAction);
   document.getElementById('universeEmpresaSelect')?.addEventListener('change', event => {
     const value = event.target.value;
     if (!value) {

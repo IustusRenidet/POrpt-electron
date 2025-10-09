@@ -811,18 +811,21 @@ function buildPoChartGroups(summary) {
 function drawPerPoConsumptionCards(doc, groups, branding) {
   if (!groups.length) return;
   const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const columns = availableWidth >= 420 ? 2 : 1;
-  const gap = 16;
-  const cardWidth = columns === 1 ? availableWidth : (availableWidth - gap) / 2;
-  const cardHeight = 134;
+  const minCardWidth = 240;
+  const maxColumns = 3;
+  let columns = Math.floor((availableWidth + 14) / (minCardWidth + 14));
+  columns = Math.max(1, Math.min(maxColumns, columns));
+  const gap = columns > 1 ? 14 : 0;
+  const cardWidth = columns === 1 ? availableWidth : (availableWidth - gap * (columns - 1)) / columns;
+  const cardHeight = columns >= 3 ? 120 : 130;
   let rowTop = doc.y;
   groups.forEach((group, index) => {
     const columnIndex = index % columns;
     if (columnIndex === 0) {
-      ensureSpace(doc, cardHeight + 28);
+      ensureSpace(doc, cardHeight + 32);
       rowTop = doc.y;
     }
-    const x = doc.page.margins.left + columnIndex * (cardWidth + (columns === 1 ? 0 : gap));
+    const x = doc.page.margins.left + columnIndex * (cardWidth + gap);
     const y = rowTop;
     doc.save();
     doc.roundedRect(x, y, cardWidth, cardHeight, 10).fill('#ffffff').stroke('#dbeafe');
@@ -844,9 +847,9 @@ function drawPerPoConsumptionCards(doc, groups, branding) {
       .fillColor('#0f172a')
       .text(`Autorizado: ${formatCurrency(group.totals.total)}`, x + 14, y + 42, { width: cardWidth - 28 });
     const barX = x + 14;
-    const barY = y + 60;
+    const barY = y + 58;
     const barWidth = cardWidth - 28;
-    const barHeight = 14;
+    const barHeight = 12;
     doc.save();
     doc.roundedRect(barX, barY, barWidth, barHeight, 6).fill('#e2e8f0');
     doc.restore();
@@ -869,30 +872,30 @@ function drawPerPoConsumptionCards(doc, groups, branding) {
     const consumoPercent = formatPercentage(roundTo(group.percentages.rem + group.percentages.fac));
     doc
       .font('Helvetica')
-      .fontSize(10)
+      .fontSize(9.5)
       .fillColor('#111827')
       .text(`Consumido: ${formatCurrency(group.totals.totalConsumo)} (${consumoPercent})`, x + 14, metricsY, {
         width: cardWidth - 28
       });
     doc
       .font('Helvetica')
-      .fontSize(10)
+      .fontSize(9.5)
       .fillColor('#111827')
       .text(`Disponible: ${formatCurrency(group.totals.restante)} (${formatPercentage(group.percentages.rest)})`, x + 14, metricsY + 12, {
         width: cardWidth - 28
       });
     doc
       .font('Helvetica')
-      .fontSize(9)
+      .fontSize(8.5)
       .fillColor('#475569')
       .text(
         `Rem ${formatPercentage(group.percentages.rem)} · Fac ${formatPercentage(group.percentages.fac)} · Disp ${formatPercentage(group.percentages.rest)}`,
         x + 14,
-        metricsY + 24,
+        metricsY + 22,
         { width: cardWidth - 28 }
       );
     if (columnIndex === columns - 1 || index === groups.length - 1) {
-      doc.y = rowTop + cardHeight + 22;
+      doc.y = rowTop + cardHeight + 24;
     }
   });
 }
@@ -1000,7 +1003,7 @@ async function generate(summary, branding = {}, customization = {}) {
 
   return await new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: 'A4', margin: 40 });
+      const doc = new PDFDocument({ size: 'LETTER', margin: 40 });
       const chunks = [];
       doc.on('data', chunk => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));

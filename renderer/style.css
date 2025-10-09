@@ -30,6 +30,21 @@ canvas {
   gap: 0.75rem;
 }
 
+.chart-grid,
+.extensions-grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  align-items: stretch;
+}
+
+@media (min-width: 1200px) {
+  .chart-grid,
+  .extensions-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+}
+
 .chart-wrapper {
   position: relative;
   flex-grow: 1;
@@ -157,6 +172,141 @@ canvas {
 
 .selected-po-chip button:hover {
   color: #ef4444;
+}
+
+.extension-selection-card {
+  background: #ffffff;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.extension-selection-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.extension-selection-header h5 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.extension-selection-header p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #6b7280;
+}
+
+.extension-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.extension-selection-actions .btn {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+}
+
+.extension-selection-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.5rem 1rem;
+}
+
+.extension-option {
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: linear-gradient(145deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.95));
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.extension-option.form-check {
+  padding-left: 0;
+}
+
+.extension-option:hover {
+  border-color: rgba(37, 99, 235, 0.35);
+  box-shadow: 0 4px 14px rgba(30, 64, 175, 0.08);
+}
+
+.extension-option .form-check-input {
+  margin-top: 0.35rem;
+  cursor: pointer;
+  margin-left: 0;
+}
+
+.extension-option-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.extension-option.form-check .form-check-label {
+  margin-left: 0;
+}
+
+.extension-option-title {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.extension-option-meta {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.extension-option-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.extension-option-badges .badge {
+  font-size: 0.65rem;
+  letter-spacing: 0.01em;
+}
+
+.extension-selection-options .extension-selection-empty {
+  grid-column: 1 / -1;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  padding: 0.5rem 0;
+}
+
+.extension-selection-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(37, 99, 235, 0.08);
+  color: #1e3a8a;
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+}
+
+.extensions-grid .chart-card {
+  height: 100%;
+}
+
+.extensions-grid .chart-wrapper {
+  min-height: 200px;
+}
+
+.extensions-grid .chart-wrapper canvas {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .nav-wizard .nav-link {
