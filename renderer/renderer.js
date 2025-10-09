@@ -167,11 +167,53 @@ function getSearchableSelectState(select) {
   if (!state) {
     state = {
       text: '',
-      placeholder: select.getAttribute('data-placeholder') || 'Selecciona una opción'
+      placeholder: select.getAttribute('data-placeholder') || 'Selecciona una opción',
+      filterInput: null
     };
     searchableSelectStates.set(select, state);
   }
   return state;
+}
+
+function ensureSearchableFilterInput(select) {
+  if (!select) return null;
+  const state = getSearchableSelectState(select);
+  if (!state) return null;
+  if (state.filterInput && state.filterInput.isConnected) {
+    state.filterInput.value = state.text || '';
+    return state.filterInput;
+  }
+  const filterInput = document.createElement('input');
+  filterInput.type = 'search';
+  filterInput.className = 'form-control form-control-sm mb-2 searchable-select-filter';
+  filterInput.placeholder = 'Escribe para filtrar opciones…';
+  filterInput.setAttribute('aria-label', 'Filtrar opciones');
+  filterInput.autocomplete = 'off';
+  filterInput.spellcheck = false;
+  filterInput.addEventListener('input', () => {
+    applySearchableSelectFilter(select, filterInput.value);
+  });
+  filterInput.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      filterInput.value = '';
+      applySearchableSelectFilter(select, '');
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      select.focus();
+    }
+  });
+  const parent = select.parentElement;
+  if (parent?.classList.contains('input-group')) {
+    parent.parentElement?.insertBefore(filterInput, parent);
+  } else {
+    parent?.insertBefore(filterInput, select);
+  }
+  state.filterInput = filterInput;
+  filterInput.value = state.text || '';
+  return filterInput;
 }
 
 function updateSearchableSelectPlaceholder(select, matches = 0) {
@@ -198,18 +240,24 @@ function applySearchableSelectFilter(select, text = '') {
   if (!select) return;
   const state = getSearchableSelectState(select);
   if (!state) return;
-  state.text = text;
-  const normalized = text.trim().toLowerCase();
+  const nextText = typeof text === 'string' ? text : '';
+  state.text = nextText;
+  if (state.filterInput && state.filterInput.value !== nextText) {
+    state.filterInput.value = nextText;
+  }
+  const normalized = nextText.trim().toLowerCase();
   let matches = 0;
   Array.from(select.options).forEach(option => {
     if (option.dataset.placeholderOption === 'true') {
       option.hidden = false;
+      option.style.display = '';
       return;
     }
     const label = (option.textContent || '').toLowerCase();
     const value = (option.value || '').toLowerCase();
     const match = !normalized || label.includes(normalized) || value.includes(normalized);
     option.hidden = !match;
+    option.style.display = match ? '' : 'none';
     if (match) {
       matches += 1;
     }
@@ -238,6 +286,9 @@ function clearSearchableSelectFilter(select) {
   const state = getSearchableSelectState(select);
   if (!state) return;
   state.text = '';
+  if (state.filterInput) {
+    state.filterInput.value = '';
+  }
   applySearchableSelectFilter(select, '');
 }
 
@@ -311,6 +362,7 @@ function initializeSearchableSelect(select, { placeholder } = {}) {
   if (placeholder) {
     state.placeholder = placeholder;
   }
+  ensureSearchableFilterInput(select);
   const hasInitialOptions = Array.from(select.options).some(option => option.value && !option.disabled);
   select.dataset.searchableHasItems = hasInitialOptions ? 'true' : 'false';
   if (!hasInitialOptions) {
@@ -889,7 +941,6 @@ function renderExtensionSelection() {
     actions.innerHTML = `
       <button type="button" class="btn btn-outline-primary" data-action="select-all" data-base-id="${escapeHtml(baseId)}">Seleccionar todas</button>
       <button type="button" class="btn btn-outline-secondary" data-action="select-base" data-base-id="${escapeHtml(baseId)}">Solo base</button>
-      <button type="button" class="btn btn-outline-info" data-action="invert-selection" data-base-id="${escapeHtml(baseId)}">Invertir selección</button>
     `;
     card.appendChild(actions);
 
@@ -1040,23 +1091,6 @@ function handleExtensionSelectionAction(event) {
     checkboxes.forEach(checkbox => {
       checkbox.checked = checkbox.value === baseId;
     });
-  } else if (action === 'invert-selection') {
-    checkboxes.forEach(checkbox => {
-      if (checkbox.value === baseId) {
-        checkbox.checked = true;
-        return;
-      }
-      if (mutableSet.has(checkbox.value)) {
-        mutableSet.delete(checkbox.value);
-        checkbox.checked = false;
-      } else {
-        mutableSet.add(checkbox.value);
-        checkbox.checked = true;
-      }
-    });
-    if (!mutableSet.size) {
-      mutableSet.add(baseId);
-    }
   } else {
     return;
   }
@@ -1093,12 +1127,25 @@ function syncSelectedVariantsFromSummary(summary) {
     if (!stateDetail) {
       return;
     }
-    const current = stateDetail.variants || new Set();
-    const normalizedSet = new Set(normalized);
-    const sameSize = current.size === normalizedSet.size;
-    const isSame = sameSize && Array.from(normalizedSet).every(value => current.has(value));
-    if (!isSame) {
-      stateDetail.variants = new Set(normalizedSet);
+    const current = stateDetail.variants instanceof Set
+      ? stateDetail.variants
+      : new Set(stateDetail.variants || []);
+    let updated = false;
+    normalized.forEach(id => {
+      if (!current.has(id)) {
+        current.add(id);
+        updated = true;
+      }
+    });
+    if (!current.has(detail.baseId)) {
+      current.add(detail.baseId);
+      updated = true;
+    }
+    if (!(stateDetail.variants instanceof Set)) {
+      updated = true;
+    }
+    if (updated) {
+      stateDetail.variants = current;
       changed = true;
     }
   });

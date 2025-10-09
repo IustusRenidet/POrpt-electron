@@ -147,77 +147,122 @@
               <div class="row g-4 mb-4">
                 <div class="col-lg-6">
                   <div class="card shadow-sm h-100">
-                    <div class="card-body">
-                      <h3 class="h5 mb-3">Motor y formato</h3>
-                      <div class="d-flex flex-wrap align-items-center gap-3">
-                        <div class="dropdown">
-                          <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="reportEngineDropdown">
-                            Modo de reporte: <span id="reportEngineLabel">-</span>
-                          </button>
-                          <ul class="dropdown-menu" id="reportEngineMenu"></ul>
+                    <div class="card-header bg-transparent border-0">
+                      <button
+                        class="btn btn-link card-toggle-button collapsed"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#collapseEngine"
+                        aria-expanded="false"
+                        aria-controls="collapseEngine"
+                      >
+                        <span class="toggle-icon" aria-hidden="true">☰</span>
+                        <span class="toggle-label">Motor y formato</span>
+                        <span class="toggle-chevron" aria-hidden="true">▾</span>
+                      </button>
+                    </div>
+                    <div id="collapseEngine" class="collapse">
+                      <div class="card-body">
+                        <div class="d-flex flex-wrap align-items-center gap-3">
+                          <div class="dropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="reportEngineDropdown">
+                              Modo de reporte: <span id="reportEngineLabel">-</span>
+                            </button>
+                            <ul class="dropdown-menu" id="reportEngineMenu"></ul>
+                          </div>
+                          <div>
+                            <label for="reportFormatSelect" class="form-label mb-1 small text-muted">Formato principal</label>
+                            <select id="reportFormatSelect" class="form-select form-select-sm">
+                              <option value="pdf">PDF</option>
+                            </select>
+                          </div>
+                          <span id="reportEngineStatus" class="badge text-bg-secondary d-none"></span>
                         </div>
-                        <div>
-                          <label for="reportFormatSelect" class="form-label mb-1 small text-muted">Formato principal</label>
-                          <select id="reportFormatSelect" class="form-select form-select-sm">
-                            <option value="pdf">PDF</option>
-                          </select>
-                        </div>
-                        <span id="reportEngineStatus" class="badge text-bg-secondary d-none"></span>
+                        <small id="reportEngineHelp" class="text-muted d-block mt-3">El motor disponible es "PDF directo". Elige el formato de exportación preferido.</small>
                       </div>
-                      <small id="reportEngineHelp" class="text-muted d-block mt-3">El motor disponible es "PDF directo". Elige el formato de exportación preferido.</small>
                     </div>
                   </div>
                 </div>
                 <div class="col-lg-6">
                   <div class="card shadow-sm h-100">
-                    <div class="card-body">
-                      <h3 class="h5 mb-3">Nombre del archivo</h3>
-                      <label for="reportFileNameInput" class="form-label">Personaliza el nombre del reporte</label>
-                      <input type="text" id="reportFileNameInput" class="form-control" placeholder="ej. consumo_PO_Q1">
-                      <div class="form-text">Si lo dejas vacío usaremos un nombre inteligente con base en las POs seleccionadas.</div>
+                    <div class="card-header bg-transparent border-0">
+                      <button
+                        class="btn btn-link card-toggle-button collapsed"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#collapseFileName"
+                        aria-expanded="false"
+                        aria-controls="collapseFileName"
+                      >
+                        <span class="toggle-icon" aria-hidden="true">☰</span>
+                        <span class="toggle-label">Nombre del archivo</span>
+                        <span class="toggle-chevron" aria-hidden="true">▾</span>
+                      </button>
+                    </div>
+                    <div id="collapseFileName" class="collapse">
+                      <div class="card-body">
+                        <label for="reportFileNameInput" class="form-label">Personaliza el nombre del reporte</label>
+                        <input type="text" id="reportFileNameInput" class="form-control" placeholder="ej. consumo_PO_Q1">
+                        <div class="form-text">Si lo dejas vacío usaremos un nombre inteligente con base en las POs seleccionadas.</div>
+                      </div>
                     </div>
                   </div>
                 </div>
                 <div class="col-12">
                   <div class="card shadow-sm">
-                    <div class="card-body">
-                      <h3 class="h5 mb-3">Personalización del contenido</h3>
-                      <div class="row g-4">
-                        <div class="col-lg-6">
-                          <h4 class="h6 text-uppercase text-muted">Secciones del reporte</h4>
-                          <p class="text-muted small mb-3">Elige si deseas incluir cada bloque cuando generes el PDF.</p>
-                          <div class="vstack gap-3">
-                            <div>
-                              <label class="form-label" for="toggleIncludeCharts">Gráficas y comparativas</label>
-                              <select id="toggleIncludeCharts" class="form-select form-select-sm" data-customization-select="includeCharts">
-                                <option value="true">Incluir</option>
-                                <option value="false">Omitir</option>
-                              </select>
-                              <div class="form-text">Activa las visualizaciones comparativas dentro del reporte.</div>
-                            </div>
-                            <div>
-                              <label class="form-label" for="toggleIncludeMovements">Remisiones y facturas destacadas</label>
-                              <select id="toggleIncludeMovements" class="form-select form-select-sm" data-customization-select="includeMovements">
-                                <option value="true">Incluir</option>
-                                <option value="false">Omitir</option>
-                              </select>
-                              <div class="form-text">Controla si se listan movimientos relevantes por extensión.</div>
-                            </div>
-                            <div>
-                              <label class="form-label" for="toggleIncludeObservations">Observaciones y alertas</label>
-                              <select id="toggleIncludeObservations" class="form-select form-select-sm" data-customization-select="includeObservations">
-                                <option value="true">Mostrar</option>
-                                <option value="false">Ocultar</option>
-                              </select>
-                              <div class="form-text">Incluye el bloque con comentarios y recordatorios importantes.</div>
-                            </div>
-                            <div>
-                              <label class="form-label" for="toggleIncludeUniverse">Bloque del universo seleccionado</label>
-                              <select id="toggleIncludeUniverse" class="form-select form-select-sm" data-customization-select="includeUniverse">
-                                <option value="true">Agregar</option>
-                                <option value="false">Omitir</option>
-                              </select>
-                              <div class="form-text">Resume el filtro de universo aplicado al reporte actual.</div>
+                    <div class="card-header bg-transparent border-0">
+                      <button
+                        class="btn btn-link card-toggle-button collapsed"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#collapseContentCustomization"
+                        aria-expanded="false"
+                        aria-controls="collapseContentCustomization"
+                      >
+                        <span class="toggle-icon" aria-hidden="true">☰</span>
+                        <span class="toggle-label">Personalización del contenido</span>
+                        <span class="toggle-chevron" aria-hidden="true">▾</span>
+                      </button>
+                    </div>
+                    <div id="collapseContentCustomization" class="collapse">
+                      <div class="card-body">
+                        <div class="row g-4">
+                          <div class="col-lg-6">
+                            <h4 class="h6 text-uppercase text-muted">Secciones del reporte</h4>
+                            <p class="text-muted small mb-3">Elige si deseas incluir cada bloque cuando generes el PDF.</p>
+                            <div class="vstack gap-3">
+                              <div>
+                                <label class="form-label" for="toggleIncludeCharts">Gráficas y comparativas</label>
+                                <select id="toggleIncludeCharts" class="form-select form-select-sm" data-customization-select="includeCharts">
+                                  <option value="true">Incluir</option>
+                                  <option value="false">Omitir</option>
+                                </select>
+                                <div class="form-text">Activa las visualizaciones comparativas dentro del reporte.</div>
+                              </div>
+                              <div>
+                                <label class="form-label" for="toggleIncludeMovements">Remisiones y facturas destacadas</label>
+                                <select id="toggleIncludeMovements" class="form-select form-select-sm" data-customization-select="includeMovements">
+                                  <option value="true">Incluir</option>
+                                  <option value="false">Omitir</option>
+                                </select>
+                                <div class="form-text">Controla si se listan movimientos relevantes por extensión.</div>
+                              </div>
+                              <div>
+                                <label class="form-label" for="toggleIncludeObservations">Observaciones y alertas</label>
+                                <select id="toggleIncludeObservations" class="form-select form-select-sm" data-customization-select="includeObservations">
+                                  <option value="true">Mostrar</option>
+                                  <option value="false">Ocultar</option>
+                                </select>
+                                <div class="form-text">Incluye el bloque con comentarios y recordatorios importantes.</div>
+                              </div>
+                              <div>
+                                <label class="form-label" for="toggleIncludeUniverse">Bloque del universo seleccionado</label>
+                                <select id="toggleIncludeUniverse" class="form-select form-select-sm" data-customization-select="includeUniverse">
+                                  <option value="true">Agregar</option>
+                                  <option value="false">Omitir</option>
+                                </select>
+                                <div class="form-text">Resume el filtro de universo aplicado al reporte actual.</div>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -273,33 +318,49 @@
                 </div>
               </div>
               <div class="card shadow-sm border-primary-subtle mb-4">
-                <div class="card-body">
-                  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
-                    <div class="flex-grow-1">
-                      <h3 class="h5 mb-2">Resumen previo del reporte</h3>
-                      <p class="text-muted small mb-3">Verifica las POs seleccionadas y la configuración activa antes de descargar.</p>
-                      <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-                        <span class="badge text-bg-primary" id="overviewPoCount">0 POs base</span>
-                        <span class="badge text-bg-light text-dark" id="overviewEmpresaBadge">Sin empresa</span>
+                <div class="card-header bg-transparent border-0">
+                  <button
+                    class="btn btn-link card-toggle-button collapsed"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#collapseReportOverview"
+                    aria-expanded="false"
+                    aria-controls="collapseReportOverview"
+                  >
+                    <span class="toggle-icon" aria-hidden="true">☰</span>
+                    <span class="toggle-label">Resumen previo del reporte</span>
+                    <span class="toggle-chevron" aria-hidden="true">▾</span>
+                  </button>
+                </div>
+                <div id="collapseReportOverview" class="collapse">
+                  <div class="card-body">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+                      <div class="flex-grow-1">
+                        <h3 class="h5 mb-2">Resumen previo del reporte</h3>
+                        <p class="text-muted small mb-3">Verifica las POs seleccionadas y la configuración activa antes de descargar.</p>
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                          <span class="badge text-bg-primary" id="overviewPoCount">0 POs base</span>
+                          <span class="badge text-bg-light text-dark" id="overviewEmpresaBadge">Sin empresa</span>
+                        </div>
+                        <div id="reportSelectionOverview" class="selection-overview"></div>
                       </div>
-                      <div id="reportSelectionOverview" class="selection-overview"></div>
+                      <div class="text-end d-flex flex-column align-items-end gap-2">
+                        <button id="generateReportBtn" class="btn btn-primary">Previsualizar y descargar</button>
+                        <small id="reportDownloadHelp" class="text-muted">Selecciona empresa y POs para habilitar la descarga.</small>
+                      </div>
                     </div>
-                    <div class="text-end d-flex flex-column align-items-end gap-2">
-                      <button id="generateReportBtn" class="btn btn-primary">Previsualizar y descargar</button>
-                      <small id="reportDownloadHelp" class="text-muted">Selecciona empresa y POs para habilitar la descarga.</small>
-                    </div>
-                  </div>
-                  <hr class="my-4">
-                  <div class="row g-3">
-                    <div class="col-md-4">
-                      <h4 class="h6 text-uppercase text-muted">Motor y formato</h4>
-                      <p class="mb-1"><span class="fw-semibold">Motor:</span> <span id="overviewEngineLabel">-</span></p>
-                      <p class="mb-1"><span class="fw-semibold">Formato:</span> <span id="overviewFormatLabel">-</span></p>
-                      <p class="mb-0"><span class="fw-semibold">Archivo:</span> <span id="overviewFilename">Se generará automáticamente</span></p>
-                    </div>
-                    <div class="col-md-8">
-                      <h4 class="h6 text-uppercase text-muted">Personalización activa</h4>
-                      <div id="customizationSummary" class="d-flex flex-wrap gap-2"></div>
+                    <hr class="my-4">
+                    <div class="row g-3">
+                      <div class="col-md-4">
+                        <h4 class="h6 text-uppercase text-muted">Motor y formato</h4>
+                        <p class="mb-1"><span class="fw-semibold">Motor:</span> <span id="overviewEngineLabel">-</span></p>
+                        <p class="mb-1"><span class="fw-semibold">Formato:</span> <span id="overviewFormatLabel">-</span></p>
+                        <p class="mb-0"><span class="fw-semibold">Archivo:</span> <span id="overviewFilename">Se generará automáticamente</span></p>
+                      </div>
+                      <div class="col-md-8">
+                        <h4 class="h6 text-uppercase text-muted">Personalización activa</h4>
+                        <div id="customizationSummary" class="d-flex flex-wrap gap-2"></div>
+                      </div>
                     </div>
                   </div>
                 </div>
