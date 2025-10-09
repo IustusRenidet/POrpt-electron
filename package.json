@@ -20,7 +20,7 @@
     "express": "^5.1.0",
     "node-firebird": "^0.8.9",
     "pdfkit": "^0.13.0",
-    "sqlite3": "^5.1.7"
+    "@vscode/sqlite3": "^5.1.8-vscode"
   },
   "devDependencies": {
     "electron": "^38.2.2",
@@ -29,6 +29,7 @@
   "build": {
     "appId": "com.example.porpt",
     "productName": "POrpt",
+    "npmRebuild": false,
     "directories": {
       "output": "dist"
     },
