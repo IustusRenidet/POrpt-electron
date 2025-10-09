@@ -721,7 +721,8 @@ function buildLegendEntries(totals, percentages, branding) {
 
 function drawLegendRows(doc, entries, startX, startY, maxWidth) {
   let currentY = startY;
-  const effectiveWidth = Math.max(maxWidth, 200);
+  const availableWidth = Math.max(0, doc.page.width - doc.page.margins.right - startX);
+  const effectiveWidth = Math.min(Math.max(maxWidth, 200), availableWidth);
   entries.forEach(entry => {
     doc.save().rect(startX, currentY, 12, 12).fill(entry.color).restore();
     doc
@@ -735,8 +736,9 @@ function drawLegendRows(doc, entries, startX, startY, maxWidth) {
 }
 
 function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
-  const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const width = Math.min(availableWidth - 100, options.maxWidth || 360);
+  const availableWidth = Math.max(0, doc.page.width - doc.page.margins.left - doc.page.margins.right);
+  const maxWidth = options.maxWidth || 360;
+  const width = Math.min(maxWidth, availableWidth);
   const startX = doc.page.margins.left + (availableWidth - width) / 2;
   const barHeight = options.barHeight || 26;
   const title = options.title || 'Consumo combinado';
