@@ -463,3 +463,8 @@ canvas {
 #reportPreviewModal .list-group-item {
   font-size: 0.9rem;
 }
+
+select[data-searchable-select] option[data-placeholder-option="true"] {
+  color: var(--bs-secondary-color, #6c757d);
+  font-style: italic;
+}
