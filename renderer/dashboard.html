@@ -344,10 +344,7 @@
                         </div>
                         <div id="reportSelectionOverview" class="selection-overview"></div>
                       </div>
-                      <div class="text-end d-flex flex-column align-items-end gap-2">
-                        <button id="generateReportBtn" class="btn btn-primary">Previsualizar y descargar</button>
-                        <small id="reportDownloadHelp" class="text-muted">Selecciona empresa y POs para habilitar la descarga.</small>
-                      </div>
+                      
                     </div>
                     <hr class="my-4">
                     <div class="row g-3">
@@ -365,8 +362,14 @@
                   </div>
                 </div>
               </div>
-              <div class="d-flex justify-content-between align-items-center">
-                <button class="btn btn-outline-secondary" type="button" data-wizard-action="prev">Volver a filtros globales</button>
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                  <button class="btn btn-outline-secondary" type="button" data-wizard-action="prev">Volver a filtros globales</button>
+                  <div class="d-flex flex-column gap-1">
+                    <button id="generateReportBtn" class="btn btn-primary">Previsualizar y descargar</button>
+                    <small id="reportDownloadHelp" class="text-muted">Selecciona empresa y POs para habilitar la descarga.</small>
+                  </div>
+                </div>
                 <span class="text-muted small">El tablero inferior refleja tu selección en tiempo real.</span>
               </div>
             </div>
