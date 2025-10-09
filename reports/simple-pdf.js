@@ -161,22 +161,31 @@ function clampHorizontalRect(bounds, x, width) {
 }
 
 function computePercentages(totals = {}) {
-  const total = Number(totals.total || 0);
-  if (total <= 0) {
-    return { rem: 0, fac: 0, rest: 0 };
+  const total = Math.max(0, Number(totals.total || 0));
+  const totalRem = Math.max(0, Number(totals.totalRem || 0));
+  const totalFac = Math.max(0, Number(totals.totalFac || 0));
+  const consumo = Math.max(0, totalRem + totalFac);
+  const restanteFallback = total - consumo;
+  const restanteAmountRaw = totals.restante != null ? Number(totals.restante) : restanteFallback;
+  const restanteAmount = Number.isFinite(restanteAmountRaw) ? Math.max(0, restanteAmountRaw) : 0;
+  const base = Math.max(total, consumo);
+  if (base <= 0) {
+    return { rem: 0, fac: 0, rest: 0, base: 0, overage: 0 };
   }
-  const totalRem = Number(totals.totalRem || 0);
-  const totalFac = Number(totals.totalFac || 0);
-  const restanteAmount = Number(
-    totals.restante != null ? totals.restante : total - (totalRem + totalFac)
-  );
-  const rem = clampPercentage((totalRem / total) * 100);
-  const fac = clampPercentage((totalFac / total) * 100);
-  let rest = clampPercentage((restanteAmount / total) * 100);
+  const rem = clampPercentage((totalRem / base) * 100);
+  const fac = clampPercentage((totalFac / base) * 100);
+  let rest = clampPercentage((restanteAmount / base) * 100);
   if (roundTo(rem + fac + rest) !== 100) {
     rest = clampPercentage(100 - (rem + fac));
   }
-  return { rem, fac, rest };
+  const overage = Math.max(0, consumo - total);
+  return {
+    rem,
+    fac,
+    rest,
+    base,
+    overage
+  };
 }
 
 function ensureSpace(doc, requiredHeight = 0, options = {}) {
@@ -697,7 +706,11 @@ function drawSummaryBox(doc, summary, branding = {}) {
   ensureSpace(doc, 90);
   const top = doc.y;
   const percentages = computePercentages(totals);
-  const consumoPercentage = roundTo(percentages.rem + percentages.fac);
+  const totalAuthorized = Math.max(0, Number(totals.total || 0));
+  const totalRem = Math.max(0, Number(totals.totalRem || 0));
+  const totalFac = Math.max(0, Number(totals.totalFac || 0));
+  const totalConsumo = roundTo(totalRem + totalFac);
+  const consumoPercentage = totalAuthorized > 0 ? roundTo((totalConsumo / totalAuthorized) * 100) : 0;
   const accent = branding.accentColor || '#111827';
   const columnWidth = width / 3;
   const cards = [
@@ -932,7 +945,11 @@ function drawPerPoConsumptionCards(doc, groups, branding) {
       doc.save().rect(cursorX, barY, restWidth, barHeight).fillOpacity(0.95).fill(branding.restanteColor).restore();
     }
     const metricsY = barY + barHeight + 8;
-    const consumoPercent = formatPercentage(roundTo(group.percentages.rem + group.percentages.fac));
+    const totalAuthorized = Math.max(0, Number(group.totals.total || 0));
+    const totalConsumo = Math.max(0, Number(group.totals.totalRem || 0) + Number(group.totals.totalFac || 0));
+    const consumoPercent = formatPercentage(
+      totalAuthorized > 0 ? roundTo((totalConsumo / totalAuthorized) * 100) : 0
+    );
     doc
       .font('Helvetica')
       .fontSize(9.5)
