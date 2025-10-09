@@ -130,6 +130,36 @@ function formatPercentage(value) {
   return `${roundTo(value, 2).toFixed(2)}%`;
 }
 
+function getContentBounds(doc) {
+  const left = doc.page.margins.left;
+  const right = doc.page.width - doc.page.margins.right;
+  const top = doc.page.margins.top;
+  const bottom = doc.page.height - doc.page.margins.bottom;
+  return {
+    left,
+    right,
+    top,
+    bottom,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top)
+  };
+}
+
+function clampHorizontalRect(bounds, x, width) {
+  const safeWidth = Math.max(0, Math.min(width, bounds.width));
+  let safeX = Number.isFinite(x) ? x : bounds.left;
+  if (safeX < bounds.left) {
+    safeX = bounds.left;
+  }
+  if (safeX + safeWidth > bounds.right) {
+    safeX = bounds.right - safeWidth;
+  }
+  if (safeX < bounds.left) {
+    safeX = bounds.left;
+  }
+  return { x: safeX, width: safeWidth };
+}
+
 function computePercentages(totals = {}) {
   const total = Number(totals.total || 0);
   if (total <= 0) {
@@ -546,8 +576,11 @@ function drawMovements(doc, summary, branding) {
   const { totals } = summary;
   const rem = collectMovements(summary.items || [], totals, 'remisiones');
   const fac = collectMovements(summary.items || [], totals, 'facturas');
-  const startX = doc.page.margins.left;
-  const columnWidth = (doc.page.width - doc.page.margins.left - doc.page.margins.right - 20) / 2;
+  const bounds = getContentBounds(doc);
+  const gutter = 20;
+  const columnWidth = Math.max(0, (bounds.width - gutter) / 2);
+  const startX = bounds.left;
+  const secondColumnX = columnWidth > 0 ? Math.min(bounds.right - columnWidth, startX + columnWidth + gutter) : startX;
   const availableHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom - 120;
   const rowsPerChunk = Math.max(1, Math.floor((availableHeight - 36) / 16));
   const totalRows = Math.max(rem.movements.length, fac.movements.length);
@@ -573,17 +606,17 @@ function drawMovements(doc, summary, branding) {
       .font('Helvetica-Bold')
       .fontSize(14)
       .fillColor(branding.facColor)
-      .text('Facturas', startX + columnWidth + 20, top);
+      .text('Facturas', secondColumnX, top);
 
     doc.lineWidth(1);
     doc.rect(startX, top + 18, columnWidth, boxHeight).stroke(branding.remColor);
-    doc.rect(startX + columnWidth + 20, top + 18, columnWidth, boxHeight).stroke(branding.facColor);
+    doc.rect(secondColumnX, top + 18, columnWidth, boxHeight).stroke(branding.facColor);
 
     doc.font('Helvetica').fontSize(11).fillColor('#111827');
     remSlice.forEach((item, index) => {
       const y = top + 30 + index * 16;
       doc.text(`${item.id}: ${formatCurrency(item.monto)} (${formatPercentage(item.porcentaje)})`, startX + 10, y, {
-        width: columnWidth - 20
+        width: Math.max(0, columnWidth - 20)
       });
     });
     if (remSlice.length === 0) {
@@ -592,7 +625,7 @@ function drawMovements(doc, summary, branding) {
         .fontSize(11)
         .fillColor('#6b7280')
         .text('Sin remisiones destacadas en este bloque.', startX + 10, top + 32, {
-          width: columnWidth - 20
+          width: Math.max(0, columnWidth - 20)
         });
     }
 
@@ -601,10 +634,10 @@ function drawMovements(doc, summary, branding) {
       const y = top + 30 + index * 16;
       doc.text(
         `${item.id}: ${formatCurrency(item.monto)} (${formatPercentage(item.porcentaje)})`,
-        startX + columnWidth + 30,
+        secondColumnX + 10,
         y,
         {
-          width: columnWidth - 20
+          width: Math.max(0, columnWidth - 20)
         }
       );
     });
@@ -613,8 +646,8 @@ function drawMovements(doc, summary, branding) {
         .font('Helvetica')
         .fontSize(11)
         .fillColor('#6b7280')
-        .text('Sin facturas destacadas en este bloque.', startX + columnWidth + 30, top + 32, {
-          width: columnWidth - 20
+        .text('Sin facturas destacadas en este bloque.', secondColumnX + 10, top + 32, {
+          width: Math.max(0, columnWidth - 20)
         });
     }
 
@@ -628,29 +661,29 @@ function drawMovements(doc, summary, branding) {
           `Subtotal Remisiones: ${formatCurrency(rem.subtotal)} (${formatPercentage(rem.porcentaje)})`,
           startX + 10,
           footerY,
-          { width: columnWidth - 20 }
+          { width: Math.max(0, columnWidth - 20) }
         );
       doc
         .font('Helvetica-Bold')
         .fillColor('#111827')
         .text(
           `Subtotal Facturas: ${formatCurrency(fac.subtotal)} (${formatPercentage(fac.porcentaje)})`,
-          startX + columnWidth + 30,
+          secondColumnX + 10,
           footerY,
-          { width: columnWidth - 20 }
+          { width: Math.max(0, columnWidth - 20) }
         );
     } else {
       doc
         .font('Helvetica')
         .fontSize(10)
         .fillColor('#6b7280')
-        .text('Continúa en la siguiente página…', startX + 10, footerY, { width: columnWidth - 20 });
+        .text('Continúa en la siguiente página…', startX + 10, footerY, { width: Math.max(0, columnWidth - 20) });
       doc
         .font('Helvetica')
         .fontSize(10)
         .fillColor('#6b7280')
-        .text('Continúa en la siguiente página…', startX + columnWidth + 30, footerY, {
-          width: columnWidth - 20
+        .text('Continúa en la siguiente página…', secondColumnX + 10, footerY, {
+          width: Math.max(0, columnWidth - 20)
         });
     }
     doc.y = top + 18 + boxHeight + 12;
@@ -721,25 +754,34 @@ function buildLegendEntries(totals, percentages, branding) {
 
 function drawLegendRows(doc, entries, startX, startY, maxWidth) {
   let currentY = startY;
-  const availableWidth = Math.max(0, doc.page.width - doc.page.margins.right - startX);
-  const effectiveWidth = Math.min(Math.max(maxWidth, 200), availableWidth);
+  const bounds = getContentBounds(doc);
+  const requestedWidth = Number.isFinite(maxWidth) && maxWidth > 0 ? maxWidth : bounds.width;
+  const clamped = clampHorizontalRect(bounds, startX, requestedWidth);
+  const safeStartX = clamped.x;
+  const availableWidth = Math.max(0, bounds.right - safeStartX);
+  const minimumWidth = Math.min(200, availableWidth);
+  const effectiveWidth = Math.min(Math.max(clamped.width, minimumWidth), availableWidth);
   entries.forEach(entry => {
-    doc.save().rect(startX, currentY, 12, 12).fill(entry.color).restore();
+    doc.save().rect(safeStartX, currentY, 12, 12).fill(entry.color).restore();
     doc
       .font('Helvetica')
       .fontSize(11)
       .fillColor('#111827')
-      .text(entry.label, startX + 18, currentY - 1, { width: effectiveWidth - 18 });
+      .text(entry.label, safeStartX + 18, currentY - 1, { width: Math.max(0, effectiveWidth - 18) });
     currentY += 18;
   });
   return currentY;
 }
 
 function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
-  const availableWidth = Math.max(0, doc.page.width - doc.page.margins.left - doc.page.margins.right);
-  const maxWidth = options.maxWidth || 360;
-  const width = Math.min(maxWidth, availableWidth);
-  const startX = doc.page.margins.left + (availableWidth - width) / 2;
+  const bounds = getContentBounds(doc);
+  const fallbackMaxWidth = 360;
+  const maxWidth = typeof options.maxWidth === 'number' && options.maxWidth > 0
+    ? options.maxWidth
+    : fallbackMaxWidth;
+  const requestedWidth = Math.min(maxWidth, bounds.width);
+  const centerX = bounds.left + (bounds.width - requestedWidth) / 2;
+  const { x: startX, width } = clampHorizontalRect(bounds, centerX, requestedWidth);
   const barHeight = options.barHeight || 26;
   const title = options.title || 'Consumo combinado';
   ensureSpace(doc, barHeight + 130);
@@ -747,7 +789,7 @@ function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
     .font('Helvetica-Bold')
     .fontSize(14)
     .fillColor(branding.accentColor || '#111827')
-    .text(title, doc.page.margins.left, doc.y, { width: availableWidth, align: 'center' });
+    .text(title, bounds.left, doc.y, { width: bounds.width, align: 'center' });
   doc.moveDown(0.35);
   const barTop = doc.y;
   doc.lineWidth(1).roundedRect(startX, barTop, width, barHeight, 6).stroke('#d1d5db');
@@ -814,13 +856,27 @@ function buildPoChartGroups(summary) {
 
 function drawPerPoConsumptionCards(doc, groups, branding) {
   if (!groups.length) return;
-  const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const bounds = getContentBounds(doc);
+  const availableWidth = bounds.width;
+  if (availableWidth <= 0) {
+    return;
+  }
   const minCardWidth = 240;
   const maxColumns = 3;
-  let columns = Math.floor((availableWidth + 14) / (minCardWidth + 14));
-  columns = Math.max(1, Math.min(maxColumns, columns));
-  const gap = columns > 1 ? 14 : 0;
-  const cardWidth = columns === 1 ? availableWidth : (availableWidth - gap * (columns - 1)) / columns;
+  const gapSize = 14;
+  let columns = Math.max(1, Math.floor((availableWidth + gapSize) / (minCardWidth + gapSize)));
+  columns = Math.min(maxColumns, columns);
+  while (columns > 1) {
+    const tentativeGap = gapSize;
+    const tentativeWidth = (availableWidth - tentativeGap * (columns - 1)) / columns;
+    if (tentativeWidth >= minCardWidth - 0.5) {
+      break;
+    }
+    columns -= 1;
+  }
+  const gap = columns > 1 ? gapSize : 0;
+  const rawCardWidth = columns === 1 ? availableWidth : (availableWidth - gap * (columns - 1)) / columns;
+  const cardWidth = Math.max(0, Math.min(rawCardWidth, availableWidth));
   const cardHeight = columns >= 3 ? 120 : 130;
   let rowTop = doc.y;
   groups.forEach((group, index) => {
@@ -829,30 +885,32 @@ function drawPerPoConsumptionCards(doc, groups, branding) {
       ensureSpace(doc, cardHeight + 32);
       rowTop = doc.y;
     }
-    const x = doc.page.margins.left + columnIndex * (cardWidth + gap);
+    const x = bounds.left + columnIndex * (cardWidth + gap);
     const y = rowTop;
+    const { x: cardX, width: safeCardWidth } = clampHorizontalRect(bounds, x, cardWidth);
     doc.save();
-    doc.roundedRect(x, y, cardWidth, cardHeight, 10).fill('#ffffff').stroke('#dbeafe');
+    doc.roundedRect(cardX, y, safeCardWidth, cardHeight, 10).fill('#ffffff').stroke('#dbeafe');
     doc.restore();
+    const textWidth = Math.max(0, safeCardWidth - 28);
     doc
       .font('Helvetica-Bold')
       .fontSize(12)
       .fillColor(branding.accentColor || '#0f172a')
-      .text(`PO ${group.baseId}`, x + 14, y + 12, { width: cardWidth - 28 });
+      .text(`PO ${group.baseId}`, cardX + 14, y + 12, { width: textWidth });
     const variantLabel = group.count === 1 ? 'Solo base incluida' : `${group.count} variantes seleccionadas`;
     doc
       .font('Helvetica')
       .fontSize(10)
       .fillColor('#475569')
-      .text(variantLabel, x + 14, y + 28, { width: cardWidth - 28 });
+      .text(variantLabel, cardX + 14, y + 28, { width: textWidth });
     doc
       .font('Helvetica')
       .fontSize(10)
       .fillColor('#0f172a')
-      .text(`Autorizado: ${formatCurrency(group.totals.total)}`, x + 14, y + 42, { width: cardWidth - 28 });
-    const barX = x + 14;
+      .text(`Autorizado: ${formatCurrency(group.totals.total)}`, cardX + 14, y + 42, { width: textWidth });
+    const barX = cardX + 14;
     const barY = y + 58;
-    const barWidth = cardWidth - 28;
+    const barWidth = Math.max(0, safeCardWidth - 28);
     const barHeight = 12;
     doc.save();
     doc.roundedRect(barX, barY, barWidth, barHeight, 6).fill('#e2e8f0');
@@ -878,15 +936,15 @@ function drawPerPoConsumptionCards(doc, groups, branding) {
       .font('Helvetica')
       .fontSize(9.5)
       .fillColor('#111827')
-      .text(`Consumido: ${formatCurrency(group.totals.totalConsumo)} (${consumoPercent})`, x + 14, metricsY, {
-        width: cardWidth - 28
+      .text(`Consumido: ${formatCurrency(group.totals.totalConsumo)} (${consumoPercent})`, cardX + 14, metricsY, {
+        width: textWidth
       });
     doc
       .font('Helvetica')
       .fontSize(9.5)
       .fillColor('#111827')
-      .text(`Disponible: ${formatCurrency(group.totals.restante)} (${formatPercentage(group.percentages.rest)})`, x + 14, metricsY + 12, {
-        width: cardWidth - 28
+      .text(`Disponible: ${formatCurrency(group.totals.restante)} (${formatPercentage(group.percentages.rest)})`, cardX + 14, metricsY + 12, {
+        width: textWidth
       });
     doc
       .font('Helvetica')
@@ -894,9 +952,9 @@ function drawPerPoConsumptionCards(doc, groups, branding) {
       .fillColor('#475569')
       .text(
         `Rem ${formatPercentage(group.percentages.rem)} · Fac ${formatPercentage(group.percentages.fac)} · Disp ${formatPercentage(group.percentages.rest)}`,
-        x + 14,
+        cardX + 14,
         metricsY + 22,
-        { width: cardWidth - 28 }
+        { width: textWidth }
       );
     if (columnIndex === columns - 1 || index === groups.length - 1) {
       doc.y = rowTop + cardHeight + 24;
