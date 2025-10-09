@@ -11,12 +11,12 @@ try {
   console.error('✗ Error cargando pdfkit:', err.message);
   console.error('El motor "PDF directo" requiere la dependencia opcional "pdfkit".');
   console.error('Ejecuta "npm install" para instalar las dependencias del proyecto.');
-  console.error('Si estás en Windows y no necesitas JasperReports puedes usar "npm install --omit=optional".\n');
+  console.error('Si estás en Windows y ves errores de compilación puedes usar "npm install --omit=optional".\n');
 }
 
 const PDF_UNAVAILABLE_MESSAGE =
   'El motor "PDF directo" no está disponible porque la dependencia opcional "pdfkit" no se pudo cargar. ' +
-  'Ejecuta "npm install" (o "npm install --omit=optional" si deseas omitir JasperReports) y vuelve a iniciar la aplicación.';
+  'Ejecuta "npm install" (o "npm install --omit=optional" si necesitas omitir dependencias opcionales) y vuelve a iniciar la aplicación.';
 
 const DEFAULT_BRANDING = {
   headerTitle: 'Reporte de PEOs - Consumo',

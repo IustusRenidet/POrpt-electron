@@ -5,7 +5,6 @@ const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
-const jasperManager = require('./reports/jasper');
 const simplePdf = require('./reports/simple-pdf');
 const exporters = require('./reports/exporters');
 const reportSettingsStore = require('./reports/settings-store');
@@ -1254,31 +1253,17 @@ app.get('/po-summary/:empresa/:poId', async (req, res) => {
 app.get('/report-settings', async (req, res) => {
   try {
     const settings = reportSettingsStore.getSettings();
-    const jasperEnabled = settings.jasper.enabled !== false;
-    const jasperAvailable = jasperEnabled && jasperManager.isAvailable();
     const engines = [
-      {
-        id: 'jasper',
-        label: 'JasperReports',
-        description: 'Usa plantillas JRXML y node-jasper para generar reportes.',
-        available: jasperAvailable
-      },
       {
         id: 'simple-pdf',
         label: 'PDF directo',
-        description: 'Genera un PDF resumido sin depender de Jasper.',
+        description: 'Genera un PDF resumido usando pdfkit.',
         available: simplePdf.isAvailable()
       }
     ];
     res.json({
       success: true,
-      settings: {
-        ...settings,
-        jasper: {
-          ...settings.jasper,
-          available: jasperAvailable
-        }
-      },
+      settings,
       engines,
       formats: ALLOWED_FORMATS
     });
@@ -1297,18 +1282,6 @@ app.put('/report-settings', async (req, res) => {
 
     if (payload.defaultEngine && ALLOWED_ENGINES.includes(payload.defaultEngine)) {
       updates.defaultEngine = payload.defaultEngine;
-    }
-
-    if (payload.jasper) {
-      const jasper = {};
-      if (typeof payload.jasper.enabled === 'boolean') jasper.enabled = payload.jasper.enabled;
-      const keys = ['compiledDir', 'templatesDir', 'fontsDir', 'defaultReport', 'dataSourceName', 'jsonQuery'];
-      keys.forEach(key => {
-        if (payload.jasper[key] !== undefined) {
-          jasper[key] = payload.jasper[key];
-        }
-      });
-      updates.jasper = jasper;
     }
 
     if (payload.export) {
@@ -1354,30 +1327,18 @@ app.put('/report-settings', async (req, res) => {
     }
 
     const updatedSettings = reportSettingsStore.updateSettings(updates);
-    if (updates.jasper) {
-      await jasperManager.reload();
-    }
-
-    const jasperEnabled = updatedSettings.jasper.enabled !== false;
-    const jasperAvailable = jasperEnabled && jasperManager.isAvailable();
     const engines = [
-      {
-        id: 'jasper',
-        label: 'JasperReports',
-        description: 'Usa plantillas JRXML y node-jasper para generar reportes.',
-        available: jasperAvailable
-      },
       {
         id: 'simple-pdf',
         label: 'PDF directo',
-        description: 'Genera un PDF resumido sin depender de Jasper.',
+        description: 'Genera un PDF resumido usando pdfkit.',
         available: simplePdf.isAvailable()
       }
     ];
 
     res.json({
       success: true,
-      settings: { ...updatedSettings, jasper: { ...updatedSettings.jasper, available: jasperAvailable } },
+      settings: updatedSettings,
       engines,
       formats: ALLOWED_FORMATS
     });
@@ -1464,7 +1425,9 @@ app.post('/report', async (req, res) => {
     if (settings.branding?.companyName) {
       summary.companyName = settings.branding.companyName;
     }
-    const engine = ALLOWED_ENGINES.includes(requestedEngine) ? requestedEngine : settings.defaultEngine;
+    const engine = ALLOWED_ENGINES.includes(requestedEngine)
+      ? requestedEngine
+      : (ALLOWED_ENGINES.includes(settings.defaultEngine) ? settings.defaultEngine : 'simple-pdf');
     const availableFormats = Array.isArray(settings.export?.availableFormats)
       ? settings.export.availableFormats.filter(item => ALLOWED_FORMATS.includes(item))
       : ['pdf'];
@@ -1475,61 +1438,38 @@ app.post('/report', async (req, res) => {
     const defaultFormat = availableFormats.includes(settings.export?.defaultFormat)
       ? settings.export.defaultFormat
       : 'pdf';
-    let format = availableFormats.includes(normalizedRequestFormat) ? normalizedRequestFormat : defaultFormat;
-    if (engine === 'jasper' && format !== 'pdf') {
-      format = 'pdf';
-    }
+    const format = availableFormats.includes(normalizedRequestFormat) ? normalizedRequestFormat : defaultFormat;
     const filenameBase = summary.selectedIds && summary.selectedIds.length
       ? summary.selectedIds.join('_')
       : summary.baseId || 'reporte';
-
-    if (engine === 'simple-pdf') {
-      if (format === 'pdf' && !simplePdf.isAvailable()) {
-        return res.status(503).json({
-          success: false,
-          message: simplePdf.getUnavailableMessage()
-        });
-      }
-      if (format === 'csv') {
-        const buffer = exporters.createCsv(summary, { customization });
-        res.set('Content-Type', 'text/csv; charset=utf-8');
-        res.set('Content-Disposition', `attachment; filename=${filenameBase}.csv`);
-        return res.send(buffer);
-      }
-      if (format === 'json') {
-        const buffer = exporters.createJson(summary, {
-          engine,
-          format,
-          empresa,
-          selectedIds: summary.selectedIds,
-          customization
-        });
-        res.set('Content-Type', 'application/json');
-        res.set('Content-Disposition', `attachment; filename=${filenameBase}.json`);
-        return res.send(buffer);
-      }
-      const buffer = await simplePdf.generate(summary, settings.branding || {}, customization);
-      res.set('Content-Type', 'application/pdf');
-      res.set('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
+    if (format === 'csv') {
+      const buffer = exporters.createCsv(summary, { customization });
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', `attachment; filename=${filenameBase}.csv`);
       return res.send(buffer);
     }
 
-    if (settings.jasper.enabled === false) {
+    if (format === 'json') {
+      const buffer = exporters.createJson(summary, {
+        engine,
+        format,
+        empresa,
+        selectedIds: summary.selectedIds,
+        customization
+      });
+      res.set('Content-Type', 'application/json');
+      res.set('Content-Disposition', `attachment; filename=${filenameBase}.json`);
+      return res.send(buffer);
+    }
+
+    if (!simplePdf.isAvailable()) {
       return res.status(503).json({
         success: false,
-        message: 'JasperReports está deshabilitado en la configuración.'
+        message: simplePdf.getUnavailableMessage()
       });
     }
 
-    const jasper = jasperManager.getInstance();
-    if (!jasper) {
-      return res.status(503).json({
-        success: false,
-        message: 'JasperReports no se inicializó. Verifica la instalación y la configuración.'
-      });
-    }
-
-    const buffer = await jasperManager.generatePoSummary(jasper, summary);
+    const buffer = await simplePdf.generate(summary, settings.branding || {}, customization);
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
     res.send(buffer);
@@ -1570,7 +1510,6 @@ async function init(options = {}) {
         ]);
       }
       reportSettingsStore.loadSettings();
-      await jasperManager.init();
       serverInstance = await new Promise((resolve, reject) => {
         const server = app.listen(listenPort, listenHost, () => {
           console.log(`Servidor corriendo en puerto ${listenPort}`);
