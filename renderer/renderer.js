@@ -398,15 +398,15 @@ function computePercentagesFromTotals(totals = {}) {
   }
   const totalRem = normalizeNumber(totals.totalRem);
   const totalFac = normalizeNumber(totals.totalFac);
-  const restanteAmount = normalizeNumber(
-    totals.restante != null ? totals.restante : total - (totalRem + totalFac)
-  );
-  const rem = clampPercentage((totalRem / total) * 100);
-  const fac = clampPercentage((totalFac / total) * 100);
-  let rest = clampPercentage((restanteAmount / total) * 100);
-  if (roundTo(rem + fac + rest, 2) !== 100) {
-    rest = clampPercentage(100 - (rem + fac));
-  }
+  const consumo = totals.totalConsumo != null
+    ? normalizeNumber(totals.totalConsumo)
+    : roundTo(totalRem + totalFac);
+  const restante = totals.restante != null
+    ? Math.max(normalizeNumber(totals.restante), 0)
+    : Math.max(roundTo(total - consumo), 0);
+  const rem = roundTo((totalRem / total) * 100);
+  const fac = roundTo((totalFac / total) * 100);
+  const rest = roundTo((restante / total) * 100);
   return { rem, fac, rest };
 }
 
@@ -1599,7 +1599,7 @@ function renderCharts(summary) {
           label: 'Consumido (Rem + Fac)',
           className: 'metric-rem',
           amount: aggregatedTotals.totalRem + aggregatedTotals.totalFac,
-          percentage: clampPercentage(aggregatedPercentages.rem + aggregatedPercentages.fac)
+          percentage: roundTo(aggregatedPercentages.rem + aggregatedPercentages.fac)
         },
         {
           label: 'Disponible',
@@ -1629,6 +1629,11 @@ function renderCharts(summary) {
   const ctxFac = document.getElementById('chartFac');
   const ctxStack = document.getElementById('chartJunto');
   const dynamicHeight = computeResponsiveChartHeight(chartEntries.length);
+  const stackMaxPercentage = chartEntries.reduce((max, entry) => {
+    const totalPercentage = entry.percentages.rem + entry.percentages.fac + entry.percentages.rest;
+    return Math.max(max, totalPercentage);
+  }, 0);
+  const stackAxisMax = Math.max(100, Math.ceil(stackMaxPercentage / 10) * 10);
 
   const barChartsMeta = [
     { canvas: ctxRem, key: 'rem', amountKey: 'totalRem', percKey: 'rem', label: 'Remisiones', color: CHART_COLORS.rem },
@@ -1746,7 +1751,7 @@ function renderCharts(summary) {
           x: {
             stacked: true,
             beginAtZero: true,
-            max: 100,
+            max: stackAxisMax,
             grid: { color: 'rgba(148, 163, 184, 0.25)', borderDash: [4, 4] },
             ticks: {
               color: '#475569',
