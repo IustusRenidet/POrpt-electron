@@ -52,48 +52,77 @@
                     <div class="vstack gap-3">
                       <div>
                         <span class="form-label d-block">Contenido del PDF simple</span>
-                        <div class="vstack gap-2" id="customizationContainer">
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="customIncludeCharts">
-                            <label class="form-check-label" for="customIncludeCharts">Mostrar gráficas y comparativas</label>
+                        <p class="text-muted small mb-3">Configura los bloques disponibles cuando utilices el motor PDF directo.</p>
+                        <div class="vstack gap-3" id="customizationContainer">
+                          <div>
+                            <label class="form-label" for="customIncludeCharts">Gráficas y comparativas</label>
+                            <select id="customIncludeCharts" class="form-select form-select-sm" data-customization-select="includeCharts">
+                              <option value="true">Mostrar</option>
+                              <option value="false">Ocultar</option>
+                            </select>
                           </div>
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="customIncludeMovements">
-                            <label class="form-check-label" for="customIncludeMovements">Listar remisiones y facturas destacadas</label>
+                          <div>
+                            <label class="form-label" for="customIncludeMovements">Remisiones y facturas destacadas</label>
+                            <select id="customIncludeMovements" class="form-select form-select-sm" data-customization-select="includeMovements">
+                              <option value="true">Incluir</option>
+                              <option value="false">Omitir</option>
+                            </select>
                           </div>
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="customIncludeObservations">
-                            <label class="form-check-label" for="customIncludeObservations">Incluir bloque de observaciones</label>
+                          <div>
+                            <label class="form-label" for="customIncludeObservations">Bloque de observaciones</label>
+                            <select id="customIncludeObservations" class="form-select form-select-sm" data-customization-select="includeObservations">
+                              <option value="true">Mostrar</option>
+                              <option value="false">Ocultar</option>
+                            </select>
                           </div>
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="customIncludeUniverse">
-                            <label class="form-check-label" for="customIncludeUniverse">Detalles completos en reporte de universo</label>
+                          <div>
+                            <label class="form-label" for="customIncludeUniverse">Resumen del universo</label>
+                            <select id="customIncludeUniverse" class="form-select form-select-sm" data-customization-select="includeUniverse">
+                              <option value="true">Agregar</option>
+                              <option value="false">Omitir</option>
+                            </select>
                           </div>
                         </div>
                         <div class="form-text">Personaliza el contenido cuando se use el motor "PDF directo".</div>
                       </div>
                       <div>
                         <span class="form-label d-block">Campos incluidos en CSV</span>
-                        <div class="vstack gap-2" id="customizationCsvContainer">
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="customCsvIncludePoResumen">
-                            <label class="form-check-label" for="customCsvIncludePoResumen">Agregar resumen general por PO</label>
+                        <p class="text-muted small mb-3">Elige qué datos estarán presentes en la exportación CSV.</p>
+                        <div class="vstack gap-3" id="customizationCsvContainer">
+                          <div>
+                            <label class="form-label" for="customCsvIncludePoResumen">Resumen general por PO</label>
+                            <select id="customCsvIncludePoResumen" class="form-select form-select-sm" data-customization-select="includePoResumen" data-customization-group="csv">
+                              <option value="true">Incluir</option>
+                              <option value="false">Omitir</option>
+                            </select>
                           </div>
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="customCsvIncludeRemisiones">
-                            <label class="form-check-label" for="customCsvIncludeRemisiones">Listado de remisiones</label>
+                          <div>
+                            <label class="form-label" for="customCsvIncludeRemisiones">Listado de remisiones</label>
+                            <select id="customCsvIncludeRemisiones" class="form-select form-select-sm" data-customization-select="includeRemisiones" data-customization-group="csv">
+                              <option value="true">Incluir</option>
+                              <option value="false">Omitir</option>
+                            </select>
                           </div>
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="customCsvIncludeFacturas">
-                            <label class="form-check-label" for="customCsvIncludeFacturas">Listado de facturas</label>
+                          <div>
+                            <label class="form-label" for="customCsvIncludeFacturas">Listado de facturas</label>
+                            <select id="customCsvIncludeFacturas" class="form-select form-select-sm" data-customization-select="includeFacturas" data-customization-group="csv">
+                              <option value="true">Incluir</option>
+                              <option value="false">Omitir</option>
+                            </select>
                           </div>
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="customCsvIncludeTotales">
-                            <label class="form-check-label" for="customCsvIncludeTotales">Totales consolidados al final</label>
+                          <div>
+                            <label class="form-label" for="customCsvIncludeTotales">Totales consolidados</label>
+                            <select id="customCsvIncludeTotales" class="form-select form-select-sm" data-customization-select="includeTotales" data-customization-group="csv">
+                              <option value="true">Incluir</option>
+                              <option value="false">Omitir</option>
+                            </select>
                           </div>
-                          <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="customCsvIncludeUniverseInfo">
-                            <label class="form-check-label" for="customCsvIncludeUniverseInfo">Datos del filtro de universo seleccionado</label>
+                          <div>
+                            <label class="form-label" for="customCsvIncludeUniverseInfo">Datos del filtro de universo</label>
+                            <select id="customCsvIncludeUniverseInfo" class="form-select form-select-sm" data-customization-select="includeUniverseInfo" data-customization-group="csv">
+                              <option value="true">Agregar</option>
+                              <option value="false">Omitir</option>
+                            </select>
                           </div>
                         </div>
                         <div class="form-text">Define qué columnas y bloques aparecen al exportar CSV.</div>
