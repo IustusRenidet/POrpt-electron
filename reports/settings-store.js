@@ -44,7 +44,7 @@ const defaultSettings = {
     facColor: '#dc2626',
     restanteColor: '#16a34a',
     accentColor: '#1f2937',
-    companyName: 'SITTEL'
+    companyName: 'SSITEL'
   }
 };
 
