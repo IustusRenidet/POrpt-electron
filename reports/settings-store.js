@@ -2,20 +2,11 @@ const fs = require('fs');
 const path = require('path');
 
 const SETTINGS_FILE = path.join(__dirname, 'report-settings.json');
-const ALLOWED_ENGINES = ['jasper', 'simple-pdf'];
+const ALLOWED_ENGINES = ['simple-pdf'];
 const ALLOWED_FORMATS = ['pdf', 'csv', 'json'];
 
 const defaultSettings = {
-  defaultEngine: 'jasper',
-  jasper: {
-    enabled: true,
-    compiledDir: '',
-    templatesDir: '',
-    fontsDir: '',
-    defaultReport: '',
-    dataSourceName: '',
-    jsonQuery: ''
-  },
+  defaultEngine: 'simple-pdf',
   export: {
     defaultFormat: 'pdf',
     availableFormats: ['pdf', 'csv', 'json']
@@ -58,19 +49,6 @@ function ensureFileExists() {
   } catch (err) {
     console.warn('No se pudo garantizar la creación de report-settings.json:', err.message);
   }
-}
-
-function sanitizeJasperConfig(jasper = {}) {
-  const normalized = { ...defaultSettings.jasper, ...jasper };
-  const sanitizeString = value => (typeof value === 'string' ? value.trim() : '');
-  normalized.compiledDir = sanitizeString(normalized.compiledDir);
-  normalized.templatesDir = sanitizeString(normalized.templatesDir);
-  normalized.fontsDir = sanitizeString(normalized.fontsDir);
-  normalized.defaultReport = sanitizeString(normalized.defaultReport) || 'poSummary';
-  normalized.dataSourceName = sanitizeString(normalized.dataSourceName) || 'poSummaryJson';
-  normalized.jsonQuery = sanitizeString(normalized.jsonQuery) || 'summary.items';
-  normalized.enabled = normalized.enabled !== false;
-  return normalized;
 }
 
 function sanitizeBrandingConfig(branding = {}) {
@@ -133,7 +111,6 @@ function normalizeSettings(rawSettings = {}) {
   const merged = {
     ...defaultSettings,
     ...rawSettings,
-    jasper: sanitizeJasperConfig(rawSettings.jasper),
     export: sanitizeExportConfig(rawSettings.export),
     customization: sanitizeCustomizationConfig(rawSettings.customization),
     branding: sanitizeBrandingConfig(rawSettings.branding)
@@ -141,10 +118,6 @@ function normalizeSettings(rawSettings = {}) {
 
   if (!ALLOWED_ENGINES.includes(merged.defaultEngine)) {
     merged.defaultEngine = defaultSettings.defaultEngine;
-  }
-
-  if (merged.jasper.enabled === false && merged.defaultEngine === 'jasper') {
-    merged.defaultEngine = 'simple-pdf';
   }
 
   return merged;
@@ -194,10 +167,6 @@ function updateSettings(partial = {}) {
   const updated = {
     ...current,
     ...partial,
-    jasper: {
-      ...current.jasper,
-      ...(partial.jasper || {})
-    },
     export: sanitizeExportConfig({
       ...current.export,
       ...(partial.export || {})

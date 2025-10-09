@@ -1,14 +1,5 @@
 {
-  "defaultEngine": "jasper",
-  "jasper": {
-    "enabled": true,
-    "compiledDir": "",
-    "templatesDir": "",
-    "fontsDir": "",
-    "defaultReport": "poSummary",
-    "dataSourceName": "poSummaryJson",
-    "jsonQuery": "summary.items"
-  },
+  "defaultEngine": "simple-pdf",
   "export": {
     "defaultFormat": "pdf",
     "availableFormats": [
@@ -21,7 +12,14 @@
     "includeCharts": true,
     "includeMovements": true,
     "includeObservations": true,
-    "includeUniverse": true
+    "includeUniverse": true,
+    "csv": {
+      "includePoResumen": true,
+      "includeRemisiones": true,
+      "includeFacturas": true,
+      "includeTotales": true,
+      "includeUniverseInfo": true
+    }
   },
   "branding": {
     "headerTitle": "Reporte de PEOs - Consumo",

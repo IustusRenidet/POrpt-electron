@@ -1698,7 +1698,7 @@ async function generateReport() {
     state.customReportName = filenameInput.value.trim();
     saveSession('porpt-custom-report-name', state.customReportName);
   }
-  const engine = state.selectedEngine || state.reportSettings?.defaultEngine || 'jasper';
+  const engine = state.selectedEngine || state.reportSettings?.defaultEngine || 'simple-pdf';
   const format = state.selectedFormat || state.reportSettings?.export?.defaultFormat || 'pdf';
   const customization = normalizeCustomizationState(state.customization);
   const poTargets = state.selectedPoIds.map(baseId => ({
@@ -2092,20 +2092,12 @@ function updateReportEngineStatus() {
   }
   let text = '';
   let badgeClass = 'text-bg-secondary';
-  if (engine.id === 'jasper') {
-    if (state.reportSettings?.jasper?.enabled === false) {
-      text = 'Jasper deshabilitado';
-      badgeClass = 'text-bg-secondary';
-    } else if (state.reportSettings?.jasper?.available) {
-      text = 'Jasper listo';
-      badgeClass = 'text-bg-success';
-    } else {
-      text = 'Configura Jasper';
-      badgeClass = 'text-bg-warning text-dark';
-    }
+  if (engine.available) {
+    text = 'PDF directo listo';
+    badgeClass = 'text-bg-success';
   } else {
-    text = 'PDF directo disponible';
-    badgeClass = 'text-bg-info text-dark';
+    text = 'Instala pdfkit para habilitar el PDF';
+    badgeClass = 'text-bg-warning text-dark';
   }
   badge.textContent = text;
   badge.className = `badge ${badgeClass}`;
@@ -2184,42 +2176,6 @@ function setCompaniesFieldDisabled(disabled) {
   }
 }
 
-function updateJasperStatusBadge() {
-  const badge = document.getElementById('jasperStatusBadge');
-  if (!badge) return;
-  if (!state.reportSettings) {
-    badge.textContent = 'Sin datos';
-    badge.className = 'badge text-bg-secondary';
-    return;
-  }
-  const jasper = state.reportSettings.jasper || {};
-  if (jasper.enabled === false) {
-    badge.textContent = 'Jasper deshabilitado';
-    badge.className = 'badge text-bg-secondary';
-    return;
-  }
-  if (jasper.available) {
-    badge.textContent = 'Jasper listo';
-    badge.className = 'badge text-bg-success';
-  } else {
-    badge.textContent = 'Jasper requiere configuración';
-    badge.className = 'badge text-bg-warning text-dark';
-  }
-}
-
-function toggleJasperFields(disabled) {
-  ['jasperCompiledDir', 'jasperTemplatesDir', 'jasperFontsDir', 'jasperReportName', 'jasperDataSource', 'jasperJsonQuery']
-    .forEach(id => {
-      const input = document.getElementById(id);
-      if (input) {
-        input.disabled = disabled;
-        if (disabled) {
-          input.classList.remove('is-invalid');
-        }
-      }
-    });
-}
-
 function toggleBrandingLetterheadFields(disabled) {
   ['brandingLetterheadTop', 'brandingLetterheadBottom'].forEach(id => {
     const input = document.getElementById(id);
@@ -2278,18 +2234,6 @@ function setupPathPickers(root = document) {
 function renderReportSettingsForm() {
   const form = document.getElementById('reportSettingsForm');
   if (!form || !state.reportSettings) return;
-  const select = document.getElementById('defaultReportEngine');
-  if (select) {
-    select.innerHTML = (state.reportEngines || [])
-      .map(engine => `<option value="${engine.id}" ${engine.available ? '' : 'disabled'}>${engine.label}</option>`)
-      .join('');
-    select.value = state.reportSettings.defaultEngine || select.value;
-  }
-  const jasper = state.reportSettings.jasper || {};
-  const jasperEnabledInput = document.getElementById('jasperEnabled');
-  if (jasperEnabledInput) {
-    jasperEnabledInput.checked = jasper.enabled !== false;
-  }
   const exportCfg = state.reportSettings.export || {};
   const formatCatalog = Array.isArray(state.reportFormatsCatalog) && state.reportFormatsCatalog.length
     ? state.reportFormatsCatalog
@@ -2356,21 +2300,6 @@ function renderReportSettingsForm() {
       input.checked = value;
     }
   });
-  const mappings = [
-    ['jasperCompiledDir', jasper.compiledDir || ''],
-    ['jasperTemplatesDir', jasper.templatesDir || ''],
-    ['jasperFontsDir', jasper.fontsDir || ''],
-    ['jasperReportName', jasper.defaultReport || ''],
-    ['jasperDataSource', jasper.dataSourceName || ''],
-    ['jasperJsonQuery', jasper.jsonQuery || '']
-  ];
-  mappings.forEach(([id, value]) => {
-    const input = document.getElementById(id);
-    if (input) {
-      input.value = value;
-    }
-  });
-  toggleJasperFields(jasper.enabled === false);
   const branding = state.reportSettings.branding || {};
   const brandingMappings = [
     ['brandingHeaderTitle', branding.headerTitle || ''],
@@ -2395,7 +2324,6 @@ function renderReportSettingsForm() {
     letterheadToggle.checked = branding.letterheadEnabled === true;
   }
   toggleBrandingLetterheadFields(!(branding.letterheadEnabled === true));
-  updateJasperStatusBadge();
   renderReportFormatSelect();
 }
 
@@ -2687,19 +2615,7 @@ async function handleReportSettingsSubmit(event) {
     showAlert('Solo un administrador puede actualizar la configuración.', 'danger');
     return;
   }
-  const select = document.getElementById('defaultReportEngine');
-  const jasperEnabledInput = document.getElementById('jasperEnabled');
   const payload = {
-    defaultEngine: select?.value,
-    jasper: {
-      enabled: jasperEnabledInput?.checked ?? true,
-      compiledDir: getInputValue('jasperCompiledDir'),
-      templatesDir: getInputValue('jasperTemplatesDir'),
-      fontsDir: getInputValue('jasperFontsDir'),
-      defaultReport: getInputValue('jasperReportName'),
-      dataSourceName: getInputValue('jasperDataSource'),
-      jsonQuery: getInputValue('jasperJsonQuery')
-    },
     export: {
       defaultFormat: document.getElementById('exportDefaultFormat')?.value || 'pdf',
       availableFormats: Array.from(document.querySelectorAll('#exportFormatsContainer input[data-format-option]:checked'))
@@ -2903,20 +2819,11 @@ async function setupReportSettings() {
   }
   await loadReportSettings({ requireAdmin: true });
   document.getElementById('reportSettingsForm')?.addEventListener('submit', handleReportSettingsSubmit);
-  document.getElementById('jasperEnabled')?.addEventListener('change', event => {
-    const enabled = event.target.checked;
-    if (state.reportSettings && state.reportSettings.jasper) {
-      state.reportSettings.jasper.enabled = enabled;
-    }
-    toggleJasperFields(!enabled);
-    updateJasperStatusBadge();
-    updateReportEngineStatus();
-  });
   document.getElementById('brandingLetterheadEnabled')?.addEventListener('change', event => {
     toggleBrandingLetterheadFields(!event.target.checked);
   });
   setupPathPickers();
-  showAlert('Actualiza los motores de reporte y la identidad visual desde este panel.', 'info', 7000);
+  showAlert('Configura los formatos de exportación y la identidad visual desde este panel.', 'info', 7000);
 }
 
 async function setupAdmin() {
