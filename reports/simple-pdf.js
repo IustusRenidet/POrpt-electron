@@ -29,7 +29,7 @@ const DEFAULT_BRANDING = {
   facColor: '#dc2626',
   restanteColor: '#16a34a',
   accentColor: '#1f2937',
-  companyName: 'SITTEL'
+  companyName: 'SSITEL'
 };
 
 const DEFAULT_CUSTOMIZATION = {
@@ -166,42 +166,41 @@ function ensureSpace(doc, requiredHeight = 0, options = {}) {
 
 function drawLetterhead(doc, branding) {
   if (!branding.letterheadEnabled) return;
-  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  if (fileExists(branding.letterheadTop)) {
+  const hasTop = fileExists(branding.letterheadTop);
+  const hasBottom = fileExists(branding.letterheadBottom);
+  if (!hasTop && !hasBottom) {
+    return;
+  }
+
+  const drawTop = () => {
+    if (!hasTop) return;
     try {
-      doc.image(branding.letterheadTop, doc.page.margins.left, doc.page.margins.top - 20, {
-        width: pageWidth
-      });
+      const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      doc.image(branding.letterheadTop, doc.page.margins.left, doc.page.margins.top - 20, { width });
       doc.moveDown(1);
     } catch (err) {
       console.warn('No se pudo dibujar membrete superior:', err.message);
     }
-    doc.on('pageAdded', () => {
-      try {
-        const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-        doc.image(branding.letterheadTop, doc.page.margins.left, doc.page.margins.top - 20, { width });
-        doc.moveDown(1);
-      } catch (err) {
-        console.warn('No se pudo dibujar membrete superior en página adicional:', err.message);
-      }
-    });
-  }
-  if (fileExists(branding.letterheadBottom)) {
-    doc.on('pageAdded', () => {
-      try {
-        const y = doc.page.height - doc.page.margins.bottom - 60;
-        doc.image(branding.letterheadBottom, doc.page.margins.left, y, { width: pageWidth });
-      } catch (err) {
-        console.warn('No se pudo dibujar membrete inferior:', err.message);
-      }
-    });
+  };
+
+  const drawBottom = () => {
+    if (!hasBottom) return;
     try {
+      const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
       const y = doc.page.height - doc.page.margins.bottom - 60;
-      doc.image(branding.letterheadBottom, doc.page.margins.left, y, { width: pageWidth });
+      doc.image(branding.letterheadBottom, doc.page.margins.left, y, { width });
     } catch (err) {
       console.warn('No se pudo dibujar membrete inferior:', err.message);
     }
-  }
+  };
+
+  const drawLetterheadsForPage = () => {
+    drawTop();
+    drawBottom();
+  };
+
+  drawLetterheadsForPage();
+  doc.on('pageAdded', drawLetterheadsForPage);
 }
 
 function drawHeader(doc, summary, branding) {
@@ -304,9 +303,12 @@ function drawUniverseTotalsTable(doc, summary, branding) {
 function drawUniverseObservations(doc, summary) {
   const universe = summary.universe || {};
   const label = universe.label || 'Global';
+  const company = summary.companyName || summary.empresaLabel || summary.empresa || 'SSITEL';
   const notes = [
-    `Resumen agregado del universo de POs (${label}).`,
-    'El consumo considera remisiones y facturas registradas en el periodo seleccionado.'
+    `Universo de ${company} con el filtro "${label}".`,
+    'Flujo del reporte: se inicia con el importe autorizado, continúa con el consumo acumulado (remisiones + facturas) y finaliza con el disponible.',
+    'El consumo refleja toda la operación registrada en el periodo para dimensionar el avance del presupuesto.',
+    'El disponible señala si es necesario liberar nuevas POs o ajustar el gasto antes de revisar cada pedido.'
   ];
   if (summary.alertasTexto && summary.alertasTexto !== 'Sin alertas generales') {
     notes.push(`Alertas: ${summary.alertasTexto}`);

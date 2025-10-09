@@ -965,26 +965,11 @@ function attachTableHandlers(summary) {
     modalTitle.textContent = `Detalle PO ${item.id}`;
     const totalAutorizado = formatCurrency(item.total || 0);
     const subtotalAmount = Number(item.subtotal || 0);
-    const totalOriginal = Number(item.totalOriginal ?? item.total ?? 0);
-    const adjustment = item.ajusteDocSig;
-    const appliedDiff = Number(adjustment?.diferenciaAplicada ?? 0);
-    const hasAdjustment = appliedDiff > 0.009;
-    const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - Number(item.total || 0)) > 0.009;
-    const subtotalLinea = showSubtotal ? `Subtotal (CAN_TOT): $${formatCurrency(subtotalAmount)}` : '';
-    const ajusteLinea = hasAdjustment
-      ? `Ajuste aplicado (${adjustment?.tipo === 'F' ? 'Factura' : 'Remisión'} ${adjustment?.docSig || '-' }): -$${formatCurrency(appliedDiff)}`
-      : '';
-    const originalLinea = hasAdjustment ? `Total original FACTP: $${formatCurrency(totalOriginal)}` : '';
-    const totalLinea = hasAdjustment
-      ? `Total autorizado ajustado: $${totalAutorizado}`
-      : `Total autorizado (IMPORTE): $${totalAutorizado}`;
-    const docSigLinea = item.docSig ? `DOC_SIG relacionado: ${item.docSig}` : '';
+    const subtotalLinea =
+      subtotalAmount > 0 ? `Subtotal sin IVA: $${formatCurrency(subtotalAmount)}` : '';
     const totalesResumen = [
-      totalLinea,
-      originalLinea,
-      ajusteLinea,
+      `Total de importe: $${totalAutorizado}`,
       subtotalLinea,
-      docSigLinea,
       `Remisiones acumuladas: $${formatCurrency(item.totals?.totalRem ?? 0)}`,
       `Facturas acumuladas: $${formatCurrency(item.totals?.totalFac ?? 0)}`,
       `Disponible: $${formatCurrency(item.totals?.restante ?? 0)}`
@@ -1974,7 +1959,7 @@ function updateUniverseControls() {
   }
   const companyLabel = document.getElementById('universeCompanyLabel');
   if (companyLabel) {
-    companyLabel.textContent = state.reportSettings?.branding?.companyName || 'SITTEL';
+    companyLabel.textContent = state.reportSettings?.branding?.companyName || 'SSITEL';
   }
   const formatSelect = document.getElementById('universeFormat');
   if (formatSelect) {
