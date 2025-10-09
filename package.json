@@ -36,6 +36,9 @@
     "files": [
       "**/*"
     ],
+    "asarUnpack": [
+      "node_modules/@vscode/sqlite3/**/*"
+    ],
     "win": {
       "icon": "renderer/icono-peorpt.ico",
       "signingHashAlgorithms": [],
