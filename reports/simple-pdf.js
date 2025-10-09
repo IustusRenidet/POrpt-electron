@@ -302,35 +302,20 @@ function drawUniverseTotalsTable(doc, summary, branding) {
 }
 
 function drawUniverseObservations(doc, summary) {
-  const startX = doc.page.margins.left;
-  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  ensureSpace(doc, 140);
-  doc.lineWidth(0.5);
-  doc.moveTo(startX, doc.y).lineTo(startX + width, doc.y).stroke('#e5e7eb');
-  doc.moveDown(0.6);
-  doc.font('Helvetica-Bold').fontSize(14).fillColor('#111827').text('Observaciones', startX, doc.y);
-  doc.moveDown(0.4);
-  const boxTop = doc.y;
-  const boxHeight = 100;
-  doc.lineWidth(1).rect(startX, boxTop, width, boxHeight).stroke('#d1d5db');
-  doc.font('Helvetica').fontSize(12).fillColor('#555555');
   const universe = summary.universe || {};
   const label = universe.label || 'Global';
   const notes = [
-    `*Resumen agregado del universo de POs (${label}).`,
-    '*El consumo considera remisiones y facturas registradas en el periodo seleccionado.'
+    `Resumen agregado del universo de POs (${label}).`,
+    'El consumo considera remisiones y facturas registradas en el periodo seleccionado.'
   ];
   if (summary.alertasTexto && summary.alertasTexto !== 'Sin alertas generales') {
-    notes.push(`*Alertas: ${summary.alertasTexto}`);
+    notes.push(`Alertas: ${summary.alertasTexto}`);
   }
   if (summary.totals && summary.totals.total === 0) {
-    notes.push('*No se encontraron POs activas con el filtro aplicado.');
+    notes.push('No se encontraron POs activas con el filtro aplicado.');
   }
-  const textStartY = boxTop + 12;
-  notes.forEach((note, index) => {
-    doc.text(note, startX + 10, textStartY + index * 20, { width: width - 20 });
-  });
-  doc.y = boxTop + boxHeight + 16;
+  notes.push('Importes redondeados a dos decimales para facilitar la lectura.');
+  renderObservationBox(doc, Array.from(new Set(notes)));
 }
 
 function drawPoBaseBreakdown(doc, summary, branding) {
@@ -670,155 +655,58 @@ function drawMovements(doc, summary, branding) {
   }
 }
 
-function drawSummaryBox(doc, summary) {
+function drawSummaryBox(doc, summary, branding = {}) {
   const totals = summary.totals || {};
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  ensureSpace(doc, 80);
+  ensureSpace(doc, 90);
   const top = doc.y;
   const percentages = computePercentages(totals);
   const consumoPercentage = roundTo(percentages.rem + percentages.fac);
+  const accent = branding.accentColor || '#111827';
+  const columnWidth = width / 3;
+  const cards = [
+    {
+      title: 'Autorizado',
+      value: formatCurrency(totals.total),
+      detail: summary.selectedIds && summary.selectedIds.length > 1
+        ? `${summary.selectedIds.length} bases combinadas`
+        : 'Monto aprobado'
+    },
+    {
+      title: 'Consumido',
+      value: formatCurrency(totals.totalConsumo),
+      detail: `${formatPercentage(percentages.rem)} Rem · ${formatPercentage(percentages.fac)} Fac`
+    },
+    {
+      title: 'Restante',
+      value: formatCurrency(totals.restante),
+      detail: `${formatPercentage(consumoPercentage)} consumido · ${formatPercentage(percentages.rest)} disponible`
+    }
+  ];
   doc.save();
   doc.lineWidth(1);
-  doc.rect(startX, top, width, 62).fillAndStroke('#f7f7f7', '#d1d5db');
-  doc.fillColor('#111827').font('Helvetica').fontSize(12);
-  doc.text(
-    `Consumido (Rem+Fac): ${formatCurrency(totals.totalConsumo)} (${formatPercentage(consumoPercentage)})`,
-    startX + 10,
-    top + 12,
-    { width: width / 2 }
-  );
-  doc.text(
-    `Restante: ${formatCurrency(totals.restante)} (${formatPercentage(percentages.rest)})`,
-    startX + width / 2,
-    top + 12,
-    { width: width / 2 - 10 }
-  );
-  doc.fillColor('#6b7280').fontSize(11);
-  doc.text(
-    `Nota: Porcentajes recalculados sobre el total autorizado (${formatCurrency(totals.total)}).`,
-    startX + 10,
-    top + 32,
-    { width: width - 20 }
-  );
-  doc.restore();
-  doc.y = top + 74;
-}
-
-function drawStackedBar(doc, summary, branding) {
-  const totals = summary.totals || {};
-  const startX = doc.page.margins.left + 20;
-  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right - 40;
-  ensureSpace(doc, 180);
-  const top = doc.y;
-  const height = 34;
-  const percentages = computePercentages(totals);
-  const remWidth = (width * percentages.rem) / 100;
-  const facWidth = (width * percentages.fac) / 100;
-  let restWidth = width - remWidth - facWidth;
-  if (restWidth < 0) {
-    restWidth = 0;
-  }
-
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(16)
-    .fillColor('#111827')
-    .text('Consumo del PEO (barra apilada 100%)', doc.page.margins.left, top, {
-      width: width + 40,
-      align: 'center'
-    });
-  doc.moveDown(0.4);
-
-  const barTop = doc.y;
-  doc.lineWidth(1).rect(startX, barTop, width, height).stroke('#d1d5db');
-  if (remWidth > 0) {
-    doc.save().rect(startX, barTop, remWidth, height).fillOpacity(0.9).fill(branding.remColor).restore();
-  }
-  if (facWidth > 0) {
+  doc.roundedRect(startX, top, width, 76, 8).fillAndStroke('#f8fafc', '#d1d5db');
+  cards.forEach((card, index) => {
+    const colX = startX + index * columnWidth;
     doc
-      .save()
-      .rect(startX + remWidth, barTop, facWidth, height)
-      .fillOpacity(0.9)
-      .fill(branding.facColor)
-      .restore();
-  }
-  if (restWidth > 0) {
+      .font('Helvetica-Bold')
+      .fontSize(12)
+      .fillColor(accent)
+      .text(card.title, colX + 14, top + 12, { width: columnWidth - 28, align: 'left' });
     doc
-      .save()
-      .rect(startX + remWidth + facWidth, barTop, restWidth, height)
-      .fillOpacity(0.9)
-      .fill(branding.restanteColor)
-      .restore();
-  }
-  doc.lineWidth(2).strokeColor('#ffffff');
-  doc.moveTo(startX + remWidth, barTop).lineTo(startX + remWidth, barTop + height).stroke();
-  doc.moveTo(startX + remWidth + facWidth, barTop).lineTo(startX + remWidth + facWidth, barTop + height).stroke();
-
-  doc.font('Helvetica').fontSize(11).fillColor('#111827');
-  const remLabelX = remWidth > 0 ? startX + remWidth / 2 - 40 : startX;
-  const facLabelX = facWidth > 0 ? startX + remWidth + facWidth / 2 - 40 : startX + remWidth - 40;
-  const restLabelX = restWidth > 0
-    ? startX + remWidth + facWidth + restWidth / 2 - 60
-    : startX + remWidth + facWidth - 60;
-  doc.text(`Rem: ${formatPercentage(percentages.rem)}`, remLabelX, barTop - 14, { width: 80, align: 'center' });
-  doc.text(`Fac: ${formatPercentage(percentages.fac)}`, facLabelX, barTop - 14, { width: 80, align: 'center' });
-  doc.text(`Restante: ${formatPercentage(percentages.rest)}`, restLabelX, barTop - 14, {
-    width: 120,
-    align: 'center'
+      .font('Helvetica-Bold')
+      .fontSize(16)
+      .fillColor('#111827')
+      .text(card.value, colX + 14, top + 28, { width: columnWidth - 28, align: 'left' });
+    doc
+      .font('Helvetica')
+      .fontSize(10)
+      .fillColor('#475569')
+      .text(card.detail, colX + 14, top + 52, { width: columnWidth - 28, align: 'left' });
   });
-  doc.y = barTop + height + 30;
-
-  const legendEntries = buildLegendEntries(totals, percentages, branding);
-  drawLegend(doc, legendEntries, startX, doc.y);
-  doc.moveDown(1.2);
-}
-
-function drawPieSlice(doc, centerX, centerY, radius, startAngle, endAngle, color) {
-  doc.save();
-  doc.moveTo(centerX, centerY);
-  doc.lineTo(centerX + radius * Math.cos((Math.PI / 180) * startAngle), centerY + radius * Math.sin((Math.PI / 180) * startAngle));
-  doc.arc(centerX, centerY, radius, startAngle, endAngle);
-  doc.lineTo(centerX, centerY);
-  doc.fillOpacity(0.9).fill(color);
   doc.restore();
-}
-
-function drawPieChart(doc, summary, branding) {
-  const totals = summary.totals || {};
-  ensureSpace(doc, 260);
-  const centerX = doc.page.width / 2;
-  const centerY = doc.y + 110;
-  const radius = 95;
-  const percentages = computePercentages(totals);
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(16)
-    .fillColor('#111827')
-    .text('Consumo Total (%) - PEO combinado', doc.page.margins.left, doc.y, {
-      width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
-      align: 'center'
-    });
-  doc.y += 18;
-
-  const angles = [
-    { value: percentages.rem, color: branding.remColor, label: 'Remisiones' },
-    { value: percentages.fac, color: branding.facColor, label: 'Facturas' },
-    { value: percentages.rest, color: branding.restanteColor, label: 'Restante' }
-  ];
-  let currentAngle = -90;
-  angles.forEach(segment => {
-    const sweep = (segment.value / 100) * 360;
-    if (sweep <= 0) return;
-    drawPieSlice(doc, centerX, centerY, radius, currentAngle, currentAngle + sweep, segment.color);
-    currentAngle += sweep;
-  });
-
-  doc.font('Helvetica').fontSize(11).fillColor('#111827');
-  const legendEntries = buildLegendEntries(totals, percentages, branding);
-  const legendX = Math.min(centerX + radius + 24, doc.page.width - doc.page.margins.right - 240);
-  drawLegend(doc, legendEntries, legendX, centerY - radius);
-  doc.y = Math.max(doc.y, centerY + radius + 32);
+  doc.y = top + 88;
 }
 
 function buildLegendEntries(totals, percentages, branding) {
@@ -829,53 +717,271 @@ function buildLegendEntries(totals, percentages, branding) {
   ];
 }
 
-function drawLegend(doc, entries, startX, startY) {
-  const availableWidth = Math.max(doc.page.width - doc.page.margins.right - startX, 160);
-  const legendWidth = Math.min(availableWidth, 260);
-  entries.forEach((entry, index) => {
-    const y = startY + index * 22;
-    doc.save().rect(startX, y, 14, 14).fill(entry.color).restore();
-    doc.fillColor('#111827').font('Helvetica').fontSize(11).text(entry.label, startX + 22, y + 2, {
-      width: legendWidth - 22
-    });
+function drawLegendRows(doc, entries, startX, startY, maxWidth) {
+  let currentY = startY;
+  const effectiveWidth = Math.max(maxWidth, 200);
+  entries.forEach(entry => {
+    doc.save().rect(startX, currentY, 12, 12).fill(entry.color).restore();
+    doc
+      .font('Helvetica')
+      .fontSize(11)
+      .fillColor('#111827')
+      .text(entry.label, startX + 18, currentY - 1, { width: effectiveWidth - 18 });
+    currentY += 18;
+  });
+  return currentY;
+}
+
+function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
+  const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const width = Math.min(availableWidth - 100, options.maxWidth || 360);
+  const startX = doc.page.margins.left + (availableWidth - width) / 2;
+  const barHeight = options.barHeight || 26;
+  const title = options.title || 'Consumo combinado';
+  ensureSpace(doc, barHeight + 130);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(14)
+    .fillColor(branding.accentColor || '#111827')
+    .text(title, doc.page.margins.left, doc.y, { width: availableWidth, align: 'center' });
+  doc.moveDown(0.35);
+  const barTop = doc.y;
+  doc.lineWidth(1).roundedRect(startX, barTop, width, barHeight, 6).stroke('#d1d5db');
+  const percentages = computePercentages(totals);
+  const segments = [
+    { value: percentages.rem, color: branding.remColor },
+    { value: percentages.fac, color: branding.facColor },
+    { value: percentages.rest, color: branding.restanteColor }
+  ];
+  let currentX = startX;
+  segments.forEach(segment => {
+    const segmentWidth = (width * segment.value) / 100;
+    if (segmentWidth <= 0) return;
+    doc.save().rect(currentX, barTop, segmentWidth, barHeight).fillOpacity(0.9).fill(segment.color).restore();
+    currentX += segmentWidth;
+  });
+  doc.y = barTop + barHeight + 12;
+  const legendBottom = drawLegendRows(doc, buildLegendEntries(totals, percentages, branding), startX, doc.y, width);
+  doc.y = legendBottom + 14;
+}
+
+function buildPoChartGroups(summary) {
+  const items = Array.isArray(summary.items) ? summary.items : [];
+  const groups = new Map();
+  items.forEach(item => {
+    const baseId = item.baseId || item.id;
+    if (!baseId) return;
+    if (!groups.has(baseId)) {
+      groups.set(baseId, {
+        baseId,
+        ids: [],
+        total: 0,
+        totalRem: 0,
+        totalFac: 0
+      });
+    }
+    const group = groups.get(baseId);
+    group.ids.push(item.id);
+    group.total += Number(item.total || 0);
+    group.totalRem += Number(item.totals?.totalRem || 0);
+    group.totalFac += Number(item.totals?.totalFac || 0);
+  });
+  return Array.from(groups.values())
+    .map(group => {
+      const totalConsumo = group.totalRem + group.totalFac;
+      const restante = Math.max(group.total - totalConsumo, 0);
+      const totals = {
+        total: roundTo(group.total),
+        totalRem: roundTo(group.totalRem),
+        totalFac: roundTo(group.totalFac),
+        totalConsumo: roundTo(totalConsumo),
+        restante: roundTo(restante)
+      };
+      return {
+        baseId: group.baseId,
+        ids: group.ids,
+        count: group.ids.length,
+        totals,
+        percentages: computePercentages(totals)
+      };
+    })
+    .sort((a, b) => a.baseId.localeCompare(b.baseId));
+}
+
+function drawPerPoConsumptionCards(doc, groups, branding) {
+  if (!groups.length) return;
+  const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const columns = availableWidth >= 420 ? 2 : 1;
+  const gap = 16;
+  const cardWidth = columns === 1 ? availableWidth : (availableWidth - gap) / 2;
+  const cardHeight = 134;
+  let rowTop = doc.y;
+  groups.forEach((group, index) => {
+    const columnIndex = index % columns;
+    if (columnIndex === 0) {
+      ensureSpace(doc, cardHeight + 28);
+      rowTop = doc.y;
+    }
+    const x = doc.page.margins.left + columnIndex * (cardWidth + (columns === 1 ? 0 : gap));
+    const y = rowTop;
+    doc.save();
+    doc.roundedRect(x, y, cardWidth, cardHeight, 10).fill('#ffffff').stroke('#dbeafe');
+    doc.restore();
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(12)
+      .fillColor(branding.accentColor || '#0f172a')
+      .text(`PO ${group.baseId}`, x + 14, y + 12, { width: cardWidth - 28 });
+    const variantLabel = group.count === 1 ? 'Solo base incluida' : `${group.count} variantes seleccionadas`;
+    doc
+      .font('Helvetica')
+      .fontSize(10)
+      .fillColor('#475569')
+      .text(variantLabel, x + 14, y + 28, { width: cardWidth - 28 });
+    doc
+      .font('Helvetica')
+      .fontSize(10)
+      .fillColor('#0f172a')
+      .text(`Autorizado: ${formatCurrency(group.totals.total)}`, x + 14, y + 42, { width: cardWidth - 28 });
+    const barX = x + 14;
+    const barY = y + 60;
+    const barWidth = cardWidth - 28;
+    const barHeight = 14;
+    doc.save();
+    doc.roundedRect(barX, barY, barWidth, barHeight, 6).fill('#e2e8f0');
+    doc.restore();
+    const remWidth = (barWidth * group.percentages.rem) / 100;
+    const facWidth = (barWidth * group.percentages.fac) / 100;
+    const restWidth = Math.max(0, barWidth - remWidth - facWidth);
+    let cursorX = barX;
+    if (remWidth > 0) {
+      doc.save().rect(cursorX, barY, remWidth, barHeight).fillOpacity(0.95).fill(branding.remColor).restore();
+      cursorX += remWidth;
+    }
+    if (facWidth > 0) {
+      doc.save().rect(cursorX, barY, facWidth, barHeight).fillOpacity(0.95).fill(branding.facColor).restore();
+      cursorX += facWidth;
+    }
+    if (restWidth > 0) {
+      doc.save().rect(cursorX, barY, restWidth, barHeight).fillOpacity(0.95).fill(branding.restanteColor).restore();
+    }
+    const metricsY = barY + barHeight + 8;
+    const consumoPercent = formatPercentage(roundTo(group.percentages.rem + group.percentages.fac));
+    doc
+      .font('Helvetica')
+      .fontSize(10)
+      .fillColor('#111827')
+      .text(`Consumido: ${formatCurrency(group.totals.totalConsumo)} (${consumoPercent})`, x + 14, metricsY, {
+        width: cardWidth - 28
+      });
+    doc
+      .font('Helvetica')
+      .fontSize(10)
+      .fillColor('#111827')
+      .text(`Disponible: ${formatCurrency(group.totals.restante)} (${formatPercentage(group.percentages.rest)})`, x + 14, metricsY + 12, {
+        width: cardWidth - 28
+      });
+    doc
+      .font('Helvetica')
+      .fontSize(9)
+      .fillColor('#475569')
+      .text(
+        `Rem ${formatPercentage(group.percentages.rem)} · Fac ${formatPercentage(group.percentages.fac)} · Disp ${formatPercentage(group.percentages.rest)}`,
+        x + 14,
+        metricsY + 24,
+        { width: cardWidth - 28 }
+      );
+    if (columnIndex === columns - 1 || index === groups.length - 1) {
+      doc.y = rowTop + cardHeight + 22;
+    }
   });
 }
 
-function drawObservations(doc, summary) {
+function renderObservationBox(doc, notes, options = {}) {
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  ensureSpace(doc, 130);
-  doc.lineWidth(0.5);
-  doc.moveTo(startX, doc.y).lineTo(startX + width, doc.y).stroke('#e5e7eb');
-  doc.moveDown(0.6);
-  doc.font('Helvetica-Bold').fontSize(14).fillColor('#111827').text('Observaciones', startX, doc.y);
-  doc.moveDown(0.4);
+  const sanitized = Array.isArray(notes)
+    ? notes
+        .map(note => (typeof note === 'string' ? note.trim() : ''))
+        .filter(Boolean)
+    : [];
+  if (!sanitized.length) {
+    return;
+  }
+  const bullets = sanitized.map(note => (note.startsWith('•') ? note : `• ${note}`));
+  doc.font('Helvetica').fontSize(12);
+  const textWidth = width - 24;
+  const contentHeight = bullets.reduce((sum, note) => sum + doc.heightOfString(note, { width: textWidth }), 0);
+  const boxHeight = Math.max(86, contentHeight + 24);
+  ensureSpace(doc, boxHeight + 90);
+  doc.lineWidth(0.5).moveTo(startX, doc.y).lineTo(startX + width, doc.y).stroke('#e5e7eb');
+  doc.moveDown(0.5);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(14)
+    .fillColor('#111827')
+    .text(options.title || 'Observaciones', startX, doc.y);
+  doc.moveDown(0.3);
   const boxTop = doc.y;
-  doc.lineWidth(1).rect(startX, boxTop, width, 92).stroke('#d1d5db');
-  doc.font('Helvetica').fontSize(12).fillColor('#555555');
+  doc.roundedRect(startX, boxTop, width, boxHeight, 8).stroke('#d1d5db');
+  let currentY = boxTop + 12;
+  bullets.forEach(note => {
+    const height = doc.heightOfString(note, { width: textWidth });
+    doc.font('Helvetica').fontSize(12).fillColor('#4b5563').text(note, startX + 12, currentY, { width: textWidth });
+    currentY += height + 6;
+  });
+  doc.y = boxTop + boxHeight + 18;
+}
 
-  const notes = [];
+function drawChartsSection(doc, summary, branding) {
+  const totals = summary.totals || {};
+  const groups = buildPoChartGroups(summary);
+  if (!groups.length) return;
+  const title = groups.length > 1
+    ? 'Consumo combinado de la selección'
+    : `Consumo de la PO ${groups[0].baseId}`;
+  drawCombinedConsumptionBar(doc, totals, branding, { title });
+  doc.moveDown(0.2);
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(branding.accentColor || '#111827').text('Consumo por PEO', doc.page.margins.left, doc.y);
+  doc.moveDown(0.3);
+  drawPerPoConsumptionCards(doc, groups, branding);
+}
+
+function drawObservations(doc, summary) {
   const baseCount = (summary.selectedIds || []).length;
   const itemCount = (summary.items || []).length;
-  if (baseCount === 1 && itemCount === 1) {
-    notes.push('*El PEO no presenta extensiones activas en este periodo.');
-  }
-  if (baseCount === 1 && itemCount > 1) {
-    notes.push('*El PEO incluye extensiones; los totales consideran todas las variantes listadas.');
+  const selectionDetails = Array.isArray(summary.selectionDetails) ? summary.selectionDetails : [];
+  const notes = [];
+  if (baseCount === 1) {
+    const detail = selectionDetails.find(entry => entry.baseId === summary.selectedIds[0]);
+    if (detail && (detail.count || detail.variants?.length || 0) > 1) {
+      const totalVariants = detail.count || detail.variants.length;
+      notes.push(`Se incluyeron ${totalVariants - 1} extensiones manuales para la base ${detail.baseId}.`);
+    } else if (itemCount <= 1) {
+      notes.push('La base seleccionada no presenta extensiones activas en este reporte.');
+    }
   }
   if (baseCount > 1) {
-    notes.push(`*Se combinan ${baseCount} PEOs base; cada fila detalla su consumo específico.`);
+    notes.push(`Se combinan ${baseCount} PEOs base; revisa las tarjetas por PEO para conocer su consumo individual.`);
+  }
+  const manualGroups = selectionDetails.filter(entry => entry.baseId && (entry.count || entry.variants?.length || 0) > 1);
+  if (manualGroups.length > 0) {
+    const detailText = manualGroups
+      .map(entry => {
+        const count = entry.count || entry.variants.length;
+        return `${entry.baseId}: ${count - 1} ext.`;
+      })
+      .join(', ');
+    notes.push(`Extensiones incluidas manualmente → ${detailText}.`);
   }
   if (summary.alertasTexto && summary.alertasTexto !== 'Sin alertas generales') {
-    notes.push(`*Alertas relevantes: ${summary.alertasTexto}`);
+    notes.push(`Alertas relevantes: ${summary.alertasTexto}`);
   }
-  notes.push('*Las remisiones y facturas mostradas alimentan los totales de consumo.');
-  const textStartY = boxTop + 12;
-  Array.from(new Set(notes)).forEach((note, index) => {
-    doc.text(note, startX + 10, textStartY + index * 20, { width: width - 20 });
-  });
-  const boxBottom = boxTop + 92;
-  doc.y = boxBottom + 16;
+  if ((summary.totals?.restante ?? 0) <= 0) {
+    notes.push('El presupuesto autorizado se encuentra completamente consumido.');
+  }
+  notes.push('Importes redondeados a dos decimales para facilitar la lectura.');
+  renderObservationBox(doc, Array.from(new Set(notes)));
 }
 
 function drawFooter(doc, branding) {
@@ -904,9 +1010,9 @@ async function generate(summary, branding = {}, customization = {}) {
       drawHeader(doc, summary, style);
       if (summary.universe?.isUniverse) {
         drawUniverseFilterInfo(doc, summary, style);
-        drawSummaryBox(doc, summary);
+        drawSummaryBox(doc, summary, style);
         if (options.includeCharts) {
-          drawStackedBar(doc, summary, style);
+          drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
         } else {
           doc.moveDown(1.2);
         }
@@ -917,15 +1023,9 @@ async function generate(summary, branding = {}, customization = {}) {
           drawUniverseObservations(doc, summary);
         }
       } else {
-        drawSummaryBox(doc, summary);
+        drawSummaryBox(doc, summary, style);
         if (options.includeCharts) {
-          if (summary.selectedIds && summary.selectedIds.length > 1) {
-            drawPieChart(doc, summary, style);
-          } else if ((summary.items || []).length > 1) {
-            drawPieChart(doc, summary, style);
-          } else {
-            drawStackedBar(doc, summary, style);
-          }
+          drawChartsSection(doc, summary, style);
         } else {
           doc.moveDown(1.2);
         }

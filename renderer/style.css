@@ -33,7 +33,7 @@ canvas {
 .chart-wrapper {
   position: relative;
   flex-grow: 1;
-  min-height: 160px;
+  min-height: 180px;
 }
 
 .chart-wrapper canvas {

@@ -3,6 +3,7 @@ const state = {
   pos: [],
   selectedEmpresa: '',
   selectedPoIds: [],
+  selectedPoDetails: new Map(),
   charts: new Map(),
   summary: null,
   users: [],
@@ -186,6 +187,56 @@ function getTotalsWithDefaults(totals) {
   };
 }
 
+function buildPoGroups(items = []) {
+  const groups = new Map();
+  items.forEach(item => {
+    const baseId = item?.baseId || item?.id;
+    if (!baseId) {
+      return;
+    }
+    const key = baseId.trim();
+    if (!key) {
+      return;
+    }
+    if (!groups.has(key)) {
+      groups.set(key, {
+        baseId: key,
+        ids: [],
+        total: 0,
+        totalRem: 0,
+        totalFac: 0
+      });
+    }
+    const group = groups.get(key);
+    const totals = getTotalsWithDefaults(item?.totals);
+    const authorized = normalizeNumber(item?.total ?? totals.total);
+    group.ids.push(item.id);
+    group.total += authorized;
+    group.totalRem += normalizeNumber(totals.totalRem);
+    group.totalFac += normalizeNumber(totals.totalFac);
+  });
+
+  return Array.from(groups.values())
+    .map(group => {
+      const totalConsumo = group.totalRem + group.totalFac;
+      const restante = Math.max(group.total - totalConsumo, 0);
+      const totals = {
+        total: roundTo(group.total),
+        totalRem: roundTo(group.totalRem),
+        totalFac: roundTo(group.totalFac),
+        totalConsumo: roundTo(totalConsumo),
+        restante: roundTo(restante)
+      };
+      return {
+        baseId: group.baseId,
+        ids: group.ids,
+        totals,
+        percentages: computePercentagesFromTotals(totals)
+      };
+    })
+    .sort((a, b) => a.baseId.localeCompare(b.baseId));
+}
+
 const AXIS_CURRENCY_FORMATTER = new Intl.NumberFormat('es-MX', {
   style: 'currency',
   currency: 'MXN',
@@ -318,6 +369,190 @@ function getPoMetadataByBase(baseId) {
   return state.pos.find(po => po.id === baseId) || state.pos.find(po => po.baseId === baseId) || null;
 }
 
+function sanitizeVariantKey(value) {
+  return typeof value === 'string' ? value.replace(/[^0-9a-zA-Z-_]+/gu, '_') : '';
+}
+
+function ensureSelectedPoDetail(baseId, initialId) {
+  if (!baseId) return null;
+  const normalizedBase = baseId.trim();
+  if (!state.selectedPoDetails.has(normalizedBase)) {
+    const variants = new Set();
+    if (normalizedBase) {
+      variants.add(normalizedBase);
+    }
+    if (initialId && initialId !== normalizedBase) {
+      variants.add(initialId.trim());
+    }
+    state.selectedPoDetails.set(normalizedBase, { baseId: normalizedBase, variants });
+  } else if (initialId && initialId !== normalizedBase) {
+    const detail = state.selectedPoDetails.get(normalizedBase);
+    detail.variants.add(initialId.trim());
+  }
+  return state.selectedPoDetails.get(normalizedBase) || null;
+}
+
+function removeSelectedPoDetail(baseId) {
+  if (!baseId) return;
+  state.selectedPoDetails.delete(baseId.trim());
+}
+
+function getSelectedVariantIds(baseId) {
+  const detail = baseId ? state.selectedPoDetails.get(baseId.trim()) : null;
+  if (detail && detail.variants.size > 0) {
+    return Array.from(detail.variants);
+  }
+  return baseId ? [baseId.trim()] : [];
+}
+
+function getSuggestedVariants(baseId) {
+  if (!baseId) return [];
+  const normalized = baseId.trim();
+  const variants = state.pos.filter(po => (po.baseId || po.id) === normalized);
+  if (variants.length > 0) {
+    return variants.sort((a, b) => a.id.localeCompare(b.id));
+  }
+  const fallback = {
+    id: normalized,
+    baseId: normalized,
+    display: normalized,
+    fecha: '',
+    total: 0,
+    isExtension: false,
+    isFallback: true
+  };
+  return [fallback];
+}
+
+function renderExtensionSelection() {
+  const container = document.getElementById('extensionSelectionContainer');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!state.selectedPoIds.length) {
+    container.innerHTML = '<p class="text-muted small mb-0">Selecciona una PO base para ver sus extensiones sugeridas.</p>';
+    return;
+  }
+
+  state.selectedPoIds.forEach(baseId => {
+    const variants = getSuggestedVariants(baseId);
+    const detail = ensureSelectedPoDetail(baseId);
+    const selectedVariants = detail ? Array.from(detail.variants) : [baseId];
+    const selectedCount = selectedVariants.length;
+    const badgeLabel = selectedCount === 1
+      ? 'Solo base seleccionada'
+      : `${selectedCount} variantes incluidas`;
+
+    const card = document.createElement('div');
+    card.className = 'card shadow-sm border border-primary-subtle mb-3';
+    const rows = document.createElement('div');
+    rows.className = 'row g-2';
+
+    variants.forEach(variant => {
+      const col = document.createElement('div');
+      col.className = 'col-12 col-md-6';
+      const formCheck = document.createElement('div');
+      formCheck.className = 'form-check form-switch';
+      const input = document.createElement('input');
+      input.className = 'form-check-input';
+      input.type = 'checkbox';
+      input.value = variant.id;
+      input.dataset.baseId = baseId;
+      input.id = `variant-${sanitizeVariantKey(baseId)}-${sanitizeVariantKey(variant.id)}`;
+      if (variant.id === baseId) {
+        input.checked = true;
+        input.disabled = true;
+      } else {
+        input.checked = selectedVariants.includes(variant.id);
+      }
+      const label = document.createElement('label');
+      label.className = 'form-check-label small';
+      label.setAttribute('for', input.id);
+      const suggestionBadge = variant.id === baseId
+        ? '<span class="badge text-bg-secondary ms-2">Base</span>'
+        : variant.isExtension !== false
+          ? '<span class="badge text-bg-info-subtle text-info-emphasis ms-2">Sugerencia</span>'
+          : '';
+      label.innerHTML = `${escapeHtml(variant.display || variant.id)}${suggestionBadge}`;
+      formCheck.appendChild(input);
+      formCheck.appendChild(label);
+      col.appendChild(formCheck);
+      rows.appendChild(col);
+    });
+
+    if (variants.length <= 1) {
+      const col = document.createElement('div');
+      col.className = 'col-12';
+      col.innerHTML = '<p class="text-muted small mb-0">Sin extensiones adicionales registradas para esta PO.</p>';
+      rows.appendChild(col);
+    }
+
+    card.innerHTML = `
+      <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+          <div>
+            <h5 class="card-title h6 mb-0">PO ${escapeHtml(baseId)}</h5>
+            <p class="text-muted small mb-0">Marca únicamente las extensiones que deban sumarse al consumo.</p>
+          </div>
+          <span class="badge text-bg-light text-dark">${escapeHtml(badgeLabel)}</span>
+        </div>
+      </div>
+    `;
+    card.querySelector('.card-body').appendChild(rows);
+    container.appendChild(card);
+  });
+}
+
+function handleExtensionSelectionChange(event) {
+  const input = event.target;
+  if (!input || input.type !== 'checkbox') return;
+  const baseId = input.dataset.baseId;
+  const variantId = input.value;
+  if (!baseId || !variantId) return;
+  const detail = ensureSelectedPoDetail(baseId, variantId);
+  if (!detail) return;
+  if (variantId === baseId) {
+    input.checked = true;
+    return;
+  }
+  if (input.checked) {
+    detail.variants.add(variantId);
+  } else {
+    detail.variants.delete(variantId);
+    if (detail.variants.size === 0) {
+      detail.variants.add(baseId);
+    }
+  }
+  renderSelectedPoChips();
+  updateSummary({ silent: true });
+}
+
+function syncSelectedVariantsFromSummary(summary) {
+  if (!summary || !Array.isArray(summary.selectionDetails)) {
+    return false;
+  }
+  let changed = false;
+  summary.selectionDetails.forEach(detail => {
+    if (!detail?.baseId) return;
+    const variants = Array.isArray(detail.variants) && detail.variants.length
+      ? detail.variants
+      : [detail.baseId];
+    const normalized = variants.map(id => (typeof id === 'string' ? id.trim() : '')).filter(Boolean);
+    const stateDetail = ensureSelectedPoDetail(detail.baseId);
+    if (!stateDetail) {
+      return;
+    }
+    const current = stateDetail.variants || new Set();
+    const normalizedSet = new Set(normalized);
+    const sameSize = current.size === normalizedSet.size;
+    const isSame = sameSize && Array.from(normalizedSet).every(value => current.has(value));
+    if (!isSame) {
+      stateDetail.variants = new Set(normalizedSet);
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 function renderSelectedPoChips() {
   const container = document.getElementById('selectedPoContainer');
   if (!container) return;
@@ -331,23 +566,27 @@ function renderSelectedPoChips() {
     document.getElementById('dashboardContent')?.classList.add('d-none');
     renderReportSelectionOverview();
     if (help) {
-      help.textContent = 'Puedes agregar varias POs base (el sistema combinará sus extensiones automáticamente).';
+      help.textContent = 'Agrega una PO base y luego elige manualmente qué extensiones deseas incluir.';
     }
+    renderExtensionSelection();
     return;
   }
   if (help) {
     const label = state.selectedPoIds.length === 1
       ? '1 PEO base seleccionada'
       : `${state.selectedPoIds.length} PEOs base seleccionadas`;
-    help.textContent = `${label}. Puedes quitar cualquiera dando clic en la “x”.`;
+    help.textContent = `${label}. Ajusta las extensiones en la tarjeta inferior o quita cualquiera dando clic en la “x”.`;
   }
   state.selectedPoIds.forEach(baseId => {
     const chip = document.createElement('span');
     chip.className = 'selected-po-chip';
     const meta = getPoMetadataByBase(baseId);
+    const variantCount = getSelectedVariantIds(baseId).length;
+    const extensionCount = Math.max(variantCount - 1, 0);
+    const suffix = extensionCount > 0 ? ` (+${extensionCount} ext.)` : '';
     const label = meta
-      ? `${baseId} • $${formatCurrency(meta.total || 0)}`
-      : baseId;
+      ? `${baseId}${suffix} • $${formatCurrency(meta.total || 0)}`
+      : `${baseId}${suffix}`;
     chip.innerHTML = `
       <span>${label}</span>
       <button type="button" aria-label="Quitar" data-action="remove-po" data-po="${baseId}">&times;</button>
@@ -355,6 +594,7 @@ function renderSelectedPoChips() {
     container.appendChild(chip);
   });
   renderReportSelectionOverview();
+  renderExtensionSelection();
 }
 
 function addPoToSelection(poId) {
@@ -366,9 +606,19 @@ function addPoToSelection(poId) {
   }
   const baseId = found.baseId || found.id;
   if (state.selectedPoIds.includes(baseId)) {
-    showAlert(`La PO ${baseId} ya está en la selección.`, 'info');
+    const variants = getSelectedVariantIds(baseId);
+    const alreadyIncluded = variants.includes(found.id);
+    ensureSelectedPoDetail(baseId, found.id);
+    if (found.id !== baseId && !alreadyIncluded) {
+      showAlert(`Extensión ${found.id} agregada a la PO ${baseId}.`, 'success');
+      renderSelectedPoChips();
+      updateSummary({ silent: true });
+    } else {
+      showAlert(`La PO ${baseId} ya está en la selección.`, 'info');
+    }
     return;
   }
+  ensureSelectedPoDetail(baseId, found.id);
   state.selectedPoIds.push(baseId);
   showAlert(`PO ${baseId} agregada a la selección.`, 'success');
   renderSelectedPoChips();
@@ -379,6 +629,7 @@ function removePoFromSelection(baseId) {
   const index = state.selectedPoIds.indexOf(baseId);
   if (index === -1) return;
   state.selectedPoIds.splice(index, 1);
+  removeSelectedPoDetail(baseId);
   renderSelectedPoChips();
   if (state.selectedPoIds.length === 0) {
     state.summary = null;
@@ -395,6 +646,7 @@ function removePoFromSelection(baseId) {
 function clearSelectedPos() {
   if (!state.selectedPoIds.length) return;
   state.selectedPoIds = [];
+  state.selectedPoDetails.clear();
   renderSelectedPoChips();
   state.summary = null;
   destroyCharts();
@@ -418,6 +670,7 @@ async function selectEmpresa(value) {
   if (state.selectedEmpresa === value) return;
   state.selectedEmpresa = value;
   state.selectedPoIds = [];
+  state.selectedPoDetails.clear();
   const poInput = document.getElementById('poSearch');
   if (poInput) {
     poInput.value = '';
@@ -493,7 +746,7 @@ function renderSummaryCards(summary) {
   const percentages = computePercentagesFromTotals(totals);
   const selectionCount = (summary.selectedIds || []).length || 0;
   const selectionLabel = selectionCount === 1
-    ? '1 PEO base (extensiones incluidas)'
+    ? '1 PEO base (extensiones según tu selección)'
     : `${selectionCount} PEOs base combinadas`;
   container.innerHTML = `
     <div class="col-md-4">
@@ -675,75 +928,103 @@ function attachTableHandlers(summary) {
 
 function renderCharts(summary) {
   destroyCharts();
-  const items = summary.items || [];
-  if (!items.length) return;
+  const items = Array.isArray(summary.items) ? summary.items : [];
+  const groups = buildPoGroups(items);
+  const extensionContainer = document.getElementById('extensionsContainer');
+  if (!groups.length) {
+    if (extensionContainer) {
+      extensionContainer.innerHTML = '<p class="text-muted">Sin información suficiente para graficar esta selección.</p>';
+    }
+    return;
+  }
 
-  const entries = items.map(item => {
-    const totals = getTotalsWithDefaults(item.totals);
-    const totalBase = normalizeNumber(totals.total || item.total);
-    const restante = totals.restante != null
-      ? normalizeNumber(totals.restante)
-      : Math.max(totalBase - (normalizeNumber(totals.totalRem) + normalizeNumber(totals.totalFac)), 0);
-    const normalizedTotals = {
-      ...totals,
-      total: totalBase,
-      restante
-    };
+  const totals = getTotalsWithDefaults(summary.totals);
+  const total = normalizeNumber(totals.total);
+  const totalRem = normalizeNumber(totals.totalRem);
+  const totalFac = normalizeNumber(totals.totalFac);
+  const restante = totals.restante != null
+    ? normalizeNumber(totals.restante)
+    : Math.max(total - (totalRem + totalFac), 0);
+  const aggregatedTotals = {
+    total,
+    totalRem,
+    totalFac,
+    restante,
+    totalConsumo: roundTo(totalRem + totalFac)
+  };
+  const aggregatedPercentages = computePercentagesFromTotals(aggregatedTotals);
+
+  const chartEntries = groups.map(group => {
+    const variantCount = group.ids.length;
+    const suffix = variantCount > 1 ? ` (+${variantCount - 1} ext.)` : '';
     return {
-      label: item.id,
-      total: roundTo(totalBase),
-      totalRem: roundTo(normalizedTotals.totalRem),
-      totalFac: roundTo(normalizedTotals.totalFac),
-      restante: roundTo(restante),
-      percentages: computePercentagesFromTotals(normalizedTotals)
+      id: group.baseId,
+      label: `PO ${group.baseId}${suffix}`,
+      shortLabel: group.baseId,
+      variantCount,
+      totals: group.totals,
+      percentages: group.percentages
     };
   });
 
-  const aggregatedTotals = entries.reduce((acc, entry) => ({
-    total: acc.total + entry.total,
-    totalRem: acc.totalRem + entry.totalRem,
-    totalFac: acc.totalFac + entry.totalFac,
-    restante: acc.restante + entry.restante
-  }), { total: 0, totalRem: 0, totalFac: 0, restante: 0 });
-  const aggregatedPercentages = computePercentagesFromTotals(aggregatedTotals);
+  const topRemEntry = chartEntries.reduce((acc, entry) => (
+    !acc || entry.totals.totalRem > acc.totals.totalRem ? entry : acc
+  ), null);
+  const topFacEntry = chartEntries.reduce((acc, entry) => (
+    !acc || entry.totals.totalFac > acc.totals.totalFac ? entry : acc
+  ), null);
 
   const mainMetrics = [
     {
       containerId: 'chartRemMetrics',
       rows: [
         {
-          label: 'Remisiones',
+          label: 'Remisiones acumuladas',
           className: 'metric-rem',
           amount: aggregatedTotals.totalRem,
           percentage: aggregatedPercentages.rem
-        }
-      ]
+        },
+        topRemEntry
+          ? {
+              label: `Mayor consumo: ${escapeHtml(topRemEntry.label)}`,
+              className: 'text-muted',
+              amount: topRemEntry.totals.totalRem,
+              percentage: aggregatedTotals.totalRem > 0
+                ? clampPercentage((topRemEntry.totals.totalRem / aggregatedTotals.totalRem) * 100)
+                : 0
+            }
+          : null
+      ].filter(Boolean)
     },
     {
       containerId: 'chartFacMetrics',
       rows: [
         {
-          label: 'Facturas',
+          label: 'Facturas acumuladas',
           className: 'metric-fac',
           amount: aggregatedTotals.totalFac,
           percentage: aggregatedPercentages.fac
-        }
-      ]
+        },
+        topFacEntry
+          ? {
+              label: `Mayor consumo: ${escapeHtml(topFacEntry.label)}`,
+              className: 'text-muted',
+              amount: topFacEntry.totals.totalFac,
+              percentage: aggregatedTotals.totalFac > 0
+                ? clampPercentage((topFacEntry.totals.totalFac / aggregatedTotals.totalFac) * 100)
+                : 0
+            }
+          : null
+      ].filter(Boolean)
     },
     {
       containerId: 'chartStackMetrics',
       rows: [
         {
-          label: 'Remisiones',
+          label: 'Consumido (Rem + Fac)',
           className: 'metric-rem',
-          amount: aggregatedTotals.totalRem,
-          percentage: aggregatedPercentages.rem
-        },
-        {
-          label: 'Facturas',
-          className: 'metric-fac',
-          amount: aggregatedTotals.totalFac,
-          percentage: aggregatedPercentages.fac
+          amount: aggregatedTotals.totalRem + aggregatedTotals.totalFac,
+          percentage: clampPercentage(aggregatedPercentages.rem + aggregatedPercentages.fac)
         },
         {
           label: 'Disponible',
@@ -768,10 +1049,11 @@ function renderCharts(summary) {
       .join('');
   });
 
-  const labels = entries.map(entry => entry.label);
+  const labels = chartEntries.map(entry => entry.label);
   const ctxRem = document.getElementById('chartRem');
   const ctxFac = document.getElementById('chartFac');
   const ctxStack = document.getElementById('chartJunto');
+  const dynamicHeight = Math.max(190, chartEntries.length * 38);
 
   const barChartsMeta = [
     { canvas: ctxRem, key: 'rem', amountKey: 'totalRem', percKey: 'rem', label: 'Remisiones', color: CHART_COLORS.rem },
@@ -780,12 +1062,16 @@ function renderCharts(summary) {
 
   barChartsMeta.forEach(meta => {
     if (!meta.canvas) return;
+    const wrapper = meta.canvas.closest('.chart-wrapper');
+    if (wrapper) {
+      wrapper.style.minHeight = `${dynamicHeight}px`;
+    }
     const dataset = {
       label: `${meta.label} ($)`,
-      data: entries.map(entry => entry[meta.amountKey]),
+      data: chartEntries.map(entry => entry.totals[meta.amountKey]),
       backgroundColor: meta.color,
-      borderRadius: 8,
-      maxBarThickness: 48
+      borderRadius: 10,
+      maxBarThickness: 32
     };
     const chart = new Chart(meta.canvas.getContext('2d'), {
       type: 'bar',
@@ -793,6 +1079,7 @@ function renderCharts(summary) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        indexAxis: 'y',
         animation: { duration: 400 },
         layout: { padding: { top: 12, right: 16, bottom: 12, left: 8 } },
         plugins: {
@@ -800,27 +1087,27 @@ function renderCharts(summary) {
           tooltip: {
             callbacks: {
               title(context) {
-                return entries[context[0].dataIndex].label;
+                return chartEntries[context[0].dataIndex].label;
               },
               label(context) {
-                const entry = entries[context.dataIndex];
-                return `${meta.label}: $${formatCurrency(entry[meta.amountKey])} (${formatPercentageLabel(entry.percentages[meta.percKey])})`;
+                const entry = chartEntries[context.dataIndex];
+                return `${meta.label}: $${formatCurrency(entry.totals[meta.amountKey])} (${formatPercentageLabel(entry.percentages[meta.percKey])})`;
               }
             }
           }
         },
         scales: {
           x: {
-            grid: { display: false },
-            ticks: { color: '#475569' }
-          },
-          y: {
             beginAtZero: true,
             grid: { color: 'rgba(148, 163, 184, 0.25)', borderDash: [4, 4] },
             ticks: {
               color: '#475569',
               callback: value => AXIS_CURRENCY_FORMATTER.format(value)
             }
+          },
+          y: {
+            grid: { display: false },
+            ticks: { color: '#475569', autoSkip: false }
           }
         }
       }
@@ -829,6 +1116,10 @@ function renderCharts(summary) {
   });
 
   if (ctxStack) {
+    const wrapper = ctxStack.closest('.chart-wrapper');
+    if (wrapper) {
+      wrapper.style.minHeight = `${dynamicHeight}px`;
+    }
     const stackMeta = [
       { label: 'Remisiones', percKey: 'rem', amountKey: 'totalRem', color: CHART_COLORS.rem },
       { label: 'Facturas', percKey: 'fac', amountKey: 'totalFac', color: CHART_COLORS.fac },
@@ -840,16 +1131,17 @@ function renderCharts(summary) {
         labels,
         datasets: stackMeta.map(meta => ({
           label: `${meta.label} %`,
-          data: entries.map(entry => entry.percentages[meta.percKey]),
+          data: chartEntries.map(entry => entry.percentages[meta.percKey]),
           backgroundColor: meta.color,
-          borderRadius: 6,
+          borderRadius: 8,
           stack: 'total'
         }))
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 12, right: 16, bottom: 8, left: 8 } },
+        indexAxis: 'y',
+        layout: { padding: { top: 12, right: 16, bottom: 12, left: 8 } },
         animation: { duration: 400 },
         plugins: {
           legend: {
@@ -859,23 +1151,18 @@ function renderCharts(summary) {
           tooltip: {
             callbacks: {
               title(context) {
-                return entries[context[0].dataIndex].label;
+                return chartEntries[context[0].dataIndex].label;
               },
               label(context) {
                 const meta = stackMeta[context.datasetIndex];
-                const entry = entries[context.dataIndex];
-                return `${meta.label}: $${formatCurrency(entry[meta.amountKey])} (${formatPercentageLabel(entry.percentages[meta.percKey])})`;
+                const entry = chartEntries[context.dataIndex];
+                return `${meta.label}: $${formatCurrency(entry.totals[meta.amountKey])} (${formatPercentageLabel(entry.percentages[meta.percKey])})`;
               }
             }
           }
         },
         scales: {
           x: {
-            stacked: true,
-            grid: { display: false },
-            ticks: { color: '#475569' }
-          },
-          y: {
             stacked: true,
             beginAtZero: true,
             max: 100,
@@ -884,6 +1171,11 @@ function renderCharts(summary) {
               color: '#475569',
               callback: value => `${formatPercentageValue(value)}%`
             }
+          },
+          y: {
+            stacked: true,
+            grid: { display: false },
+            ticks: { color: '#475569', autoSkip: false }
           }
         }
       }
@@ -891,7 +1183,6 @@ function renderCharts(summary) {
     state.charts.set('stack', chart);
   }
 
-  const extensionContainer = document.getElementById('extensionsContainer');
   if (extensionContainer) {
     const donutMeta = [
       { label: 'Remisiones', amountKey: 'totalRem', percKey: 'rem', color: CHART_COLORS.rem, labelClass: 'metric-rem' },
@@ -899,17 +1190,21 @@ function renderCharts(summary) {
       { label: 'Disponible', amountKey: 'restante', percKey: 'rest', color: CHART_COLORS.rest, labelClass: 'metric-rest' }
     ];
     extensionContainer.innerHTML = '';
-    entries.forEach((entry, index) => {
+    chartEntries.forEach((entry, index) => {
       const card = document.createElement('div');
-      card.className = 'col-md-6 col-lg-4';
+      card.className = 'col-md-6 col-xl-4';
+      const variantBadge = entry.variantCount === 1 ? 'Solo base' : `${entry.variantCount} variantes`;
       card.innerHTML = `
         <div class="card h-100 shadow-sm chart-card">
           <div class="card-body">
-            <div>
-              <h5 class="card-title mb-1">${entry.label}</h5>
-              <p class="small text-muted mb-0">Autorizado: $${formatCurrency(entry.total)}</p>
+            <div class="d-flex justify-content-between align-items-start gap-3">
+              <div>
+                <h5 class="card-title mb-1">${escapeHtml(entry.label)}</h5>
+                <p class="small text-muted mb-0">Autorizado: $${formatCurrency(entry.totals.total)}</p>
+              </div>
+              <span class="badge text-bg-light text-dark">${escapeHtml(variantBadge)}</span>
             </div>
-            <div class="chart-wrapper">
+            <div class="chart-wrapper mt-2">
               <canvas id="extChart-${index}"></canvas>
             </div>
             <div class="chart-metrics mt-2">
@@ -917,7 +1212,7 @@ function renderCharts(summary) {
                 .map(meta => `
                   <div class="metric-row">
                     <span class="metric-label ${meta.labelClass}">${meta.label}</span>
-                    <span>$${formatCurrency(entry[meta.amountKey])} · ${formatPercentageLabel(entry.percentages[meta.percKey])}</span>
+                    <span>$${formatCurrency(entry.totals[meta.amountKey])} · ${formatPercentageLabel(entry.percentages[meta.percKey])}</span>
                   </div>
                 `)
                 .join('')}
@@ -928,12 +1223,12 @@ function renderCharts(summary) {
       extensionContainer.appendChild(card);
       const canvas = card.querySelector('canvas');
       const dataset = {
-        data: donutMeta.map(meta => entry[meta.amountKey]),
+        data: donutMeta.map(meta => entry.totals[meta.amountKey]),
         backgroundColor: donutMeta.map(meta => meta.color),
         hoverOffset: 8,
         metaInfo: donutMeta.map(meta => ({
           label: meta.label,
-          amount: entry[meta.amountKey],
+          amount: entry.totals[meta.amountKey],
           percentage: entry.percentages[meta.percKey]
         }))
       };
@@ -963,8 +1258,8 @@ function renderCharts(summary) {
                   if (info) {
                     return `${info.label}: $${formatCurrency(info.amount)} (${formatPercentageLabel(info.percentage)})`;
                   }
-                  const total = dataset.data.reduce((sum, value) => sum + value, 0);
-                  const percentage = total > 0 ? (context.parsed / total) * 100 : 0;
+                  const totalValue = dataset.data.reduce((sum, value) => sum + value, 0);
+                  const percentage = totalValue > 0 ? (context.parsed / totalValue) * 100 : 0;
                   return `${context.label}: $${formatCurrency(context.parsed)} (${formatPercentageLabel(percentage)})`;
                 }
               }
@@ -1132,22 +1427,24 @@ function renderReportSelectionOverview() {
     return;
   }
   const items = Array.isArray(state.summary.items) ? state.summary.items : [];
-  if (items.length === 0) {
+  const groups = buildPoGroups(items);
+  if (!groups.length) {
     container.innerHTML = '<p class="text-muted mb-0">No se encontraron POs activas con la selección actual.</p>';
     if (help) {
       help.textContent = 'Verifica los filtros o selecciona otra PO.';
     }
     return;
   }
-  const rows = items
-    .map(item => {
-      const total = formatCurrency(item.total || 0);
-      const restante = formatCurrency(item.totals?.restante ?? 0);
+  const rows = groups
+    .map(group => {
+      const total = formatCurrency(group.totals.total);
+      const restante = formatCurrency(group.totals.restante);
+      const variantLabel = group.ids.length === 1 ? 'Solo base' : `${group.ids.length} variantes`;
       return `
         <li class="list-group-item d-flex flex-wrap justify-content-between gap-2">
           <div>
-            <span class="fw-semibold">${escapeHtml(item.id || '')}</span>
-            <span class="text-muted">• ${escapeHtml(item.fecha || '')}</span>
+            <span class="fw-semibold">PO ${escapeHtml(group.baseId)}</span>
+            <span class="badge text-bg-light text-dark ms-2">${escapeHtml(variantLabel)}</span>
           </div>
           <div class="text-end">
             <span class="badge text-bg-primary-subtle text-primary-emphasis me-2">Total $${total}</span>
@@ -1218,31 +1515,73 @@ function setupWizardNavigation() {
 
 function isSummarySynced() {
   if (!state.summary) return false;
-  const summaryIds = Array.isArray(state.summary.selectedIds) ? [...state.summary.selectedIds].sort() : [];
   const selected = [...state.selectedPoIds].sort();
-  if (summaryIds.length !== selected.length) return false;
-  return selected.every((value, index) => value === summaryIds[index]);
+  const details = Array.isArray(state.summary.selectionDetails)
+    ? state.summary.selectionDetails.reduce((map, entry) => {
+      if (entry?.baseId) {
+        map.set(entry.baseId, new Set((entry.variants || []).map(id => id.trim())));
+      }
+      return map;
+    }, new Map())
+    : null;
+  const summaryBases = details
+    ? Array.from(details.keys()).sort()
+    : Array.isArray(state.summary.selectedIds)
+      ? [...state.summary.selectedIds].sort()
+      : [];
+  if (summaryBases.length !== selected.length) return false;
+  if (!selected.every((value, index) => value === summaryBases[index])) {
+    return false;
+  }
+  if (!details) {
+    return true;
+  }
+  return selected.every(baseId => {
+    const summaryVariants = details.get(baseId) || new Set();
+    const selectedVariants = new Set(getSelectedVariantIds(baseId).map(id => id.trim()));
+    if (summaryVariants.size !== selectedVariants.size) {
+      return false;
+    }
+    for (const id of selectedVariants) {
+      if (!summaryVariants.has(id)) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 async function updateSummary(options = {}) {
   const silent = options.silent === true;
   if (!state.selectedEmpresa || state.selectedPoIds.length === 0) return;
   try {
+    const poTargets = state.selectedPoIds.map(baseId => ({
+      baseId,
+      ids: getSelectedVariantIds(baseId)
+    }));
     const response = await fetch('/po-summary', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ empresa: state.selectedEmpresa, poIds: state.selectedPoIds })
+      body: JSON.stringify({
+        empresa: state.selectedEmpresa,
+        poIds: state.selectedPoIds,
+        poTargets
+      })
     });
     const data = await response.json();
     if (!data.success) {
       throw new Error(data.message || 'No fue posible obtener el resumen');
     }
     state.summary = data.summary;
+    const selectionAdjusted = syncSelectedVariantsFromSummary(state.summary);
     renderSummaryCards(state.summary);
     renderTable(state.summary);
     attachTableHandlers(state.summary);
     renderCharts(state.summary);
     renderAlerts(state.summary.alerts || []);
+    if (selectionAdjusted) {
+      renderSelectedPoChips();
+    }
     if (!silent) {
       showAlert('Dashboard actualizado con la selección de POs.', 'success');
     }
@@ -1274,6 +1613,10 @@ async function generateReport() {
   const engine = state.selectedEngine || state.reportSettings?.defaultEngine || 'jasper';
   const format = state.selectedFormat || state.reportSettings?.export?.defaultFormat || 'pdf';
   const customization = normalizeCustomizationState(state.customization);
+  const poTargets = state.selectedPoIds.map(baseId => ({
+    baseId,
+    ids: getSelectedVariantIds(baseId)
+  }));
   state.isGeneratingReport = true;
   try {
     const response = await fetch('/report', {
@@ -1282,6 +1625,7 @@ async function generateReport() {
       body: JSON.stringify({
         empresa: state.selectedEmpresa,
         poIds: state.selectedPoIds,
+        poTargets,
         engine,
         format,
         customization
@@ -2382,11 +2726,13 @@ async function setupDashboard() {
     const baseId = button.getAttribute('data-po');
     removePoFromSelection(baseId);
   });
+  document.getElementById('extensionSelectionContainer')?.addEventListener('change', handleExtensionSelectionChange);
   document.getElementById('universeEmpresaSelect')?.addEventListener('change', event => {
     const value = event.target.value;
     if (!value) {
       state.selectedEmpresa = '';
       state.selectedPoIds = [];
+      state.selectedPoDetails.clear();
       destroyCharts();
       renderSelectedPoChips();
       updateUniverseControls();
