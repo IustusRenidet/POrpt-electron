@@ -23,6 +23,7 @@
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {
+    "@electron-forge/publisher-github": "^7.10.0",
     "electron": "^38.2.2",
     "electron-builder": "^24.13.3"
   },
