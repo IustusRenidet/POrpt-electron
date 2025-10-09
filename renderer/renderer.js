@@ -4,6 +4,7 @@ const state = {
   selectedEmpresa: '',
   selectedPoIds: [],
   selectedPoDetails: new Map(),
+  manualExtensions: new Map(),
   charts: new Map(),
   summary: null,
   users: [],
@@ -32,7 +33,8 @@ const state = {
   universeEndDate: '',
   universeFormat: readSession('porpt-universe-format', 'pdf'),
   universeCustomName: readSession('porpt-universe-report-name', ''),
-  isGeneratingReport: false
+  isGeneratingReport: false,
+  userCompanySelection: new Set()
 };
 
 const ALERT_TYPE_CLASS = {
@@ -375,6 +377,28 @@ function renderPoOptions(filterText = '') {
     });
 }
 
+async function ensureEmpresasCatalog() {
+  if (Array.isArray(state.empresas) && state.empresas.length > 0) {
+    return state.empresas;
+  }
+  const stored = readSession('porpt-empresas', []);
+  if (Array.isArray(stored) && stored.length > 0) {
+    state.empresas = stored;
+    return state.empresas;
+  }
+  try {
+    const response = await fetch('/empresas');
+    const data = await response.json();
+    if (data.success) {
+      state.empresas = data.empresas || [];
+      saveSession('porpt-empresas', state.empresas);
+    }
+  } catch (error) {
+    console.error('Error obteniendo empresas:', error);
+  }
+  return state.empresas;
+}
+
 function getPoMetadataByBase(baseId) {
   if (!baseId) return null;
   return state.pos.find(po => po.id === baseId) || state.pos.find(po => po.baseId === baseId) || null;
@@ -435,6 +459,70 @@ function getSuggestedVariants(baseId) {
   return [fallback];
 }
 
+function getManualVariants(baseId) {
+  if (!baseId) return [];
+  const store = state.manualExtensions.get(baseId.trim());
+  if (!store) return [];
+  return Array.from(store.values());
+}
+
+function storeManualVariant(baseId, variant) {
+  if (!baseId || !variant?.id) return;
+  const normalizedBase = baseId.trim();
+  const normalizedId = variant.id.trim();
+  if (!normalizedBase || !normalizedId) return;
+  if (!state.manualExtensions.has(normalizedBase)) {
+    state.manualExtensions.set(normalizedBase, new Map());
+  }
+  const baseStore = state.manualExtensions.get(normalizedBase);
+  baseStore.set(normalizedId, {
+    id: normalizedId,
+    baseId: normalizedBase,
+    display: variant.display || normalizedId,
+    fecha: variant.fecha || '',
+    total: normalizeNumber(variant.total) || 0,
+    isExtension: false,
+    isManual: true
+  });
+}
+
+function addManualExtensionToPo(baseId, rawId) {
+  if (!baseId) return;
+  const manualId = typeof rawId === 'string' ? rawId.trim() : '';
+  if (!manualId) {
+    showAlert('Escribe el identificador de la extensión que deseas agregar.', 'warning');
+    return;
+  }
+  const normalizedBase = baseId.trim();
+  const normalizedId = manualId;
+  if (normalizedId === normalizedBase) {
+    showAlert('La extensión coincide con la PO base; ya está incluida automáticamente.', 'info');
+    return;
+  }
+
+  const detail = ensureSelectedPoDetail(normalizedBase);
+  if (!detail) {
+    showAlert('Selecciona primero la PO base antes de agregar una extensión manual.', 'warning');
+    return;
+  }
+  if (detail.variants.has(normalizedId)) {
+    showAlert(`La extensión ${normalizedId} ya está seleccionada para la PO ${normalizedBase}.`, 'info');
+    return;
+  }
+
+  detail.variants.add(normalizedId);
+  detail.variants.add(normalizedBase);
+
+  const existsInCatalog = state.pos.some(po => po.id === normalizedId && (po.baseId || po.id) === normalizedBase);
+  if (!existsInCatalog) {
+    storeManualVariant(normalizedBase, { id: normalizedId });
+  }
+
+  renderSelectedPoChips();
+  updateSummary({ silent: true });
+  showAlert(`Extensión ${normalizedId} agregada manualmente a la PO ${normalizedBase}.`, 'success');
+}
+
 function renderExtensionSelection() {
   const container = document.getElementById('extensionSelectionContainer');
   if (!container) return;
@@ -445,10 +533,32 @@ function renderExtensionSelection() {
   }
 
   state.selectedPoIds.forEach(baseId => {
-    const variants = getSuggestedVariants(baseId);
+    const suggestedVariants = getSuggestedVariants(baseId);
+    const manualVariants = getManualVariants(baseId);
+    const variantMap = new Map();
+    suggestedVariants.forEach(variant => {
+      variantMap.set(variant.id, variant);
+    });
+    manualVariants.forEach(variant => {
+      variantMap.set(variant.id, variant);
+    });
     const detail = ensureSelectedPoDetail(baseId);
     const selectedVariants = detail ? Array.from(detail.variants) : [baseId];
-    const totalVariants = Math.max(variants.length, selectedVariants.length, 1);
+    selectedVariants.forEach(id => {
+      if (!variantMap.has(id)) {
+        variantMap.set(id, {
+          id,
+          baseId,
+          display: id,
+          fecha: '',
+          total: 0,
+          isExtension: false,
+          isManual: true
+        });
+      }
+    });
+    const variants = Array.from(variantMap.values()).sort((a, b) => a.id.localeCompare(b.id));
+    const totalVariants = Math.max(variants.length, 1);
     const selectedCount = Math.min(selectedVariants.length, totalVariants);
     const badgeLabel = `${selectedCount}/${totalVariants} seleccionadas`;
     const poMeta = getPoMetadataByBase(baseId);
@@ -533,11 +643,29 @@ function renderExtensionSelection() {
     if (variants.length <= 1) {
       const empty = document.createElement('p');
       empty.className = 'extension-selection-empty';
-      empty.textContent = 'Sin extensiones adicionales registradas para esta PO.';
+      empty.textContent = 'Sin extensiones adicionales registradas para esta PO. Agrega una manual desde el campo inferior.';
       optionsGrid.appendChild(empty);
     }
 
     card.appendChild(optionsGrid);
+    const manualEntry = document.createElement('div');
+    manualEntry.className = 'extension-manual-entry';
+    manualEntry.innerHTML = `
+      <label class="form-label">Agregar extensión manual</label>
+      <div class="input-group">
+        <span class="input-group-text">Extensión</span>
+        <input
+          type="text"
+          class="form-control"
+          placeholder="Ej. ${escapeHtml(baseId)}-EXT01"
+          data-manual-extension-input
+          data-base-id="${escapeHtml(baseId)}"
+        >
+        <button type="button" class="btn btn-outline-success" data-action="add-manual-extension" data-base-id="${escapeHtml(baseId)}">Agregar</button>
+      </div>
+      <div class="form-text">Escribe el identificador completo y presiona Enter para añadirlo a la PO.</div>
+    `;
+    card.appendChild(manualEntry);
     container.appendChild(card);
   });
 }
@@ -572,9 +700,20 @@ function handleExtensionSelectionAction(event) {
   const baseId = button.dataset.baseId;
   const action = button.dataset.action;
   if (!baseId || !action) return;
+  const card = button.closest('.extension-selection-card');
+  if (!card) return;
+  if (action === 'add-manual-extension') {
+    const input = card.querySelector(`input[data-manual-extension-input][data-base-id="${baseId}"]`);
+    const value = input ? input.value : '';
+    addManualExtensionToPo(baseId, value);
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+    return;
+  }
   const detail = ensureSelectedPoDetail(baseId);
   if (!detail) return;
-  const card = button.closest('.extension-selection-card');
   const checkboxes = Array.from(
     card?.querySelectorAll('input[type="checkbox"][data-base-id]') || []
   );
@@ -620,6 +759,16 @@ function handleExtensionSelectionAction(event) {
   detail.variants = mutableSet;
   renderSelectedPoChips();
   updateSummary({ silent: true });
+}
+
+function handleManualExtensionInputKeydown(event) {
+  if (event.key !== 'Enter') return;
+  const input = event.target;
+  if (!input || !input.matches('[data-manual-extension-input]')) return;
+  event.preventDefault();
+  const baseId = input.dataset.baseId;
+  addManualExtensionToPo(baseId, input.value);
+  input.value = '';
 }
 
 function syncSelectedVariantsFromSummary(summary) {
@@ -668,10 +817,7 @@ function renderSelectedPoChips() {
     return;
   }
   if (help) {
-    const label = state.selectedPoIds.length === 1
-      ? '1 PEO base seleccionada'
-      : `${state.selectedPoIds.length} PEOs base seleccionadas`;
-    help.textContent = `${label}. Usa las tarjetas inferiores para activar extensiones, los accesos rápidos o quita cualquiera dando clic en la “x”.`;
+    help.textContent = 'Selecciona si tu PEO cuenta con extensión, generamos sugerencias pero puedes agregar una manualmente.';
   }
   state.selectedPoIds.forEach(baseId => {
     const chip = document.createElement('span');
@@ -726,6 +872,7 @@ function removePoFromSelection(baseId) {
   if (index === -1) return;
   state.selectedPoIds.splice(index, 1);
   removeSelectedPoDetail(baseId);
+  state.manualExtensions.delete(baseId);
   renderSelectedPoChips();
   if (state.selectedPoIds.length === 0) {
     state.summary = null;
@@ -743,6 +890,7 @@ function clearSelectedPos() {
   if (!state.selectedPoIds.length) return;
   state.selectedPoIds = [];
   state.selectedPoDetails.clear();
+  state.manualExtensions.clear();
   renderSelectedPoChips();
   state.summary = null;
   destroyCharts();
@@ -767,6 +915,7 @@ async function selectEmpresa(value) {
   state.selectedEmpresa = value;
   state.selectedPoIds = [];
   state.selectedPoDetails.clear();
+  state.manualExtensions.clear();
   const poInput = document.getElementById('poSearch');
   if (poInput) {
     poInput.value = '';
@@ -1433,33 +1582,34 @@ function applySavedCustomization() {
 
 function setCustomizationControlStates() {
   const config = normalizeCustomizationState(state.customization);
-  document.querySelectorAll('[data-customization-toggle]').forEach(input => {
-    const key = input.getAttribute('data-customization-toggle');
+  document.querySelectorAll('[data-customization-select]').forEach(select => {
+    const key = select.getAttribute('data-customization-select');
     if (!key) return;
-    const group = input.getAttribute('data-customization-group');
+    const group = select.getAttribute('data-customization-group');
     const value = group === 'csv' ? config.csv?.[key] !== false : config[key] !== false;
-    input.checked = !!value;
+    select.value = value ? 'true' : 'false';
   });
 }
 
-function handleCustomizationToggleChange(event) {
-  const input = event.target;
-  if (!input || input.type !== 'checkbox') return;
-  const key = input.getAttribute('data-customization-toggle');
+function handleCustomizationSelectChange(event) {
+  const select = event.target;
+  if (!select || select.tagName !== 'SELECT') return;
+  const key = select.getAttribute('data-customization-select');
   if (!key) return;
-  const group = input.getAttribute('data-customization-group');
+  const group = select.getAttribute('data-customization-group');
+  const enabled = select.value !== 'false';
   if (group === 'csv') {
     state.customization = {
       ...state.customization,
       csv: {
         ...state.customization.csv,
-        [key]: input.checked
+        [key]: enabled
       }
     };
   } else {
     state.customization = {
       ...state.customization,
-      [key]: input.checked
+      [key]: enabled
     };
   }
   state.customization = normalizeCustomizationState(state.customization);
@@ -1470,9 +1620,9 @@ function handleCustomizationToggleChange(event) {
 
 function setupCustomizationControls() {
   setCustomizationControlStates();
-  document.querySelectorAll('[data-customization-toggle]').forEach(input => {
-    input.removeEventListener('change', handleCustomizationToggleChange);
-    input.addEventListener('change', handleCustomizationToggleChange);
+  document.querySelectorAll('[data-customization-select]').forEach(select => {
+    select.removeEventListener('change', handleCustomizationSelectChange);
+    select.addEventListener('change', handleCustomizationSelectChange);
   });
 }
 
@@ -2167,12 +2317,138 @@ function renderReportFormatSelect() {
 }
 
 function setCompaniesFieldDisabled(disabled) {
-  const input = document.getElementById('userCompanies');
-  if (input) {
-    input.disabled = disabled;
+  const picker = document.getElementById('userCompanyPicker');
+  if (picker) {
+    picker.disabled = disabled;
     if (disabled) {
-      input.classList.remove('is-invalid');
+      picker.classList.remove('is-invalid');
     }
+  }
+  const checklist = document.getElementById('userCompanyChecklist');
+  if (checklist) {
+    checklist.querySelectorAll('input[type="checkbox"]').forEach(input => {
+      input.disabled = disabled;
+    });
+    if (disabled) {
+      checklist.classList.remove('is-invalid');
+    }
+  }
+}
+
+function setUserCompaniesValidity(isValid) {
+  const picker = document.getElementById('userCompanyPicker');
+  const checklist = document.getElementById('userCompanyChecklist');
+  if (picker) {
+    picker.classList.toggle('is-invalid', !isValid);
+  }
+  if (checklist) {
+    checklist.classList.toggle('is-invalid', !isValid);
+  }
+}
+
+function updateUserCompaniesValidity() {
+  const allCompanies = document.getElementById('userAllCompanies')?.checked;
+  const selectedCount = state.userCompanySelection instanceof Set ? state.userCompanySelection.size : 0;
+  const isValid = allCompanies || selectedCount > 0;
+  setUserCompaniesValidity(isValid);
+}
+
+function updateUserCompanyPickerOptions() {
+  const picker = document.getElementById('userCompanyPicker');
+  if (!picker) return;
+  const selected = state.userCompanySelection instanceof Set ? state.userCompanySelection : new Set();
+  const currentValue = picker.value;
+  picker.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Selecciona una empresa';
+  picker.appendChild(placeholder);
+  state.empresas.forEach(empresa => {
+    const option = document.createElement('option');
+    option.value = empresa;
+    option.textContent = empresa;
+    if (selected.has(empresa)) {
+      option.disabled = true;
+    }
+    picker.appendChild(option);
+  });
+  const hasCurrent = Array.from(picker.options).some(option => option.value === currentValue && !option.disabled);
+  picker.value = hasCurrent ? currentValue : '';
+}
+
+function renderUserCompanyChecklist() {
+  const container = document.getElementById('userCompanyChecklist');
+  if (!container) return;
+  container.innerHTML = '';
+  const selected = state.userCompanySelection instanceof Set
+    ? Array.from(state.userCompanySelection)
+    : [];
+  if (!selected.length) {
+    const empty = document.createElement('p');
+    empty.className = 'text-muted small mb-0';
+    empty.textContent = 'No hay empresas seleccionadas.';
+    container.appendChild(empty);
+    return;
+  }
+  selected
+    .slice()
+    .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
+    .forEach(company => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'form-check';
+      const id = `userCompany-${sanitizeVariantKey(company)}`;
+      const input = document.createElement('input');
+      input.className = 'form-check-input';
+      input.type = 'checkbox';
+      input.id = id;
+      input.checked = true;
+      input.dataset.company = company;
+      const label = document.createElement('label');
+      label.className = 'form-check-label';
+      label.setAttribute('for', id);
+      label.textContent = company;
+      wrapper.appendChild(input);
+      wrapper.appendChild(label);
+      container.appendChild(wrapper);
+    });
+}
+
+function resetUserCompanySelection(initialCompanies = [], { skipValidityUpdate = false } = {}) {
+  const entries = Array.isArray(initialCompanies) ? initialCompanies.filter(Boolean) : [];
+  state.userCompanySelection = new Set(entries);
+  renderUserCompanyChecklist();
+  updateUserCompanyPickerOptions();
+  if (!skipValidityUpdate) {
+    updateUserCompaniesValidity();
+  }
+}
+
+function handleUserCompanyPickerChange(event) {
+  const value = event.target.value;
+  if (!value) return;
+  if (!(state.userCompanySelection instanceof Set)) {
+    state.userCompanySelection = new Set();
+  }
+  state.userCompanySelection.add(value);
+  event.target.value = '';
+  renderUserCompanyChecklist();
+  updateUserCompanyPickerOptions();
+  updateUserCompaniesValidity();
+}
+
+function handleUserCompanyChecklistChange(event) {
+  const input = event.target;
+  if (!input || input.type !== 'checkbox') return;
+  const company = input.dataset.company;
+  if (!company) return;
+  if (!(state.userCompanySelection instanceof Set)) {
+    state.userCompanySelection = new Set();
+  }
+  if (!input.checked) {
+    state.userCompanySelection.delete(company);
+    renderUserCompanyChecklist();
+    updateUserCompanyPickerOptions();
+    updateUserCompaniesValidity();
   }
 }
 
@@ -2283,7 +2559,7 @@ function renderReportSettingsForm() {
   customizationMappings.forEach(([id, value]) => {
     const input = document.getElementById(id);
     if (input) {
-      input.checked = value;
+      input.value = value ? 'true' : 'false';
     }
   });
   const csvCustomization = state.customization.csv || {};
@@ -2297,7 +2573,7 @@ function renderReportSettingsForm() {
   csvMappings.forEach(([id, value]) => {
     const input = document.getElementById(id);
     if (input) {
-      input.checked = value;
+      input.value = value ? 'true' : 'false';
     }
   });
   const branding = state.reportSettings.branding || {};
@@ -2436,17 +2712,10 @@ function renderUsers(users) {
     .join('');
 }
 
-function parseCompaniesInput(value) {
-  return value
-    .split(',')
-    .map(item => item.trim())
-    .filter(Boolean);
-}
-
 function resetUserModal() {
   const form = document.getElementById('userForm');
   form?.reset();
-  ['userUsername', 'userPassword', 'userPasswordConfirm', 'userCompanies'].forEach(id => {
+  ['userUsername', 'userPassword', 'userPasswordConfirm', 'userCompanyPicker'].forEach(id => {
     const input = document.getElementById(id);
     input?.classList.remove('is-invalid');
   });
@@ -2455,6 +2724,7 @@ function resetUserModal() {
     usernameInput.disabled = false;
   }
   state.editingUserId = null;
+  resetUserCompanySelection([], { skipValidityUpdate: true });
   setCompaniesFieldDisabled(false);
 }
 
@@ -2464,7 +2734,6 @@ function openUserModal(user = null) {
   const usernameInput = document.getElementById('userUsername');
   const nameInput = document.getElementById('userName');
   const allCompaniesInput = document.getElementById('userAllCompanies');
-  const companiesInput = document.getElementById('userCompanies');
   const submitButton = document.getElementById('userModalSubmit');
 
   if (user) {
@@ -2475,7 +2744,8 @@ function openUserModal(user = null) {
     nameInput.value = user.nombre || '';
     allCompaniesInput.checked = user.empresas === '*';
     if (user.empresas !== '*') {
-      companiesInput.value = Array.isArray(user.empresas) ? user.empresas.join(', ') : '';
+      const selectedCompanies = Array.isArray(user.empresas) ? user.empresas : [];
+      resetUserCompanySelection(selectedCompanies);
     }
     submitButton.textContent = 'Actualizar';
   } else {
@@ -2484,7 +2754,18 @@ function openUserModal(user = null) {
     submitButton.textContent = 'Crear usuario';
   }
 
+  if (!user || user.empresas === '*') {
+    resetUserCompanySelection([], { skipValidityUpdate: true });
+  }
+
   setCompaniesFieldDisabled(allCompaniesInput.checked);
+  if (allCompaniesInput.checked) {
+    setUserCompaniesValidity(true);
+  } else if (user && user.empresas !== '*') {
+    updateUserCompaniesValidity();
+  } else {
+    setUserCompaniesValidity(true);
+  }
   const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('userModal'));
   modal.show();
 }
@@ -2538,7 +2819,6 @@ async function handleUserFormSubmit(event) {
   const nameInput = document.getElementById('userName');
   const passwordInput = document.getElementById('userPassword');
   const confirmInput = document.getElementById('userPasswordConfirm');
-  const companiesInput = document.getElementById('userCompanies');
   const allCompaniesInput = document.getElementById('userAllCompanies');
 
   const username = usernameInput.value.trim();
@@ -2546,9 +2826,12 @@ async function handleUserFormSubmit(event) {
   const password = passwordInput.value;
   const confirmPassword = confirmInput.value;
   const allCompanies = allCompaniesInput.checked;
-  const companies = parseCompaniesInput(companiesInput.value);
+  const companies = state.userCompanySelection instanceof Set
+    ? Array.from(state.userCompanySelection)
+    : [];
 
-  [usernameInput, passwordInput, confirmInput, companiesInput].forEach(input => input.classList.remove('is-invalid'));
+  [usernameInput, passwordInput, confirmInput].forEach(input => input.classList.remove('is-invalid'));
+  setUserCompaniesValidity(true);
 
   let hasError = false;
   if (!username) {
@@ -2571,7 +2854,7 @@ async function handleUserFormSubmit(event) {
   }
 
   if (!allCompanies && companies.length === 0) {
-    companiesInput.classList.add('is-invalid');
+    setUserCompaniesValidity(false);
     hasError = true;
   }
 
@@ -2622,16 +2905,16 @@ async function handleReportSettingsSubmit(event) {
         .map(input => input.value)
     },
     customization: {
-      includeCharts: document.getElementById('customIncludeCharts')?.checked ?? true,
-      includeMovements: document.getElementById('customIncludeMovements')?.checked ?? true,
-      includeObservations: document.getElementById('customIncludeObservations')?.checked ?? true,
-      includeUniverse: document.getElementById('customIncludeUniverse')?.checked ?? true,
+      includeCharts: (document.getElementById('customIncludeCharts')?.value ?? 'true') !== 'false',
+      includeMovements: (document.getElementById('customIncludeMovements')?.value ?? 'true') !== 'false',
+      includeObservations: (document.getElementById('customIncludeObservations')?.value ?? 'true') !== 'false',
+      includeUniverse: (document.getElementById('customIncludeUniverse')?.value ?? 'true') !== 'false',
       csv: {
-        includePoResumen: document.getElementById('customCsvIncludePoResumen')?.checked ?? true,
-        includeRemisiones: document.getElementById('customCsvIncludeRemisiones')?.checked ?? true,
-        includeFacturas: document.getElementById('customCsvIncludeFacturas')?.checked ?? true,
-        includeTotales: document.getElementById('customCsvIncludeTotales')?.checked ?? true,
-        includeUniverseInfo: document.getElementById('customCsvIncludeUniverseInfo')?.checked ?? true
+        includePoResumen: (document.getElementById('customCsvIncludePoResumen')?.value ?? 'true') !== 'false',
+        includeRemisiones: (document.getElementById('customCsvIncludeRemisiones')?.value ?? 'true') !== 'false',
+        includeFacturas: (document.getElementById('customCsvIncludeFacturas')?.value ?? 'true') !== 'false',
+        includeTotales: (document.getElementById('customCsvIncludeTotales')?.value ?? 'true') !== 'false',
+        includeUniverseInfo: (document.getElementById('customCsvIncludeUniverseInfo')?.value ?? 'true') !== 'false'
       }
     },
     branding: {
@@ -2695,18 +2978,7 @@ function setupLoginPage() {
 }
 
 async function setupDashboard() {
-  state.empresas = readSession('porpt-empresas', []);
-  if (!Array.isArray(state.empresas) || state.empresas.length === 0) {
-    try {
-      const response = await fetch('/empresas');
-      const data = await response.json();
-      if (data.success) {
-        state.empresas = data.empresas || [];
-      }
-    } catch (error) {
-      console.error('Error obteniendo empresas:', error);
-    }
-  }
+  await ensureEmpresasCatalog();
   renderEmpresaOptions();
   renderUniverseEmpresaSelect();
   renderSelectedPoChips();
@@ -2730,8 +3002,10 @@ async function setupDashboard() {
     const baseId = button.getAttribute('data-po');
     removePoFromSelection(baseId);
   });
-  document.getElementById('extensionSelectionContainer')?.addEventListener('change', handleExtensionSelectionChange);
-  document.getElementById('extensionSelectionContainer')?.addEventListener('click', handleExtensionSelectionAction);
+  const extensionContainer = document.getElementById('extensionSelectionContainer');
+  extensionContainer?.addEventListener('change', handleExtensionSelectionChange);
+  extensionContainer?.addEventListener('click', handleExtensionSelectionAction);
+  extensionContainer?.addEventListener('keydown', handleManualExtensionInputKeydown);
   document.getElementById('universeEmpresaSelect')?.addEventListener('change', event => {
     const value = event.target.value;
     if (!value) {
@@ -2832,6 +3106,8 @@ async function setupAdmin() {
     window.location.href = 'dashboard.html';
     return;
   }
+  await ensureEmpresasCatalog();
+  resetUserCompanySelection([], { skipValidityUpdate: true });
   await loadUsers();
   document.getElementById('loadUsersBtn')?.addEventListener('click', loadUsers);
   document.getElementById('newUserBtn')?.addEventListener('click', () => openUserModal());
@@ -2841,8 +3117,11 @@ async function setupAdmin() {
   userForm?.addEventListener('submit', handleUserFormSubmit);
   document.getElementById('userAllCompanies')?.addEventListener('change', event => {
     setCompaniesFieldDisabled(event.target.checked);
+    updateUserCompaniesValidity();
   });
-  ['userUsername', 'userPassword', 'userPasswordConfirm', 'userCompanies'].forEach(id => {
+  document.getElementById('userCompanyPicker')?.addEventListener('change', handleUserCompanyPickerChange);
+  document.getElementById('userCompanyChecklist')?.addEventListener('change', handleUserCompanyChecklistChange);
+  ['userUsername', 'userPassword', 'userPasswordConfirm'].forEach(id => {
     document.getElementById(id)?.addEventListener('input', event => event.target.classList.remove('is-invalid'));
   });
   showAlert('Desde aquí administra usuarios. Usa el botón “Configuración de reportes” para ajustar los formatos.', 'info', 7000);

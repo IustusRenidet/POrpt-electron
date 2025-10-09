@@ -52,7 +52,13 @@
                       <p class="mb-0 small text-muted">Empresa seleccionada: <span id="universeSelectedEmpresa" class="fw-semibold">Selecciona una empresa</span></p>
                     </div>
                     <div class="text-end">
-                      <button id="generateUniverseReportBtn" class="btn btn-outline-success">Descargar universo</button>
+                      <button
+                        id="generateUniverseReportBtn"
+                        class="btn btn-success btn-lg px-4 d-inline-flex align-items-center gap-2 shadow-sm btn-universe-download"
+                      >
+                        <span class="btn-universe-icon" aria-hidden="true">⇩</span>
+                        <span>Descargar universo</span>
+                      </button>
                     </div>
                   </div>
                   <div class="row g-3 mt-1 align-items-end">
@@ -177,44 +183,86 @@
                       <div class="row g-4">
                         <div class="col-lg-6">
                           <h4 class="h6 text-uppercase text-muted">Secciones del reporte</h4>
-                          <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="toggleIncludeCharts" data-customization-toggle="includeCharts">
-                            <label class="form-check-label" for="toggleIncludeCharts">Incluir gráficas comparativas</label>
-                          </div>
-                          <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="toggleIncludeMovements" data-customization-toggle="includeMovements">
-                            <label class="form-check-label" for="toggleIncludeMovements">Listar remisiones y facturas destacadas</label>
-                          </div>
-                          <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="toggleIncludeObservations" data-customization-toggle="includeObservations">
-                            <label class="form-check-label" for="toggleIncludeObservations">Mostrar observaciones y alertas</label>
-                          </div>
-                          <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="toggleIncludeUniverse" data-customization-toggle="includeUniverse">
-                            <label class="form-check-label" for="toggleIncludeUniverse">Agregar bloque del universo seleccionado</label>
+                          <p class="text-muted small mb-3">Elige si deseas incluir cada bloque cuando generes el PDF.</p>
+                          <div class="vstack gap-3">
+                            <div>
+                              <label class="form-label" for="toggleIncludeCharts">Gráficas y comparativas</label>
+                              <select id="toggleIncludeCharts" class="form-select form-select-sm" data-customization-select="includeCharts">
+                                <option value="true">Incluir</option>
+                                <option value="false">Omitir</option>
+                              </select>
+                              <div class="form-text">Activa las visualizaciones comparativas dentro del reporte.</div>
+                            </div>
+                            <div>
+                              <label class="form-label" for="toggleIncludeMovements">Remisiones y facturas destacadas</label>
+                              <select id="toggleIncludeMovements" class="form-select form-select-sm" data-customization-select="includeMovements">
+                                <option value="true">Incluir</option>
+                                <option value="false">Omitir</option>
+                              </select>
+                              <div class="form-text">Controla si se listan movimientos relevantes por extensión.</div>
+                            </div>
+                            <div>
+                              <label class="form-label" for="toggleIncludeObservations">Observaciones y alertas</label>
+                              <select id="toggleIncludeObservations" class="form-select form-select-sm" data-customization-select="includeObservations">
+                                <option value="true">Mostrar</option>
+                                <option value="false">Ocultar</option>
+                              </select>
+                              <div class="form-text">Incluye el bloque con comentarios y recordatorios importantes.</div>
+                            </div>
+                            <div>
+                              <label class="form-label" for="toggleIncludeUniverse">Bloque del universo seleccionado</label>
+                              <select id="toggleIncludeUniverse" class="form-select form-select-sm" data-customization-select="includeUniverse">
+                                <option value="true">Agregar</option>
+                                <option value="false">Omitir</option>
+                              </select>
+                              <div class="form-text">Resume el filtro de universo aplicado al reporte actual.</div>
+                            </div>
                           </div>
                         </div>
                         <div class="col-lg-6">
                           <h4 class="h6 text-uppercase text-muted">CSV personalizado</h4>
-                          <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="toggleCsvSummary" data-customization-toggle="includePoResumen" data-customization-group="csv">
-                            <label class="form-check-label" for="toggleCsvSummary">Incluir fila resumen por cada PO</label>
-                          </div>
-                          <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="toggleCsvRem" data-customization-toggle="includeRemisiones" data-customization-group="csv">
-                            <label class="form-check-label" for="toggleCsvRem">Agregar remisiones detalladas</label>
-                          </div>
-                          <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="toggleCsvFac" data-customization-toggle="includeFacturas" data-customization-group="csv">
-                            <label class="form-check-label" for="toggleCsvFac">Agregar facturas detalladas</label>
-                          </div>
-                          <div class="form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" id="toggleCsvTotals" data-customization-toggle="includeTotales" data-customization-group="csv">
-                            <label class="form-check-label" for="toggleCsvTotals">Sumar totales autorizados y consumidos</label>
-                          </div>
-                          <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="toggleCsvUniverse" data-customization-toggle="includeUniverseInfo" data-customization-group="csv">
-                            <label class="form-check-label" for="toggleCsvUniverse">Anexar información del filtro universo</label>
+                          <p class="text-muted small mb-3">Selecciona los conjuntos de datos que quieres exportar en CSV.</p>
+                          <div class="vstack gap-3">
+                            <div>
+                              <label class="form-label" for="toggleCsvSummary">Resumen por PO</label>
+                              <select id="toggleCsvSummary" class="form-select form-select-sm" data-customization-select="includePoResumen" data-customization-group="csv">
+                                <option value="true">Incluir</option>
+                                <option value="false">Omitir</option>
+                              </select>
+                              <div class="form-text">Agrega una fila resumen por cada PO incluida.</div>
+                            </div>
+                            <div>
+                              <label class="form-label" for="toggleCsvRem">Remisiones detalladas</label>
+                              <select id="toggleCsvRem" class="form-select form-select-sm" data-customization-select="includeRemisiones" data-customization-group="csv">
+                                <option value="true">Incluir</option>
+                                <option value="false">Omitir</option>
+                              </select>
+                              <div class="form-text">Incluye las remisiones registradas para cada extensión.</div>
+                            </div>
+                            <div>
+                              <label class="form-label" for="toggleCsvFac">Facturas detalladas</label>
+                              <select id="toggleCsvFac" class="form-select form-select-sm" data-customization-select="includeFacturas" data-customization-group="csv">
+                                <option value="true">Incluir</option>
+                                <option value="false">Omitir</option>
+                              </select>
+                              <div class="form-text">Adjunta la lista de facturas asociadas.</div>
+                            </div>
+                            <div>
+                              <label class="form-label" for="toggleCsvTotals">Totales consolidados</label>
+                              <select id="toggleCsvTotals" class="form-select form-select-sm" data-customization-select="includeTotales" data-customization-group="csv">
+                                <option value="true">Incluir</option>
+                                <option value="false">Omitir</option>
+                              </select>
+                              <div class="form-text">Genera columnas con montos autorizados, consumidos y remanentes.</div>
+                            </div>
+                            <div>
+                              <label class="form-label" for="toggleCsvUniverse">Información del universo</label>
+                              <select id="toggleCsvUniverse" class="form-select form-select-sm" data-customization-select="includeUniverseInfo" data-customization-group="csv">
+                                <option value="true">Agregar</option>
+                                <option value="false">Omitir</option>
+                              </select>
+                              <div class="form-text">Incluye columnas con el filtro de universo aplicado.</div>
+                            </div>
                           </div>
                         </div>
                       </div>

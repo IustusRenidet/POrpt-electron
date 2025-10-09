@@ -93,9 +93,17 @@
               <label class="form-check-label" for="userAllCompanies">Acceso a todas las empresas (administrador)</label>
             </div>
             <div>
-              <label for="userCompanies" class="form-label">Empresas autorizadas</label>
-              <input type="text" id="userCompanies" class="form-control" placeholder="Empresa01, Empresa02">
-              <div class="form-text">Separa cada empresa con coma. Usa el conmutador para otorgar acceso total.</div>
+              <label for="userCompanyPicker" class="form-label">Empresas autorizadas</label>
+              <div class="vstack gap-2">
+                <select id="userCompanyPicker" class="form-select" aria-label="Selecciona una empresa autorizada">
+                  <option value="">Selecciona una empresa</option>
+                </select>
+                <div class="invalid-feedback">Selecciona al menos una empresa cuando el acceso no es total.</div>
+                <div id="userCompanyChecklist" class="company-checklist">
+                  <p class="text-muted small mb-0">No hay empresas seleccionadas.</p>
+                </div>
+                <div class="form-text">Agrega empresas con el selector o activa el acceso total con el conmutador.</div>
+              </div>
             </div>
           </div>
           <div class="modal-footer">
