@@ -552,7 +552,9 @@ function renderPoOptions() {
   const previousValue = select.value || '';
   select.innerHTML = '';
   const emptyPlaceholder = select.getAttribute('data-empty-placeholder');
-  const hasItems = state.pos.length > 0;
+  const selectedIds = getAllSelectedPoIds();
+  const availableOptions = state.pos.filter(po => !selectedIds.has(po.id));
+  const hasItems = availableOptions.length > 0;
   select.dataset.searchableHasItems = hasItems ? 'true' : 'false';
   if (!hasItems && emptyPlaceholder) {
     select.dataset.searchableEmptyLabel = emptyPlaceholder;
@@ -567,13 +569,13 @@ function renderPoOptions() {
     : (emptyPlaceholder || selectState?.placeholder || 'Selecciona una empresa primero');
   placeholderOption.disabled = true;
   select.appendChild(placeholderOption);
-  state.pos.forEach(po => {
+  availableOptions.forEach(po => {
     const option = document.createElement('option');
     option.value = po.id;
     option.textContent = po.display;
     select.appendChild(option);
   });
-  if (previousValue && state.pos.some(po => po.id === previousValue)) {
+  if (previousValue && Array.from(select.options).some(option => option.value === previousValue)) {
     select.value = previousValue;
   } else {
     select.value = '';
@@ -670,6 +672,103 @@ function getManualVariants(baseId) {
   return Array.from(store.values());
 }
 
+function getAllSelectedPoIds() {
+  const selected = new Set();
+  state.selectedPoIds.forEach(baseId => {
+    if (!baseId) return;
+    const normalized = baseId.trim();
+    if (!normalized) return;
+    selected.add(normalized);
+    const detail = state.selectedPoDetails.get(normalized);
+    if (detail?.variants) {
+      detail.variants.forEach(id => {
+        if (typeof id === 'string' && id.trim()) {
+          selected.add(id.trim());
+        }
+      });
+    }
+  });
+  return selected;
+}
+
+function getAvailableManualExtensionOptions(baseId) {
+  if (!baseId) return [];
+  const normalizedBase = baseId.trim();
+  if (!normalizedBase) return [];
+  const selectedVariants = new Set(getSelectedVariantIds(normalizedBase));
+  selectedVariants.add(normalizedBase);
+  const manualVariants = getManualVariants(normalizedBase);
+  manualVariants.forEach(variant => {
+    if (variant?.id) {
+      selectedVariants.add(variant.id);
+    }
+  });
+  const globalSelected = getAllSelectedPoIds();
+
+  const candidateMap = new Map();
+  state.pos.forEach(po => {
+    const id = po?.id;
+    if (!id || !id.trim()) return;
+    if (id === normalizedBase) return;
+    if (selectedVariants.has(id)) return;
+    if (globalSelected.has(id)) return;
+    const matchesBase = po.baseId
+      ? po.baseId === normalizedBase
+      : id.startsWith(normalizedBase);
+    if (matchesBase) {
+      candidateMap.set(id, po);
+    }
+  });
+
+  if (!candidateMap.size) {
+    state.pos.forEach(po => {
+      const id = po?.id;
+      if (!id || !id.trim()) return;
+      if (id === normalizedBase) return;
+      if (selectedVariants.has(id)) return;
+      if (globalSelected.has(id)) return;
+      if (!candidateMap.has(id)) {
+        candidateMap.set(id, po);
+      }
+    });
+  }
+
+  return Array.from(candidateMap.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function renderManualExtensionSelectOptions(select, baseId) {
+  if (!select) return;
+  const selectState = getSearchableSelectState(select);
+  const previousValue = select.value || '';
+  const options = getAvailableManualExtensionOptions(baseId);
+  select.innerHTML = '';
+  if (!options.length) {
+    select.dataset.searchableHasItems = 'false';
+    select.dataset.searchableEmptyLabel = 'Sin extensiones disponibles';
+  } else {
+    select.dataset.searchableHasItems = 'true';
+    delete select.dataset.searchableEmptyLabel;
+  }
+  const placeholderOption = document.createElement('option');
+  placeholderOption.value = '';
+  placeholderOption.dataset.placeholderOption = 'true';
+  placeholderOption.textContent = selectState?.placeholder || 'Selecciona una extensión disponible';
+  placeholderOption.disabled = true;
+  select.appendChild(placeholderOption);
+  options.forEach(po => {
+    const option = document.createElement('option');
+    option.value = po.id;
+    option.textContent = po.display || po.id;
+    select.appendChild(option);
+  });
+  if (previousValue && options.some(option => option.id === previousValue)) {
+    select.value = previousValue;
+  } else {
+    select.value = '';
+  }
+  applySearchableSelectFilter(select, selectState?.text || '');
+}
+
 function storeManualVariant(baseId, variant) {
   if (!baseId || !variant?.id) return;
   const normalizedBase = baseId.trim();
@@ -694,7 +793,7 @@ function addManualExtensionToPo(baseId, rawId) {
   if (!baseId) return;
   const manualId = typeof rawId === 'string' ? rawId.trim() : '';
   if (!manualId) {
-    showAlert('Escribe el identificador de la extensión que deseas agregar.', 'warning');
+    showAlert('Selecciona la extensión que deseas agregar.', 'warning');
     return;
   }
   const normalizedBase = baseId.trim();
@@ -858,18 +957,22 @@ function renderExtensionSelection() {
       <label class="form-label">Agregar extensión manual</label>
       <div class="input-group">
         <span class="input-group-text">Extensión</span>
-        <input
-          type="text"
-          class="form-control"
-          placeholder="Ej. ${escapeHtml(baseId)}-EXT01"
-          data-manual-extension-input
+        <select
+          class="form-select"
+          data-searchable-select
+          data-placeholder="Selecciona una extensión disponible"
+          data-empty-placeholder="Sin extensiones disponibles"
+          data-manual-extension-select
           data-base-id="${escapeHtml(baseId)}"
-        >
+        ></select>
         <button type="button" class="btn btn-outline-success" data-action="add-manual-extension" data-base-id="${escapeHtml(baseId)}">Agregar</button>
       </div>
-      <div class="form-text">Escribe el identificador completo y presiona Enter para añadirlo a la PO.</div>
+      <div class="form-text">Selecciona una extensión no listada arriba y usa la búsqueda para filtrarla rápidamente.</div>
     `;
     card.appendChild(manualEntry);
+    const manualSelect = manualEntry.querySelector('select[data-manual-extension-select]');
+    renderManualExtensionSelectOptions(manualSelect, baseId);
+    initializeSearchableSelect(manualSelect, { placeholder: 'Selecciona una extensión disponible' });
     container.appendChild(card);
   });
 }
@@ -907,12 +1010,11 @@ function handleExtensionSelectionAction(event) {
   const card = button.closest('.extension-selection-card');
   if (!card) return;
   if (action === 'add-manual-extension') {
-    const input = card.querySelector(`input[data-manual-extension-input][data-base-id="${baseId}"]`);
-    const value = input ? input.value : '';
+    const select = card.querySelector(`select[data-manual-extension-select][data-base-id="${baseId}"]`);
+    const value = select ? select.value : '';
     addManualExtensionToPo(baseId, value);
-    if (input) {
-      input.value = '';
-      input.focus();
+    if (select) {
+      resetSearchableSelect(select);
     }
     return;
   }
@@ -965,14 +1067,15 @@ function handleExtensionSelectionAction(event) {
   updateSummary({ silent: true });
 }
 
-function handleManualExtensionInputKeydown(event) {
-  if (event.key !== 'Enter') return;
-  const input = event.target;
-  if (!input || !input.matches('[data-manual-extension-input]')) return;
-  event.preventDefault();
-  const baseId = input.dataset.baseId;
-  addManualExtensionToPo(baseId, input.value);
-  input.value = '';
+function handleManualExtensionSelectChange(event) {
+  const select = event.target;
+  if (!select || !select.matches('select[data-manual-extension-select]')) return;
+  const baseId = select.dataset.baseId;
+  if (!baseId) return;
+  const value = select.value;
+  if (!value) return;
+  addManualExtensionToPo(baseId, value);
+  resetSearchableSelect(select);
 }
 
 function syncSelectedVariantsFromSummary(summary) {
@@ -3207,7 +3310,7 @@ async function setupDashboard() {
   const extensionContainer = document.getElementById('extensionSelectionContainer');
   extensionContainer?.addEventListener('change', handleExtensionSelectionChange);
   extensionContainer?.addEventListener('click', handleExtensionSelectionAction);
-  extensionContainer?.addEventListener('keydown', handleManualExtensionInputKeydown);
+  extensionContainer?.addEventListener('change', handleManualExtensionSelectChange);
   document.getElementById('universeEmpresaSelect')?.addEventListener('change', event => {
     const value = event.target.value;
     if (!value) {
