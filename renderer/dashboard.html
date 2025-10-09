@@ -117,7 +117,7 @@
                       <div class="form-text">Escribe para filtrar. Solo se listan coincidencias.</div>
                     </div>
                     <div class="col-lg-6">
-                      <label for="poSearch" class="form-label">PO / Pedido (con extensiones)</label>
+                      <label for="poSearch" class="form-label">PO / Pedido (selecciona sus extensiones)</label>
                       <input id="poSearch" class="form-control" list="poOptions" placeholder="Escribe el número de PO, fecha o monto">
                       <datalist id="poOptions"></datalist>
                       <div class="form-text">Cada coincidencia muestra número, fecha y monto para distinguir fácilmente.</div>
@@ -129,8 +129,9 @@
                       </div>
                       <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
                         <button id="clearSelectionBtn" class="btn btn-outline-secondary btn-sm" type="button">Limpiar selección</button>
-                        <small id="selectedPoHelp" class="text-muted">Puedes agregar varias POs base; el sistema combinará sus extensiones automáticamente.</small>
+                        <small id="selectedPoHelp" class="text-muted">Agrega una PO base y luego elige manualmente qué extensiones deseas incluir.</small>
                       </div>
+                      <div id="extensionSelectionContainer" class="mt-3"></div>
                     </div>
                   </div>
                 </div>

@@ -500,6 +500,65 @@ function uniqueBasePoIds(ids = []) {
   return Array.from(seen);
 }
 
+function normalizePoSelection(poTargets = [], fallbackIds = []) {
+  const candidates = [];
+  if (Array.isArray(poTargets)) {
+    poTargets.forEach(target => {
+      if (!target) return;
+      if (typeof target === 'string') {
+        const normalized = normalizePoId(target);
+        const baseId = basePoId(normalized);
+        if (baseId) {
+          candidates.push({ baseId, includeAll: true, ids: null });
+        }
+        return;
+      }
+      if (typeof target === 'object') {
+        const baseValue = normalizePoId(target.baseId || target.id || target.poId || '');
+        const baseId = basePoId(baseValue);
+        if (!baseId) {
+          return;
+        }
+        const rawIds = []
+          .concat(Array.isArray(target.ids) ? target.ids : [])
+          .concat(Array.isArray(target.variants) ? target.variants : [])
+          .concat(Array.isArray(target.selectedIds) ? target.selectedIds : [])
+          .concat(baseValue ? [baseValue] : []);
+        const normalizedIds = uniqueNormalizedValues(rawIds);
+        if (normalizedIds.length > 0) {
+          candidates.push({ baseId, includeAll: false, ids: normalizedIds });
+        } else {
+          candidates.push({ baseId, includeAll: true, ids: null });
+        }
+      }
+    });
+  }
+  if (candidates.length === 0) {
+    const bases = uniqueBasePoIds(fallbackIds);
+    return bases.map(baseId => ({ baseId, includeAll: true, ids: null }));
+  }
+  const merged = new Map();
+  candidates.forEach(entry => {
+    if (!entry.baseId) return;
+    if (!merged.has(entry.baseId)) {
+      merged.set(entry.baseId, {
+        baseId: entry.baseId,
+        includeAll: entry.includeAll,
+        ids: entry.includeAll ? null : [...(entry.ids || [])]
+      });
+      return;
+    }
+    const current = merged.get(entry.baseId);
+    if (entry.includeAll) {
+      current.includeAll = true;
+      current.ids = null;
+    } else if (!current.includeAll) {
+      current.ids = uniqueNormalizedValues([...(current.ids || []), ...(entry.ids || [])]);
+    }
+  });
+  return Array.from(merged.values());
+}
+
 function normalizeDocKey(value) {
   if (typeof value !== 'string') return '';
   return value.trim().toUpperCase();
@@ -611,11 +670,13 @@ async function fetchFacturas(
   return await queryWithTimeout(db, query, params);
 }
 
-async function getPoSummary(empresa, poId) {
+async function getPoSummary(empresa, poId, options = {}) {
   const targetPo = (poId || '').trim();
   if (!targetPo) {
     throw new Error('PO inválida');
   }
+  const allowedIds = Array.isArray(options.allowedIds) ? uniqueNormalizedValues(options.allowedIds) : [];
+  const allowedSet = allowedIds.length > 0 ? new Set(allowedIds) : null;
   return await withFirebirdConnection(empresa, async (db, tables) => {
     const baseId = basePoId(targetPo);
     const poRows = await queryWithTimeout(
@@ -632,13 +693,19 @@ async function getPoSummary(empresa, poId) {
        ORDER BY TRIM(f.CVE_DOC)`,
       [targetPo, `${baseId}-%`]
     );
-    if (poRows.length === 0) {
+    let targetRows = allowedSet
+      ? poRows.filter(row => allowedSet.has(normalizePoId(row.ID || row.id || '')))
+      : poRows;
+    if (targetRows.length === 0) {
+      throw new Error(`No se encontró información para el PO ${targetPo}`);
+    }
+    if (targetRows.length === 0) {
       throw new Error(`No se encontró información para el PO ${targetPo}`);
     }
     const remDocIds = [];
     const factDocIdsFromPo = [];
     const factDocAntFromPo = new Set();
-    poRows.forEach(row => {
+    targetRows.forEach(row => {
       const id = (row.ID || row.id || '').trim();
       if (id) {
         factDocAntFromPo.add(id);
@@ -710,7 +777,7 @@ async function getPoSummary(empresa, poId) {
 
     const linkingAvailable = true;
 
-    const items = poRows.map(row => {
+    const items = targetRows.map(row => {
       const id = (row.ID || row.id || '').trim();
       const fecha = formatFirebirdDate(row.FECHA || row.fecha);
       const totalOriginal = Number(row.IMPORTE ?? row.importe ?? row.TOTAL ?? row.total ?? 0);
@@ -896,6 +963,13 @@ async function getPoSummary(empresa, poId) {
       ? alerts.map(alerta => `[${alerta.type.toUpperCase()}] ${alerta.message}`).join('\n')
       : 'Sin alertas generales';
     const empresaLabel = buildEmpresaLabel(empresa);
+    const selectedVariants = items.map(item => item.id);
+    const selection = {
+      baseId,
+      variants: selectedVariants,
+      includeAll: !allowedSet,
+      count: selectedVariants.length
+    };
     return {
       empresa,
       empresaNumero: extractEmpresaNumero(empresa),
@@ -904,23 +978,28 @@ async function getPoSummary(empresa, poId) {
       baseId,
       selectedId: targetPo,
       selectedIds: [baseId],
+      selectedTargets: selectedVariants,
       totals,
       totalsTexto,
       items,
       alerts,
-      alertasTexto
+      alertasTexto,
+      selection,
+      selectionDetails: [selection]
     };
   });
 }
 
-async function getPoSummaryGroup(empresa, poIds) {
-  const normalizedIds = uniqueBasePoIds(poIds);
-  if (normalizedIds.length === 0) {
+async function getPoSummaryGroup(empresa, selectionEntries) {
+  const entries = Array.isArray(selectionEntries) ? selectionEntries.filter(entry => entry && entry.baseId) : [];
+  if (entries.length === 0) {
     throw new Error('Selecciona al menos una PO válida.');
   }
   const summaries = [];
-  for (const id of normalizedIds) {
-    const summary = await getPoSummary(empresa, id);
+  for (const entry of entries) {
+    const summary = await getPoSummary(empresa, entry.baseId, {
+      allowedIds: entry.includeAll ? null : entry.ids
+    });
     summaries.push(summary);
   }
   if (summaries.length === 1) {
@@ -964,8 +1043,18 @@ async function getPoSummaryGroup(empresa, poIds) {
     ? alerts.map(alerta => `[${(alerta.type || 'info').toUpperCase()}] ${alerta.message}`).join('\n')
     : 'Sin alertas generales';
 
-  const selectedIds = Array.from(new Set(summaries.flatMap(summary => summary.selectedIds || [summary.baseId]))).filter(Boolean);
-  const selectedTargets = Array.from(new Set(summaries.map(summary => summary.selectedId).filter(Boolean)));
+  const selectedIds = Array.from(new Set(entries.map(entry => entry.baseId))).filter(Boolean);
+  const selectionDetails = summaries.flatMap(summary => summary.selectionDetails || []);
+  const selectedTargets = Array.from(
+    new Set(selectionDetails.flatMap(detail => detail.variants || []))
+  );
+
+  const selection = {
+    baseId: null,
+    variants: selectedTargets,
+    includeAll: entries.some(entry => entry.includeAll),
+    count: selectedTargets.length
+  };
 
   return {
     empresa: firstSummary.empresa,
@@ -980,7 +1069,9 @@ async function getPoSummaryGroup(empresa, poIds) {
     totalsTexto,
     items,
     alerts,
-    alertasTexto
+    alertasTexto,
+    selection,
+    selectionDetails
   };
 }
 
@@ -1131,12 +1222,13 @@ app.get('/facts/:empresa/:poId', async (req, res) => {
 });
 
 app.post('/po-summary', async (req, res) => {
-  const { empresa, poIds } = req.body || {};
+  const { empresa, poIds, poTargets } = req.body || {};
   if (!empresa || !empresa.match(/^Empresa\d+$/)) {
     return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
   }
   try {
-    const summary = await getPoSummaryGroup(empresa, Array.isArray(poIds) ? poIds : []);
+    const selection = normalizePoSelection(Array.isArray(poTargets) ? poTargets : [], Array.isArray(poIds) ? poIds : []);
+    const summary = await getPoSummaryGroup(empresa, selection);
     res.json({ success: true, summary });
   } catch (err) {
     const status = err.message && err.message.includes('PO') ? 404 : 500;
@@ -1150,7 +1242,8 @@ app.get('/po-summary/:empresa/:poId', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
   }
   try {
-    const summary = await getPoSummaryGroup(empresa, [poId]);
+    const selection = normalizePoSelection([], [poId]);
+    const summary = await getPoSummaryGroup(empresa, selection);
     res.json({ success: true, summary });
   } catch (err) {
     const status = err.message && err.message.includes('No se encontró') ? 404 : 500;
@@ -1349,14 +1442,22 @@ app.post('/report-universe', async (req, res) => {
 });
 
 app.post('/report', async (req, res) => {
-  const { empresa, poId, poIds, engine: requestedEngine, format: requestedFormat, customization: requestedCustomization } =
-    req.body || {};
+  const {
+    empresa,
+    poId,
+    poIds,
+    poTargets,
+    engine: requestedEngine,
+    format: requestedFormat,
+    customization: requestedCustomization
+  } = req.body || {};
   const ids = Array.isArray(poIds) && poIds.length ? poIds : poId ? [poId] : [];
-  if (!empresa || ids.length === 0) {
-    return res.status(400).json({ success: false, message: 'Empresa y PO son obligatorios para el reporte' });
+  const selection = normalizePoSelection(Array.isArray(poTargets) ? poTargets : [], ids);
+  if (!empresa || selection.length === 0) {
+    return res.status(400).json({ success: false, message: 'Empresa y selección de PO son obligatorias para el reporte' });
   }
   try {
-    const summary = await getPoSummaryGroup(empresa, ids);
+    const summary = await getPoSummaryGroup(empresa, selection);
     const settings = reportSettingsStore.getSettings();
     const customization = mergeCustomization(settings.customization || {}, requestedCustomization || {});
     summary.customization = customization;
