@@ -1,8 +1,9 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const fs = require('fs');
 const path = require('path');
-const { init } = require('./server');
 
 let mainWindow;
+let serverModule;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -15,6 +16,51 @@ function createWindow() {
     }
   });
   mainWindow.loadURL('http://localhost:3000');
+}
+
+async function fileExists(filePath) {
+  try {
+    await fs.promises.access(filePath, fs.constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function prepareDatabasePath() {
+  if (!app.isPackaged) {
+    return path.join(__dirname, 'PERFILES.DB');
+  }
+
+  const userDataDir = app.getPath('userData');
+  const destination = path.join(userDataDir, 'PERFILES.DB');
+  await fs.promises.mkdir(userDataDir, { recursive: true });
+
+  if (await fileExists(destination)) {
+    return destination;
+  }
+
+  const bundledPath = path.join(process.resourcesPath, 'PERFILES.DB');
+  if (!(await fileExists(bundledPath))) {
+    throw new Error(`Archivo de base de datos no encontrado en ${bundledPath}`);
+  }
+
+  await fs.promises.copyFile(bundledPath, destination);
+  return destination;
+}
+
+async function initializeApplication() {
+  try {
+    const sqliteDbPath = await prepareDatabasePath();
+    process.env.SQLITE_DB = sqliteDbPath;
+    serverModule = require('./server');
+    await serverModule.init();
+    createWindow();
+  } catch (error) {
+    console.error('Error inicializando la aplicación:', error);
+    dialog.showErrorBox('Error crítico', `No se pudo iniciar la aplicación. ${error.message}`);
+    app.quit();
+  }
 }
 
 ipcMain.handle('dialog:select-path', async (event, options = {}) => {
@@ -42,13 +88,16 @@ ipcMain.handle('dialog:select-path', async (event, options = {}) => {
   return result.filePaths[0];
 });
 
-app.whenReady().then(async () => {
-  await init();
-  createWindow();
-});
+app.whenReady().then(initializeApplication);
 
-app.on('window-all-closed', () => {
-  require('./server').shutdown();
+app.on('window-all-closed', async () => {
+  if (serverModule?.shutdown) {
+    try {
+      await serverModule.shutdown();
+    } catch (error) {
+      console.error('Error al cerrar el servidor:', error);
+    }
+  }
   if (process.platform !== 'darwin') app.quit();
 });
 

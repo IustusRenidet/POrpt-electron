@@ -3,7 +3,7 @@ const express = require('express');
 const Firebird = require('node-firebird');
 const path = require('path');
 const fs = require('fs');
-const sqlite3 = require('@vscode/sqlite3').verbose();
+const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const simplePdf = require('./reports/simple-pdf');
 const exporters = require('./reports/exporters');
@@ -109,7 +109,9 @@ app.use(express.static(path.join(runtimeBaseDir, 'renderer')));
 
 const baseDir = getEnvVar('BASE_DIR', 'C:\\Program Files (x86)\\Common Files\\Aspel\\Sistemas Aspel\\SAE9.00\\');
 const baseDirFb = getEnvVar('BASE_DIR_FB', 'C:\\Program Files (x86)\\Common Files\\Aspel\\Sistemas Aspel\\SAE9.00\\');
-const sqlitePath = getEnvVar('SQLITE_DB', path.join(runtimeBaseDir, 'PERFILES.DB'));
+function resolveSqlitePath() {
+  return getEnvVar('SQLITE_DB', path.join(runtimeBaseDir, 'PERFILES.DB'));
+}
 
 const baseOptions = {
   host: getEnvVar('FB_HOST', 'localhost'),
@@ -1491,6 +1493,7 @@ async function init(options = {}) {
   const listenPort = options.port ?? defaultPort;
   const listenHost = options.host || defaultHost;
   initPromise = (async () => {
+    const sqlitePath = resolveSqlitePath();
     sqliteDb = new sqlite3.Database(sqlitePath);
     try {
       await runAsync(sqliteDb, `CREATE TABLE IF NOT EXISTS usuarios (

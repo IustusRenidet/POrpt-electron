@@ -20,7 +20,7 @@
     "express": "^5.1.0",
     "node-firebird": "^0.8.9",
     "pdfkit": "^0.13.0",
-    "@vscode/sqlite3": "^5.1.8-vscode"
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
     "electron": "^38.2.2",
@@ -37,7 +37,13 @@
       "**/*"
     ],
     "asarUnpack": [
-      "node_modules/@vscode/sqlite3/**/*"
+      "node_modules/sqlite3/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "PERFILES.DB",
+        "to": "PERFILES.DB"
+      }
     ],
     "win": {
       "icon": "renderer/icono-peorpt.ico",
