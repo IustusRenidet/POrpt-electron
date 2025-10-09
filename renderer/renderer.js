@@ -398,15 +398,13 @@ function computePercentagesFromTotals(totals = {}) {
   }
   const totalRem = normalizeNumber(totals.totalRem);
   const totalFac = normalizeNumber(totals.totalFac);
-  const restanteAmount = normalizeNumber(
-    totals.restante != null ? totals.restante : total - (totalRem + totalFac)
-  );
-  const rem = clampPercentage((totalRem / total) * 100);
-  const fac = clampPercentage((totalFac / total) * 100);
-  let rest = clampPercentage((restanteAmount / total) * 100);
-  if (roundTo(rem + fac + rest, 2) !== 100) {
-    rest = clampPercentage(100 - (rem + fac));
-  }
+  const consumo = totals.totalConsumo != null
+    ? normalizeNumber(totals.totalConsumo)
+    : roundTo(totalRem + totalFac);
+  const restanteReal = roundTo(total - consumo);
+  const rem = roundTo((totalRem / total) * 100);
+  const fac = roundTo((totalFac / total) * 100);
+  const rest = roundTo((restanteReal / total) * 100);
   return { rem, fac, rest };
 }
 
@@ -1599,7 +1597,7 @@ function renderCharts(summary) {
           label: 'Consumido (Rem + Fac)',
           className: 'metric-rem',
           amount: aggregatedTotals.totalRem + aggregatedTotals.totalFac,
-          percentage: clampPercentage(aggregatedPercentages.rem + aggregatedPercentages.fac)
+          percentage: roundTo(aggregatedPercentages.rem + aggregatedPercentages.fac)
         },
         {
           label: 'Disponible',
