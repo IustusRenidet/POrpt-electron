@@ -775,13 +775,14 @@ function drawLegendRows(doc, entries, startX, startY, maxWidth) {
 
 function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
   const bounds = getContentBounds(doc);
-  const fallbackMaxWidth = 360;
-  const maxWidth = typeof options.maxWidth === 'number' && options.maxWidth > 0
-    ? options.maxWidth
-    : fallbackMaxWidth;
-  const requestedWidth = Math.min(maxWidth, bounds.width);
-  const centerX = bounds.left + (bounds.width - requestedWidth) / 2;
-  const { x: startX, width } = clampHorizontalRect(bounds, centerX, requestedWidth);
+  const availableWidth = Math.max(0, bounds.width);
+  if (availableWidth <= 0) {
+    return;
+  }
+  const requestedWidth = typeof options.maxWidth === 'number' && options.maxWidth > 0
+    ? Math.min(options.maxWidth, availableWidth)
+    : availableWidth;
+  const { x: startX, width } = clampHorizontalRect(bounds, bounds.left, requestedWidth);
   const barHeight = options.barHeight || 26;
   const title = options.title || 'Consumo combinado';
   ensureSpace(doc, barHeight + 130);
