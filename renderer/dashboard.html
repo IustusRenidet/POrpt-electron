@@ -118,15 +118,17 @@
                   <div class="row g-3">
                     <div class="col-lg-6">
                       <label for="empresaSearch" class="form-label">Empresa (búsqueda dinámica)</label>
-                      <input id="empresaSearch" class="form-control" list="empresaOptions" placeholder="Escribe Empresa01, Empresa26...">
-                      <datalist id="empresaOptions"></datalist>
-                      <div class="form-text">Escribe para filtrar. Solo se listan coincidencias.</div>
+                      <select id="empresaSearch" class="form-select" data-searchable-select data-placeholder="Selecciona una empresa">
+                        <option value="">Cargando empresas...</option>
+                      </select>
+                      <div class="form-text">Comienza a escribir para filtrar y usa las flechas para elegir la empresa.</div>
                     </div>
                     <div class="col-lg-6">
                       <label for="poSearch" class="form-label">PO / Pedido (selecciona sus extensiones)</label>
-                      <input id="poSearch" class="form-control" list="poOptions" placeholder="Escribe el número de PO, fecha o monto">
-                      <datalist id="poOptions"></datalist>
-                      <div class="form-text">Cada coincidencia muestra número, fecha y monto para distinguir fácilmente.</div>
+                      <select id="poSearch" class="form-select" data-searchable-select data-placeholder="Selecciona una PO base o extensión" data-empty-placeholder="Selecciona una empresa primero">
+                        <option value="">Selecciona una empresa primero</option>
+                      </select>
+                      <div class="form-text">Escribe para filtrar por número, fecha o monto y confirma con Enter.</div>
                     </div>
                     <div class="col-12">
                       <label class="form-label">POs seleccionadas para el dashboard y el reporte</label>

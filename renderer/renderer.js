@@ -37,6 +37,8 @@ const state = {
   userCompanySelection: new Set()
 };
 
+const searchableSelectStates = new WeakMap();
+
 const ALERT_TYPE_CLASS = {
   success: 'success',
   danger: 'danger',
@@ -157,6 +159,176 @@ function computeResponsiveChartHeight(itemCount) {
 function formatCurrency(value) {
   const amount = normalizeNumber(value);
   return amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function getSearchableSelectState(select) {
+  if (!select) return null;
+  let state = searchableSelectStates.get(select);
+  if (!state) {
+    state = {
+      text: '',
+      placeholder: select.getAttribute('data-placeholder') || 'Selecciona una opción'
+    };
+    searchableSelectStates.set(select, state);
+  }
+  return state;
+}
+
+function updateSearchableSelectPlaceholder(select, matches = 0) {
+  if (!select) return;
+  const state = getSearchableSelectState(select);
+  const placeholderOption = select.querySelector('option[data-placeholder-option="true"]');
+  if (!placeholderOption || !state) return;
+  if (state.text) {
+    placeholderOption.textContent = matches
+      ? `Filtrando: "${state.text}" (${matches} coincidencia${matches === 1 ? '' : 's'})`
+      : `Sin coincidencias para "${state.text}"`;
+    placeholderOption.disabled = true;
+  } else {
+    const hasItems = select.dataset.searchableHasItems !== 'false';
+    const emptyLabel = select.dataset.searchableEmptyLabel;
+    placeholderOption.textContent = !hasItems && emptyLabel
+      ? emptyLabel
+      : state.placeholder;
+    placeholderOption.disabled = true;
+  }
+}
+
+function applySearchableSelectFilter(select, text = '') {
+  if (!select) return;
+  const state = getSearchableSelectState(select);
+  if (!state) return;
+  state.text = text;
+  const normalized = text.trim().toLowerCase();
+  let matches = 0;
+  Array.from(select.options).forEach(option => {
+    if (option.dataset.placeholderOption === 'true') {
+      option.hidden = false;
+      return;
+    }
+    const label = (option.textContent || '').toLowerCase();
+    const value = (option.value || '').toLowerCase();
+    const match = !normalized || label.includes(normalized) || value.includes(normalized);
+    option.hidden = !match;
+    if (match) {
+      matches += 1;
+    }
+  });
+  updateSearchableSelectPlaceholder(select, matches);
+  const currentValue = select.value;
+  if (currentValue) {
+    const currentOption = Array.from(select.options).find(option => option.value === currentValue && !option.hidden);
+    if (!currentOption) {
+      const placeholderOption = select.querySelector('option[data-placeholder-option="true"]');
+      if (placeholderOption) {
+        placeholderOption.selected = true;
+        select.value = placeholderOption.value;
+      }
+    }
+  } else {
+    const placeholderOption = select.querySelector('option[data-placeholder-option="true"]');
+    if (placeholderOption) {
+      placeholderOption.selected = true;
+    }
+  }
+}
+
+function clearSearchableSelectFilter(select) {
+  if (!select) return;
+  const state = getSearchableSelectState(select);
+  if (!state) return;
+  state.text = '';
+  applySearchableSelectFilter(select, '');
+}
+
+function resetSearchableSelect(select) {
+  if (!select) return;
+  select.value = '';
+  clearSearchableSelectFilter(select);
+  const placeholderOption = select.querySelector('option[data-placeholder-option="true"]');
+  if (placeholderOption) {
+    placeholderOption.selected = true;
+  }
+}
+
+function setSearchableSelectValue(select, value) {
+  if (!select) return;
+  const option = Array.from(select.options).find(item => item.value === value);
+  if (option) {
+    select.value = value;
+    option.selected = true;
+  } else {
+    select.value = '';
+  }
+  clearSearchableSelectFilter(select);
+}
+
+function handleSearchableSelectKeydown(event) {
+  const select = event.target;
+  if (!select || select.tagName !== 'SELECT' || !select.dataset.searchableSelect) {
+    return;
+  }
+  const state = getSearchableSelectState(select);
+  if (!state) return;
+  const { key } = event;
+  if (key === 'Escape') {
+    event.preventDefault();
+    resetSearchableSelect(select);
+    return;
+  }
+  if (key === 'Backspace') {
+    event.preventDefault();
+    state.text = state.text.slice(0, -1);
+    applySearchableSelectFilter(select, state.text);
+    return;
+  }
+  if (key === 'Delete') {
+    event.preventDefault();
+    state.text = '';
+    applySearchableSelectFilter(select, '');
+    return;
+  }
+  if (key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    const nextText = `${state.text}${key}`;
+    applySearchableSelectFilter(select, nextText);
+    return;
+  }
+  if (key === 'Enter') {
+    const value = select.value;
+    if (!value) {
+      return;
+    }
+    event.preventDefault();
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
+
+function initializeSearchableSelect(select, { placeholder } = {}) {
+  if (!select) return;
+  if (select.dataset.searchableInitialized === 'true') return;
+  const state = getSearchableSelectState(select);
+  if (placeholder) {
+    state.placeholder = placeholder;
+  }
+  const hasInitialOptions = Array.from(select.options).some(option => option.value && !option.disabled);
+  select.dataset.searchableHasItems = hasInitialOptions ? 'true' : 'false';
+  if (!hasInitialOptions) {
+    const emptyPlaceholder = select.getAttribute('data-empty-placeholder');
+    if (emptyPlaceholder) {
+      select.dataset.searchableEmptyLabel = emptyPlaceholder;
+    }
+  }
+  select.dataset.searchableInitialized = 'true';
+  select.addEventListener('keydown', handleSearchableSelectKeydown);
+  select.addEventListener('focus', () => {
+    applySearchableSelectFilter(select, state.text);
+  });
+  select.addEventListener('blur', () => {
+    if (!state.text) {
+      applySearchableSelectFilter(select, '');
+    }
+  });
 }
 
 function formatPercentageValue(value, decimals = 2) {
@@ -331,20 +503,32 @@ async function login(event) {
   }
 }
 
-function renderEmpresaOptions(filterText = '') {
-  const datalist = document.getElementById('empresaOptions');
-  if (!datalist) return;
-  const normalized = filterText.toLowerCase();
-  datalist.innerHTML = '';
-  state.empresas
-    .filter(empresa => empresa.toLowerCase().includes(normalized))
-    .slice(0, 50)
-    .forEach(empresa => {
-      const option = document.createElement('option');
-      option.value = empresa;
-      option.textContent = empresa;
-      datalist.appendChild(option);
-    });
+function renderEmpresaOptions() {
+  const select = document.getElementById('empresaSearch');
+  if (!select) return;
+  const selectState = getSearchableSelectState(select);
+  const previousValue = state.selectedEmpresa || select.value || '';
+  select.innerHTML = '';
+  select.dataset.searchableHasItems = state.empresas.length ? 'true' : 'false';
+  delete select.dataset.searchableEmptyLabel;
+  const placeholderOption = document.createElement('option');
+  placeholderOption.value = '';
+  placeholderOption.dataset.placeholderOption = 'true';
+  placeholderOption.textContent = selectState?.placeholder || 'Selecciona una empresa';
+  placeholderOption.disabled = true;
+  select.appendChild(placeholderOption);
+  state.empresas.forEach(empresa => {
+    const option = document.createElement('option');
+    option.value = empresa;
+    option.textContent = empresa;
+    select.appendChild(option);
+  });
+  if (previousValue && state.empresas.includes(previousValue)) {
+    select.value = previousValue;
+  } else {
+    select.value = '';
+  }
+  applySearchableSelectFilter(select, selectState?.text || '');
 }
 
 function renderUniverseEmpresaSelect() {
@@ -361,20 +545,40 @@ function renderUniverseEmpresaSelect() {
   select.value = currentValue;
 }
 
-function renderPoOptions(filterText = '') {
-  const datalist = document.getElementById('poOptions');
-  if (!datalist) return;
-  const normalized = filterText.toLowerCase();
-  datalist.innerHTML = '';
-  state.pos
-    .filter(po => po.display.toLowerCase().includes(normalized))
-    .slice(0, 100)
-    .forEach(po => {
-      const option = document.createElement('option');
-      option.value = po.id;
-      option.textContent = po.display;
-      datalist.appendChild(option);
-    });
+function renderPoOptions() {
+  const select = document.getElementById('poSearch');
+  if (!select) return;
+  const selectState = getSearchableSelectState(select);
+  const previousValue = select.value || '';
+  select.innerHTML = '';
+  const emptyPlaceholder = select.getAttribute('data-empty-placeholder');
+  const hasItems = state.pos.length > 0;
+  select.dataset.searchableHasItems = hasItems ? 'true' : 'false';
+  if (!hasItems && emptyPlaceholder) {
+    select.dataset.searchableEmptyLabel = emptyPlaceholder;
+  } else {
+    delete select.dataset.searchableEmptyLabel;
+  }
+  const placeholderOption = document.createElement('option');
+  placeholderOption.value = '';
+  placeholderOption.dataset.placeholderOption = 'true';
+  placeholderOption.textContent = hasItems
+    ? (selectState?.placeholder || 'Selecciona una PO base o extensión')
+    : (emptyPlaceholder || selectState?.placeholder || 'Selecciona una empresa primero');
+  placeholderOption.disabled = true;
+  select.appendChild(placeholderOption);
+  state.pos.forEach(po => {
+    const option = document.createElement('option');
+    option.value = po.id;
+    option.textContent = po.display;
+    select.appendChild(option);
+  });
+  if (previousValue && state.pos.some(po => po.id === previousValue)) {
+    select.value = previousValue;
+  } else {
+    select.value = '';
+  }
+  applySearchableSelectFilter(select, selectState?.text || '');
 }
 
 async function ensureEmpresasCatalog() {
@@ -898,10 +1102,7 @@ function clearSelectedPos() {
   document.getElementById('poTable')?.replaceChildren();
   document.getElementById('extensionsContainer')?.replaceChildren();
   document.getElementById('dashboardContent')?.classList.add('d-none');
-  const input = document.getElementById('poSearch');
-  if (input) {
-    input.value = '';
-  }
+  resetSearchableSelect(document.getElementById('poSearch'));
   renderReportSelectionOverview();
   showAlert('Selección de POs limpiada.', 'info');
 }
@@ -916,14 +1117,9 @@ async function selectEmpresa(value) {
   state.selectedPoIds = [];
   state.selectedPoDetails.clear();
   state.manualExtensions.clear();
-  const poInput = document.getElementById('poSearch');
-  if (poInput) {
-    poInput.value = '';
-  }
-  const empresaInput = document.getElementById('empresaSearch');
-  if (empresaInput) {
-    empresaInput.value = value;
-  }
+  const poSelect = document.getElementById('poSearch');
+  resetSearchableSelect(poSelect);
+  setSearchableSelectValue(document.getElementById('empresaSearch'), value);
   renderUniverseEmpresaSelect();
   document.getElementById('dashboardContent').classList.add('d-none');
   destroyCharts();
@@ -936,6 +1132,7 @@ async function loadPOs() {
   if (!state.selectedEmpresa) return;
   state.pos = [];
   state.summary = null;
+  renderPoOptions();
   try {
     showAlert(`Cargando POs de ${state.selectedEmpresa}...`, 'info', 3500);
     const response = await fetch(`/pos/${state.selectedEmpresa}`);
@@ -955,16 +1152,14 @@ async function loadPOs() {
   } catch (error) {
     console.error('Error cargando POs:', error);
     showAlert(error.message || 'Error consultando POs', 'danger');
+    renderPoOptions();
   }
 }
 
 async function selectPo(poId) {
   if (!poId) return;
   addPoToSelection(poId);
-  const input = document.getElementById('poSearch');
-  if (input) {
-    input.value = '';
-  }
+  resetSearchableSelect(document.getElementById('poSearch'));
 }
 
 function renderSummaryCards(summary) {
@@ -2979,20 +3174,27 @@ function setupLoginPage() {
 
 async function setupDashboard() {
   await ensureEmpresasCatalog();
+  const empresaSelect = document.getElementById('empresaSearch');
+  initializeSearchableSelect(empresaSelect, { placeholder: 'Selecciona una empresa' });
+  const poSelect = document.getElementById('poSearch');
+  initializeSearchableSelect(poSelect, { placeholder: 'Selecciona una PO base o extensión' });
   renderEmpresaOptions();
+  renderPoOptions();
   renderUniverseEmpresaSelect();
   renderSelectedPoChips();
-  const empresaInput = document.getElementById('empresaSearch');
-  empresaInput?.addEventListener('input', event => renderEmpresaOptions(event.target.value));
-  empresaInput?.addEventListener('change', event => selectEmpresa(event.target.value));
-  const poInput = document.getElementById('poSearch');
-  poInput?.addEventListener('input', event => renderPoOptions(event.target.value));
-  poInput?.addEventListener('change', event => selectPo(event.target.value));
-  poInput?.addEventListener('keydown', event => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      selectPo(event.target.value);
+  empresaSelect?.addEventListener('change', event => {
+    const value = event.target.value;
+    if (!value) {
+      return;
     }
+    selectEmpresa(value);
+  });
+  poSelect?.addEventListener('change', event => {
+    const value = event.target.value;
+    if (!value) {
+      return;
+    }
+    selectPo(value);
   });
   document.getElementById('generateReportBtn')?.addEventListener('click', openReportPreview);
   document.getElementById('clearSelectionBtn')?.addEventListener('click', clearSelectedPos);
@@ -3010,15 +3212,15 @@ async function setupDashboard() {
     const value = event.target.value;
     if (!value) {
       state.selectedEmpresa = '';
+      state.pos = [];
       state.selectedPoIds = [];
       state.selectedPoDetails.clear();
       destroyCharts();
       renderSelectedPoChips();
       updateUniverseControls();
-      const empresaInput = document.getElementById('empresaSearch');
-      if (empresaInput) {
-        empresaInput.value = '';
-      }
+      resetSearchableSelect(document.getElementById('empresaSearch'));
+      resetSearchableSelect(document.getElementById('poSearch'));
+      renderPoOptions();
       renderUniverseEmpresaSelect();
       document.getElementById('dashboardContent')?.classList.add('d-none');
       return;
