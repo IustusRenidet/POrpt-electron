@@ -186,7 +186,7 @@ function ensureSearchableFilterInput(select) {
   const filterInput = document.createElement('input');
   filterInput.type = 'search';
   filterInput.className = 'form-control form-control-sm mb-2 searchable-select-filter';
-  filterInput.placeholder = 'Escribe para filtrar opciones…';
+  filterInput.placeholder = 'Escribe para filtrar';
   filterInput.setAttribute('aria-label', 'Filtrar opciones');
   filterInput.autocomplete = 'off';
   filterInput.spellcheck = false;
@@ -1038,7 +1038,6 @@ function renderExtensionSelection() {
         ></select>
         <button type="button" class="btn btn-outline-success" data-action="add-manual-extension" data-base-id="${escapeHtml(baseId)}">Agregar</button>
       </div>
-      <div class="form-text">Selecciona una extensión no listada arriba y usa la búsqueda para filtrarla rápidamente.</div>
     `;
     card.appendChild(manualEntry);
     const manualSelect = manualEntry.querySelector('select[data-manual-extension-select]');
@@ -1180,18 +1179,18 @@ function renderSelectedPoChips() {
   if (!state.selectedPoIds.length) {
     const empty = document.createElement('p');
     empty.className = 'text-muted small mb-0';
-    empty.textContent = 'No hay POs seleccionadas. Utiliza el buscador para agregarlas.';
+    empty.textContent = 'No hay POs seleccionadas.';
     container.appendChild(empty);
     document.getElementById('dashboardContent')?.classList.add('d-none');
     renderReportSelectionOverview();
     if (help) {
-      help.textContent = 'Agrega una PO base y luego elige manualmente qué extensiones deseas incluir.';
+      help.textContent = 'Agrega las extensiones de un PO manualmente o elige la sugerencia';
     }
     renderExtensionSelection();
     return;
   }
   if (help) {
-    help.textContent = 'Selecciona si tu PEO cuenta con extensión, generamos sugerencias pero puedes agregar una manualmente.';
+    help.textContent = 'Selecciona si tu PO cuenta con extensión, generamos sugerencias pero puedes agregar una manualmente.';
   }
   state.selectedPoIds.forEach(baseId => {
     const chip = document.createElement('span');
@@ -1356,8 +1355,8 @@ function renderSummaryCards(summary) {
   const percentages = computePercentagesFromTotals(totals);
   const selectionCount = (summary.selectedIds || []).length || 0;
   const selectionLabel = selectionCount === 1
-    ? '1 PEO base (extensiones según tu selección)'
-    : `${selectionCount} PEOs base combinadas`;
+    ? '1 PO base (extensiones según tu selección)'
+    : `${selectionCount} POs base combinadas`;
   container.innerHTML = `
     <div class="col-md-4">
       <div class="card shadow-sm h-100 border-primary border-2">
