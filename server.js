@@ -895,13 +895,17 @@ async function getPoSummary(empresa, poId, options = {}) {
       const totalFac = facturas.reduce((sum, item) => sum + item.monto, 0);
       const totals = calculateTotals(totalOriginal, totalRem, totalFac);
       const alerts = [];
-      if (totals.totalConsumo >= totalOriginal * 0.1 && totalOriginal > 0) {
-        alerts.push(
-          buildAlert(
-            `El consumo del PO ${id} ha alcanzado el ${((totals.totalConsumo / totalOriginal) * 100).toFixed(2)}%`,
-            'warning'
-          )
-        );
+      if (totalOriginal > 0) {
+        const ratio = totals.totalConsumo / totalOriginal;
+        const fullyConsumed = totals.restante <= 0;
+        if (!fullyConsumed && ratio >= 0.9) {
+          alerts.push(
+            buildAlert(
+              `El consumo del PO ${id} ha alcanzado el ${(ratio * 100).toFixed(2)}%`,
+              'warning'
+            )
+          );
+        }
       }
       const remSinVinculo = remisiones.filter(rem => !rem.vinculado);
       if (remSinVinculo.length > 0) {
@@ -986,8 +990,17 @@ async function getPoSummary(empresa, poId, options = {}) {
       `Facturas: $${totals.totalFac.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcFac.toFixed(2)}%)\n` +
       `Restante: $${totals.restante.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRest.toFixed(2)}%)`;
     const alerts = items.flatMap(item => item.alerts);
-    if (totals.totalConsumo >= totals.total * 0.1 && totals.total > 0) {
-      alerts.push(buildAlert(`El consumo total del grupo ${baseId} supera el 90% (${(totals.totalConsumo / totals.total * 100).toFixed(2)}%)`, 'warning'));
+    if (totals.total > 0) {
+      const ratio = totals.totalConsumo / totals.total;
+      const fullyConsumed = totals.restante <= 0;
+      if (!fullyConsumed && ratio >= 0.9) {
+        alerts.push(
+          buildAlert(
+            `El consumo total del grupo ${baseId} supera el 90% (${(ratio * 100).toFixed(2)}%)`,
+            'warning'
+          )
+        );
+      }
     }
     const alertasTexto = alerts.length
       ? alerts.map(alerta => `[${alerta.type.toUpperCase()}] ${alerta.message}`).join('\n')
@@ -1061,13 +1074,17 @@ async function getPoSummaryGroup(empresa, selectionEntries) {
     `Restante: $${totals.restante.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRest.toFixed(2)}%)`;
 
   const alerts = summaries.flatMap(summary => summary.alerts || []);
-  if (totals.total > 0 && totals.totalConsumo >= totals.total * 0.1) {
-    alerts.push(
-      buildAlert(
-        `El consumo total combinado supera el 90% (${((totals.totalConsumo / totals.total) * 100).toFixed(2)}%)`,
-        'warning'
-      )
-    );
+  if (totals.total > 0) {
+    const ratio = totals.totalConsumo / totals.total;
+    const fullyConsumed = totals.restante <= 0;
+    if (!fullyConsumed && ratio >= 0.9) {
+      alerts.push(
+        buildAlert(
+          `El consumo total combinado supera el 90% (${(ratio * 100).toFixed(2)}%)`,
+          'warning'
+        )
+      );
+    }
   }
   const alertasTexto = alerts.length
     ? alerts.map(alerta => `[${(alerta.type || 'info').toUpperCase()}] ${alerta.message}`).join('\n')
@@ -1233,13 +1250,17 @@ async function getUniverseSummary(empresa, rawFilter) {
     const alerts = [];
     if (totals.total === 0) {
       alerts.push(buildAlert('No se encontraron POs activas con el filtro seleccionado.', 'info'));
-    } else if (totals.totalConsumo >= totals.total * 0.1) {
-      alerts.push(
-        buildAlert(
-          `El consumo del universo supera el 90% (${((totals.totalConsumo / totals.total) * 100).toFixed(2)}%)`,
-          'warning'
-        )
-      );
+    } else {
+      const ratio = totals.totalConsumo / totals.total;
+      const fullyConsumed = totals.restante <= 0;
+      if (!fullyConsumed && ratio >= 0.9) {
+        alerts.push(
+          buildAlert(
+            `El consumo del universo supera el 90% (${(ratio * 100).toFixed(2)}%)`,
+            'warning'
+          )
+        );
+      }
     }
 
     const alertasTexto = alerts.length

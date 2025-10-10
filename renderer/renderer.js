@@ -46,18 +46,53 @@ const ALERT_TYPE_CLASS = {
   info: 'info'
 };
 
+const TOAST_SETTINGS = {
+  cooldownMs: 15000,
+  maxVisible: 3
+};
+
+const toastRegistry = new Map();
+
 function mapAlertType(type) {
   return ALERT_TYPE_CLASS[type] || 'info';
+}
+
+function pruneToastHistory(message, timestamp) {
+  setTimeout(() => {
+    const stored = toastRegistry.get(message);
+    if (stored && stored === timestamp) {
+      toastRegistry.delete(message);
+    }
+  }, TOAST_SETTINGS.cooldownMs);
 }
 
 function showAlert(message, type = 'info', delay = 6000) {
   const container = document.getElementById('alerts');
   if (!container) return;
+
+  const normalizedMessage = typeof message === 'string' ? message.trim() : String(message ?? '');
+  const now = Date.now();
+  const lastShown = toastRegistry.get(normalizedMessage);
+  if (lastShown && now - lastShown < TOAST_SETTINGS.cooldownMs) {
+    return;
+  }
+
+  const existingToasts = Array.from(container.querySelectorAll('.toast'));
+  if (existingToasts.length >= TOAST_SETTINGS.maxVisible) {
+    const removable = existingToasts[0];
+    const instance = bootstrap.Toast.getInstance(removable);
+    if (instance) {
+      instance.hide();
+    }
+    removable.remove();
+  }
+
   const wrapper = document.createElement('div');
   wrapper.className = `toast align-items-center text-bg-${mapAlertType(type)} border-0 shadow`;
   wrapper.setAttribute('role', 'alert');
   wrapper.setAttribute('aria-live', 'assertive');
   wrapper.setAttribute('aria-atomic', 'true');
+  wrapper.dataset.message = normalizedMessage;
   wrapper.innerHTML = `
     <div class="d-flex">
       <div class="toast-body fw-medium">${message}</div>
@@ -65,9 +100,15 @@ function showAlert(message, type = 'info', delay = 6000) {
     </div>
   `;
   container.appendChild(wrapper);
+
+  toastRegistry.set(normalizedMessage, now);
+  pruneToastHistory(normalizedMessage, now);
+
   const toast = new bootstrap.Toast(wrapper, { delay });
   toast.show();
-  wrapper.addEventListener('hidden.bs.toast', () => wrapper.remove());
+  wrapper.addEventListener('hidden.bs.toast', () => {
+    wrapper.remove();
+  });
 }
 
 function saveSession(key, value) {
@@ -1295,7 +1336,6 @@ async function loadPOs() {
   state.summary = null;
   renderPoOptions();
   try {
-    showAlert(`Cargando POs de ${state.selectedEmpresa}...`, 'info', 3500);
     const response = await fetch(`/pos/${state.selectedEmpresa}`);
     const data = await response.json();
     if (!data.success) {
