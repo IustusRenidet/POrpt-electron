@@ -486,7 +486,7 @@ function buildPoGroups(items = []) {
     if (!groups.has(key)) {
       groups.set(key, {
         baseId: key,
-        ids: [],
+        ids: new Set(),
         total: 0,
         remisiones: new Map(),
         facturas: new Map(),
@@ -499,7 +499,9 @@ function buildPoGroups(items = []) {
     const totals = getTotalsWithDefaults(item?.totals);
     const authorized = normalizeNumber(item?.total ?? totals.total);
 
-    group.ids.push(item.id);
+    if (item?.id) {
+      group.ids.add(item.id);
+    }
     group.total += authorized;
 
     const remisiones = Array.isArray(item?.remisiones) ? item.remisiones : [];
@@ -551,6 +553,9 @@ function buildPoGroups(items = []) {
 
   return Array.from(groups.values())
     .map(group => {
+      const variantIds = Array.from(group.ids);
+      const orderedIds = [group.baseId, ...variantIds.filter(id => id !== group.baseId)];
+      const extensionIds = orderedIds.filter(id => id !== group.baseId);
       const totalRem = Array.from(group.remisiones.values()).reduce((sum, entry) => sum + entry.monto, 0) + group.remFallback;
       const totalFac = Array.from(group.facturas.values()).reduce((sum, entry) => sum + entry.monto, 0) + group.facFallback;
       const totalConsumo = totalRem + totalFac;
@@ -565,12 +570,44 @@ function buildPoGroups(items = []) {
 
       return {
         baseId: group.baseId,
-        ids: group.ids,
+        ids: orderedIds,
+        extensionIds,
         totals,
         percentages: computePercentagesFromTotals(totals)
       };
     })
     .sort((a, b) => a.baseId.localeCompare(b.baseId));
+}
+
+function buildGroupBadgeList(baseId, extensionIds = []) {
+  const normalizedBase = typeof baseId === 'string' ? baseId.trim() : '';
+  const normalizedExtensions = Array.from(
+    new Set(
+      (Array.isArray(extensionIds) ? extensionIds : [])
+        .map(id => (typeof id === 'string' ? id.trim() : ''))
+        .filter(Boolean)
+    )
+  );
+
+  const badges = [];
+  if (normalizedBase) {
+    badges.push(
+      `<span class="badge extension-badge-base">Base ${escapeHtml(normalizedBase)}</span>`
+    );
+  }
+  normalizedExtensions.forEach(id => {
+    badges.push(
+      `<span class="badge extension-badge-extension">Ext ${escapeHtml(id)}</span>`
+    );
+  });
+  return badges.join('');
+}
+
+function buildGroupCompositionNote(extensionIds = []) {
+  const hasExtensions = Array.isArray(extensionIds) && extensionIds.length > 0;
+  return hasExtensions
+    ? 'Gráficas y montos consolidados del subgrupo base + extensiones seleccionadas.'
+    : 'Gráficas y montos calculados solo con la PO base.';
 }
 
 const AXIS_CURRENCY_FORMATTER = new Intl.NumberFormat('es-MX', {
@@ -1640,12 +1677,16 @@ function renderCharts(summary) {
 
   const chartEntries = groups.map(group => {
     const variantCount = group.ids.length;
-    const suffix = variantCount > 1 ? ` (+${variantCount - 1} ext.)` : '';
+    const extensionIds = Array.isArray(group.extensionIds) ? group.extensionIds : [];
+    const extensionCount = extensionIds.length;
+    const suffix = extensionCount > 0 ? ` (base + ${extensionCount} ext.)` : '';
     return {
       id: group.baseId,
       label: `PO ${group.baseId}${suffix}`,
-      shortLabel: group.baseId,
+      shortLabel: extensionCount > 0 ? `${group.baseId} (+${extensionCount})` : group.baseId,
       variantCount,
+      variantIds: group.ids,
+      extensionIds,
       totals: group.totals,
       percentages: group.percentages
     };
@@ -1888,8 +1929,13 @@ function renderCharts(summary) {
     chartEntries.forEach((entry, index) => {
       const card = document.createElement('article');
       card.className = 'card h-100 shadow-sm chart-card';
-      const variantBadge = entry.variantCount === 1 ? 'Solo base' : `${entry.variantCount} variantes`;
+      const extensionCount = entry.extensionIds.length;
+      const variantBadge = extensionCount === 0
+        ? 'Solo base'
+        : `Conjunto (${entry.variantCount} variantes)`;
       const donutHeight = Math.min(320, Math.max(220, 180 + Math.max(entry.variantCount - 1, 0) * 22));
+      const badgeListMarkup = buildGroupBadgeList(entry.id, entry.extensionIds);
+      const compositionNote = buildGroupCompositionNote(entry.extensionIds);
       card.innerHTML = `
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-start gap-3">
@@ -1899,6 +1945,8 @@ function renderCharts(summary) {
             </div>
             <span class="badge text-bg-light text-dark">${escapeHtml(variantBadge)}</span>
           </div>
+          <div class="extension-group-summary mt-2">${badgeListMarkup}</div>
+          <p class="extension-group-note mb-0">${escapeHtml(compositionNote)}</p>
           <div class="chart-wrapper mt-2" style="min-height: ${donutHeight}px">
             <canvas id="extChart-${index}"></canvas>
           </div>
@@ -2130,12 +2178,21 @@ function renderReportSelectionOverview() {
     .map(group => {
       const total = formatCurrency(group.totals.total);
       const restante = formatCurrency(group.totals.restante);
-      const variantLabel = group.ids.length === 1 ? 'Solo base' : `${group.ids.length} variantes`;
+      const extensionCount = Array.isArray(group.extensionIds) ? group.extensionIds.length : 0;
+      const variantLabel = extensionCount === 0
+        ? 'Solo base'
+        : `Conjunto (${group.ids.length} variantes)`;
+      const badgeListMarkup = buildGroupBadgeList(group.baseId, group.extensionIds);
+      const compositionNote = buildGroupCompositionNote(group.extensionIds);
       return `
         <li class="list-group-item d-flex flex-wrap justify-content-between gap-2">
-          <div>
-            <span class="fw-semibold">PO ${escapeHtml(group.baseId)}</span>
-            <span class="badge text-bg-light text-dark ms-2">${escapeHtml(variantLabel)}</span>
+          <div class="flex-grow-1">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <span class="fw-semibold">PO ${escapeHtml(group.baseId)}</span>
+              <span class="badge text-bg-light text-dark">${escapeHtml(variantLabel)}</span>
+            </div>
+            <div class="extension-group-summary mt-1">${badgeListMarkup}</div>
+            <p class="extension-group-note mb-0">${escapeHtml(compositionNote)}</p>
           </div>
           <div class="text-end">
             <span class="badge text-bg-primary-subtle text-primary-emphasis me-2">Total $${total}</span>
