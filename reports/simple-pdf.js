@@ -19,9 +19,9 @@ const PDF_UNAVAILABLE_MESSAGE =
   'Ejecuta "npm install" (o "npm install --omit=optional" si necesitas omitir dependencias opcionales) y vuelve a iniciar la aplicación.';
 
 const DEFAULT_BRANDING = {
-  headerTitle: 'Reporte de PEOs - Consumo',
+  headerTitle: 'Reporte de POs - Consumo',
   headerSubtitle: '',
-  footerText: 'PEOrpt • Aspel SAE 9',
+  footerText: 'POrpt • Aspel SAE 9',
   letterheadEnabled: false,
   letterheadTop: '',
   letterheadBottom: '',
@@ -185,6 +185,35 @@ function computePercentages(totals = {}) {
     rest,
     base,
     overage
+  };
+}
+
+function buildVariantSnapshot(item = {}) {
+  const totals = item.totals || {};
+  const authorizedRaw = Number(item.total ?? totals.total ?? 0);
+  const remRaw = Number(totals.totalRem ?? 0);
+  const facRaw = Number(totals.totalFac ?? 0);
+  const consumoRaw = totals.totalConsumo != null ? Number(totals.totalConsumo) : remRaw + facRaw;
+  const restanteRaw = totals.restante != null
+    ? Number(totals.restante)
+    : Math.max(authorizedRaw - consumoRaw, 0);
+  const normalized = {
+    total: roundTo(authorizedRaw),
+    totalRem: roundTo(remRaw),
+    totalFac: roundTo(facRaw),
+    totalConsumo: roundTo(consumoRaw),
+    restante: roundTo(restanteRaw)
+  };
+  return {
+    raw: {
+      total: authorizedRaw,
+      totalRem: remRaw,
+      totalFac: facRaw,
+      totalConsumo: consumoRaw,
+      restante: restanteRaw
+    },
+    totals: normalized,
+    percentages: computePercentages(normalized)
   };
 }
 
@@ -406,7 +435,7 @@ function drawPoBaseBreakdown(doc, summary, branding) {
     .font('Helvetica-Bold')
     .fontSize(14)
     .fillColor(branding.accentColor || '#111827')
-    .text('Resumen por PEO base', startX, doc.y);
+    .text('Resumen por PO base', startX, doc.y);
   doc.moveDown(0.4);
 
   const tableTop = doc.y;
@@ -420,7 +449,7 @@ function drawPoBaseBreakdown(doc, summary, branding) {
     .fillColor('#ffffff')
     .font('Helvetica-Bold')
     .fontSize(11)
-    .text('PEO base', columnXs[0] + 12, tableTop + 6, { width: width * columnPercents[0] - 24 });
+    .text('PO base', columnXs[0] + 12, tableTop + 6, { width: width * columnPercents[0] - 24 });
   doc.text('Autorizado', columnXs[1] + 12, tableTop + 6, { width: width * columnPercents[1] - 24, align: 'right' });
   doc.text('Consumido / Restante', columnXs[2] + 12, tableTop + 6, {
     width: width * columnPercents[2] - 24,
@@ -466,7 +495,7 @@ function drawPoTable(doc, summary) {
     doc.lineWidth(1);
     doc.rect(startX, y, tableWidth, headerHeight).fillAndStroke('#111827', '#1f2937');
     doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11);
-    doc.text('PEO ID', colXs[0] + 10, y + 6, { width: colWidths[0] - 20 });
+    doc.text('PO ID', colXs[0] + 10, y + 6, { width: colWidths[0] - 20 });
     doc.text('Fecha', colXs[1] + 10, y + 6, { width: colWidths[1] - 20 });
     doc.text('Total', colXs[2] + 10, y + 6, { width: colWidths[2] - 20 });
     doc.restore();
@@ -524,7 +553,7 @@ function drawPoTable(doc, summary) {
         .font('Helvetica-Bold')
         .fontSize(12)
         .fillColor('#111827')
-        .text('Total PEO:', startX + 10, doc.y);
+        .text('Total PO:', startX + 10, doc.y);
       doc
         .font('Helvetica')
         .fontSize(12)
@@ -552,7 +581,7 @@ function drawPoTable(doc, summary) {
       .font('Helvetica-Bold')
       .fontSize(12)
       .fillColor('#111827')
-      .text(`Totales (${baseCount} PEOs)`, startX + 10, doc.y);
+      .text(`Totales (${baseCount} POs)`, startX + 10, doc.y);
     doc
       .font('Helvetica')
       .fontSize(12)
@@ -829,22 +858,35 @@ function buildPoChartGroups(summary) {
   const items = Array.isArray(summary.items) ? summary.items : [];
   const groups = new Map();
   items.forEach(item => {
-    const baseId = item.baseId || item.id;
+    const baseIdRaw = item.baseId || item.id;
+    if (!baseIdRaw) return;
+    const baseId = baseIdRaw.trim();
     if (!baseId) return;
     if (!groups.has(baseId)) {
       groups.set(baseId, {
         baseId,
-        ids: [],
+        ids: new Set(),
         total: 0,
         totalRem: 0,
-        totalFac: 0
+        totalFac: 0,
+        variants: new Map()
       });
     }
     const group = groups.get(baseId);
-    group.ids.push(item.id);
-    group.total += Number(item.total || 0);
-    group.totalRem += Number(item.totals?.totalRem || 0);
-    group.totalFac += Number(item.totals?.totalFac || 0);
+    const variantSnapshot = buildVariantSnapshot(item);
+    const variantId = typeof item.id === 'string' ? item.id.trim() : '';
+    group.total += variantSnapshot.raw.total;
+    group.totalRem += variantSnapshot.raw.totalRem;
+    group.totalFac += variantSnapshot.raw.totalFac;
+    if (variantId) {
+      group.ids.add(variantId);
+      group.variants.set(variantId, {
+        id: variantId,
+        isBase: variantId === baseId,
+        totals: variantSnapshot.totals,
+        percentages: variantSnapshot.percentages
+      });
+    }
   });
   return Array.from(groups.values())
     .map(group => {
@@ -857,12 +899,19 @@ function buildPoChartGroups(summary) {
         totalConsumo: roundTo(totalConsumo),
         restante: roundTo(restante)
       };
+      const variants = Array.from(group.variants.values()).sort((a, b) => {
+        if (a.isBase === b.isBase) {
+          return a.id.localeCompare(b.id);
+        }
+        return a.isBase ? -1 : 1;
+      });
       return {
         baseId: group.baseId,
-        ids: group.ids,
-        count: group.ids.length,
+        ids: Array.from(group.ids),
+        count: variants.length || group.ids.size,
         totals,
-        percentages: computePercentages(totals)
+        percentages: computePercentages(totals),
+        variants
       };
     })
     .sort((a, b) => a.baseId.localeCompare(b.baseId));
@@ -875,56 +924,38 @@ function drawPerPoConsumptionCards(doc, groups, branding) {
   if (availableWidth <= 0) {
     return;
   }
-  const minCardWidth = 240;
-  const maxColumns = 3;
-  const gapSize = 14;
-  let columns = Math.max(1, Math.floor((availableWidth + gapSize) / (minCardWidth + gapSize)));
-  columns = Math.min(maxColumns, columns);
-  while (columns > 1) {
-    const tentativeGap = gapSize;
-    const tentativeWidth = (availableWidth - tentativeGap * (columns - 1)) / columns;
-    if (tentativeWidth >= minCardWidth - 0.5) {
-      break;
-    }
-    columns -= 1;
-  }
-  const gap = columns > 1 ? gapSize : 0;
-  const rawCardWidth = columns === 1 ? availableWidth : (availableWidth - gap * (columns - 1)) / columns;
-  const cardWidth = Math.max(0, Math.min(rawCardWidth, availableWidth));
-  const cardHeight = columns >= 3 ? 120 : 130;
-  let rowTop = doc.y;
-  groups.forEach((group, index) => {
-    const columnIndex = index % columns;
-    if (columnIndex === 0) {
-      ensureSpace(doc, cardHeight + 32);
-      rowTop = doc.y;
-    }
-    const x = bounds.left + columnIndex * (cardWidth + gap);
-    const y = rowTop;
-    const { x: cardX, width: safeCardWidth } = clampHorizontalRect(bounds, x, cardWidth);
+  const baseCardHeight = 160;
+  groups.forEach(group => {
+    const variantDetails = Array.isArray(group.variants) ? group.variants : [];
+    const extraHeight = variantDetails.length > 1 ? 30 + variantDetails.length * 13 : 0;
+    const cardHeight = baseCardHeight + extraHeight;
+    ensureSpace(doc, cardHeight + 28);
+    const cardX = bounds.left;
+    const cardWidth = availableWidth;
+    const y = doc.y;
     doc.save();
-    doc.roundedRect(cardX, y, safeCardWidth, cardHeight, 10).fill('#ffffff').stroke('#dbeafe');
+    doc.roundedRect(cardX, y, cardWidth, cardHeight, 12).fill('#ffffff').stroke('#dbeafe');
     doc.restore();
-    const textWidth = Math.max(0, safeCardWidth - 28);
+    const textWidth = Math.max(0, cardWidth - 32);
     doc
       .font('Helvetica-Bold')
       .fontSize(12)
       .fillColor(branding.accentColor || '#0f172a')
-      .text(`PO ${group.baseId}`, cardX + 14, y + 12, { width: textWidth });
-    const variantLabel = group.count === 1 ? 'Solo base incluida' : `${group.count} variantes seleccionadas`;
+      .text(`PO ${group.baseId}`, cardX + 16, y + 14, { width: textWidth });
+    const variantLabel = group.count <= 1 ? 'Solo base incluida' : `${group.count} variantes seleccionadas`;
     doc
       .font('Helvetica')
       .fontSize(10)
       .fillColor('#475569')
-      .text(variantLabel, cardX + 14, y + 28, { width: textWidth });
+      .text(variantLabel, cardX + 16, y + 30, { width: textWidth });
     doc
       .font('Helvetica')
       .fontSize(10)
       .fillColor('#0f172a')
-      .text(`Autorizado: ${formatCurrency(group.totals.total)}`, cardX + 14, y + 42, { width: textWidth });
-    const barX = cardX + 14;
-    const barY = y + 58;
-    const barWidth = Math.max(0, safeCardWidth - 28);
+      .text(`Autorizado: ${formatCurrency(group.totals.total)}`, cardX + 16, y + 46, { width: textWidth });
+    const barX = cardX + 16;
+    const barY = y + 64;
+    const barWidth = Math.max(0, cardWidth - 32);
     const barHeight = 12;
     doc.save();
     doc.roundedRect(barX, barY, barWidth, barHeight, 6).fill('#e2e8f0');
@@ -944,24 +975,22 @@ function drawPerPoConsumptionCards(doc, groups, branding) {
     if (restWidth > 0) {
       doc.save().rect(cursorX, barY, restWidth, barHeight).fillOpacity(0.95).fill(branding.restanteColor).restore();
     }
-    const metricsY = barY + barHeight + 8;
+    const metricsY = barY + barHeight + 10;
     const totalAuthorized = Math.max(0, Number(group.totals.total || 0));
     const totalConsumo = Math.max(0, Number(group.totals.totalRem || 0) + Number(group.totals.totalFac || 0));
-    const consumoPercent = formatPercentage(
-      totalAuthorized > 0 ? roundTo((totalConsumo / totalAuthorized) * 100) : 0
-    );
+    const consumoPercent = formatPercentage(totalAuthorized > 0 ? roundTo((totalConsumo / totalAuthorized) * 100) : 0);
     doc
       .font('Helvetica')
       .fontSize(9.5)
       .fillColor('#111827')
-      .text(`Consumido: ${formatCurrency(group.totals.totalConsumo)} (${consumoPercent})`, cardX + 14, metricsY, {
+      .text(`Consumido: ${formatCurrency(group.totals.totalConsumo)} (${consumoPercent})`, cardX + 16, metricsY, {
         width: textWidth
       });
     doc
       .font('Helvetica')
       .fontSize(9.5)
       .fillColor('#111827')
-      .text(`Disponible: ${formatCurrency(group.totals.restante)} (${formatPercentage(group.percentages.rest)})`, cardX + 14, metricsY + 12, {
+      .text(`Disponible: ${formatCurrency(group.totals.restante)} (${formatPercentage(group.percentages.rest)})`, cardX + 16, metricsY + 12, {
         width: textWidth
       });
     doc
@@ -970,13 +999,40 @@ function drawPerPoConsumptionCards(doc, groups, branding) {
       .fillColor('#475569')
       .text(
         `Rem ${formatPercentage(group.percentages.rem)} · Fac ${formatPercentage(group.percentages.fac)} · Disp ${formatPercentage(group.percentages.rest)}`,
-        cardX + 14,
-        metricsY + 22,
+        cardX + 16,
+        metricsY + 24,
         { width: textWidth }
       );
-    if (columnIndex === columns - 1 || index === groups.length - 1) {
-      doc.y = rowTop + cardHeight + 24;
+
+    if (variantDetails.length > 1) {
+      const detailTitleY = metricsY + 40;
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(9.5)
+        .fillColor('#0f172a')
+        .text('Detalle por variante', cardX + 16, detailTitleY, { width: textWidth });
+      let detailY = detailTitleY + 12;
+      variantDetails.forEach(variant => {
+        const role = variant.isBase ? 'Base' : 'Ext';
+        const consumo = Number(variant.totals.totalConsumo || 0);
+        const autorizado = Number(variant.totals.total || 0);
+        const restante = Number(variant.totals.restante || 0);
+        const consumoPorcentaje = autorizado > 0 ? roundTo((consumo / autorizado) * 100) : 0;
+        doc
+          .font('Helvetica')
+          .fontSize(9)
+          .fillColor('#1f2937')
+          .text(
+            `${role} ${variant.id}: Aut ${formatCurrency(autorizado)} · Cons ${formatCurrency(consumo)} (${formatPercentage(consumoPorcentaje)}) · Disp ${formatCurrency(restante)}`,
+            cardX + 16,
+            detailY,
+            { width: textWidth }
+          );
+        detailY += 12;
+      });
     }
+
+    doc.y = y + cardHeight + 24;
   });
 }
 
@@ -1025,7 +1081,7 @@ function drawChartsSection(doc, summary, branding) {
     : `Consumo de la PO ${groups[0].baseId}`;
   drawCombinedConsumptionBar(doc, totals, branding, { title });
   doc.moveDown(0.2);
-  doc.font('Helvetica-Bold').fontSize(14).fillColor(branding.accentColor || '#111827').text('Consumo por PEO', doc.page.margins.left, doc.y);
+  doc.font('Helvetica-Bold').fontSize(14).fillColor(branding.accentColor || '#111827').text('Consumo por PO', doc.page.margins.left, doc.y);
   doc.moveDown(0.3);
   drawPerPoConsumptionCards(doc, groups, branding);
 }
@@ -1045,7 +1101,7 @@ function drawObservations(doc, summary) {
     }
   }
   if (baseCount > 1) {
-    notes.push(`Se combinan ${baseCount} PEOs base; revisa las tarjetas por PEO para conocer su consumo individual.`);
+    notes.push(`Se combinan ${baseCount} POs base; revisa las tarjetas por PO para conocer su consumo individual.`);
   }
   const manualGroups = selectionDetails.filter(entry => entry.baseId && (entry.count || entry.variants?.length || 0) > 1);
   if (manualGroups.length > 0) {

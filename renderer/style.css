@@ -90,8 +90,7 @@ canvas {
   gap: 0.75rem;
 }
 
-.chart-grid,
-.extensions-grid {
+.chart-grid {
   display: grid;
   gap: 1.5rem;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -99,10 +98,15 @@ canvas {
 }
 
 @media (min-width: 1200px) {
-  .chart-grid,
-  .extensions-grid {
+  .chart-grid {
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   }
+}
+
+.extensions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
 }
 
 .chart-wrapper {
@@ -382,7 +386,7 @@ canvas {
 
 .extension-group-note {
   margin-top: 0.35rem;
-  margin-bottom: 0;
+  margin-bottom: 0.75rem;
   font-size: 0.75rem;
   color: #475569;
 }
@@ -396,6 +400,47 @@ canvas {
 }
 
 .extensions-grid .chart-wrapper canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.extension-group {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.extension-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.extension-group-header h4 {
+  margin-bottom: 0.15rem;
+}
+
+.extension-group-content {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.extension-variant-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.extension-variant-card .chart-wrapper {
+  min-height: 160px;
+}
+
+.extension-variant-card .chart-wrapper canvas {
   width: 100% !important;
   height: 100% !important;
 }

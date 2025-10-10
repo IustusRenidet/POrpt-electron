@@ -22,9 +22,9 @@
     }
   },
   "branding": {
-    "headerTitle": "Reporte de PEOs - Consumo",
+    "headerTitle": "Reporte de POs - Consumo",
     "headerSubtitle": "",
-    "footerText": "PEOrpt • Aspel SAE 9",
+    "footerText": "POrpt • Aspel SAE 9",
     "letterheadEnabled": false,
     "letterheadTop": "C:\\Users\\Frida Sophia\\Downloads\\icono peorpt.png",
     "letterheadBottom": "C:\\Users\\Frida Sophia\\Downloads\\repository-open-graph-template.png",

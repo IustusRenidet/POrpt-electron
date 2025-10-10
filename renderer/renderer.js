@@ -491,7 +491,8 @@ function buildPoGroups(items = []) {
         remisiones: new Map(),
         facturas: new Map(),
         remFallback: 0,
-        facFallback: 0
+        facFallback: 0,
+        variants: new Map()
       });
     }
 
@@ -500,7 +501,33 @@ function buildPoGroups(items = []) {
     const authorized = normalizeNumber(item?.total ?? totals.total);
 
     if (item?.id) {
-      group.ids.add(item.id);
+      const variantId = typeof item.id === 'string' ? item.id.trim() : '';
+      if (variantId) {
+        group.ids.add(variantId);
+      }
+      const totalRem = normalizeNumber(totals.totalRem);
+      const totalFac = normalizeNumber(totals.totalFac);
+      const consumo = totals.totalConsumo != null
+        ? normalizeNumber(totals.totalConsumo)
+        : roundTo(totalRem + totalFac);
+      const restante = totals.restante != null
+        ? Math.max(normalizeNumber(totals.restante), 0)
+        : Math.max(roundTo(authorized - consumo), 0);
+      const variantTotals = {
+        total: roundTo(authorized),
+        totalRem: roundTo(totalRem),
+        totalFac: roundTo(totalFac),
+        totalConsumo: roundTo(consumo),
+        restante: roundTo(restante)
+      };
+      if (variantId) {
+        group.variants.set(variantId, {
+          id: variantId,
+          isBase: variantId === key,
+          totals: variantTotals,
+          percentages: computePercentagesFromTotals(variantTotals)
+        });
+      }
     }
     group.total += authorized;
 
@@ -568,10 +595,18 @@ function buildPoGroups(items = []) {
         restante: roundTo(restante)
       };
 
+      const variants = Array.from(group.variants.values()).sort((a, b) => {
+        if (a.isBase === b.isBase) {
+          return a.id.localeCompare(b.id);
+        }
+        return a.isBase ? -1 : 1;
+      });
+
       return {
         baseId: group.baseId,
         ids: orderedIds,
         extensionIds,
+        variants,
         totals,
         percentages: computePercentagesFromTotals(totals)
       };
@@ -606,8 +641,8 @@ function buildGroupBadgeList(baseId, extensionIds = []) {
 function buildGroupCompositionNote(extensionIds = []) {
   const hasExtensions = Array.isArray(extensionIds) && extensionIds.length > 0;
   return hasExtensions
-    ? 'Gráficas y montos consolidados del subgrupo base + extensiones seleccionadas.'
-    : 'Gráficas y montos calculados solo con la PO base.';
+    ? 'Tarjeta combinada y detalle individual para cada variante seleccionada.'
+    : 'Gráfica y métricas calculadas solo con la PO base.';
 }
 
 const AXIS_CURRENCY_FORMATTER = new Intl.NumberFormat('es-MX', {
@@ -1687,6 +1722,7 @@ function renderCharts(summary) {
       variantCount,
       variantIds: group.ids,
       extensionIds,
+      variants: Array.isArray(group.variants) ? group.variants : [],
       totals: group.totals,
       percentages: group.percentages
     };
@@ -1927,26 +1963,50 @@ function renderCharts(summary) {
     ];
     extensionContainer.innerHTML = '';
     chartEntries.forEach((entry, index) => {
-      const card = document.createElement('article');
-      card.className = 'card h-100 shadow-sm chart-card';
       const extensionCount = entry.extensionIds.length;
+      const badgeListMarkup = buildGroupBadgeList(entry.id, entry.extensionIds);
+      const compositionNote = buildGroupCompositionNote(entry.extensionIds);
+      const section = document.createElement('section');
+      section.className = 'extension-group';
+
+      const header = document.createElement('div');
+      header.className = 'extension-group-header';
+      const subtitle = extensionCount > 0
+        ? `Base + ${extensionCount} extensión${extensionCount === 1 ? '' : 'es'} seleccionadas`
+        : 'Solo base seleccionada';
+      header.innerHTML = `
+        <div>
+          <h4 class="mb-0">PO ${escapeHtml(entry.id)}</h4>
+          <p class="small text-muted mb-0">${escapeHtml(subtitle)}</p>
+        </div>
+        <div class="extension-group-summary">${badgeListMarkup}</div>
+      `;
+      section.appendChild(header);
+
+      const note = document.createElement('p');
+      note.className = 'extension-group-note mb-2';
+      note.textContent = compositionNote;
+      section.appendChild(note);
+
+      const content = document.createElement('div');
+      content.className = 'extension-group-content';
+      section.appendChild(content);
+
       const variantBadge = extensionCount === 0
         ? 'Solo base'
         : `Conjunto (${entry.variantCount} variantes)`;
       const donutHeight = Math.min(320, Math.max(220, 180 + Math.max(entry.variantCount - 1, 0) * 22));
-      const badgeListMarkup = buildGroupBadgeList(entry.id, entry.extensionIds);
-      const compositionNote = buildGroupCompositionNote(entry.extensionIds);
-      card.innerHTML = `
+      const combinedCard = document.createElement('article');
+      combinedCard.className = 'card shadow-sm chart-card extension-combined-card';
+      combinedCard.innerHTML = `
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-start gap-3">
             <div>
-              <h5 class="card-title mb-1">${escapeHtml(entry.label)}</h5>
+              <h5 class="card-title mb-1">Consumo consolidado</h5>
               <p class="small text-muted mb-0">Autorizado: $${formatCurrency(entry.totals.total)}</p>
             </div>
             <span class="badge text-bg-light text-dark">${escapeHtml(variantBadge)}</span>
           </div>
-          <div class="extension-group-summary mt-2">${badgeListMarkup}</div>
-          <p class="extension-group-note mb-0">${escapeHtml(compositionNote)}</p>
           <div class="chart-wrapper mt-2" style="min-height: ${donutHeight}px">
             <canvas id="extChart-${index}"></canvas>
           </div>
@@ -1962,11 +2022,12 @@ function renderCharts(summary) {
           </div>
         </div>
       `;
-      extensionContainer.appendChild(card);
-      const canvas = card.querySelector('canvas');
-      canvas.height = donutHeight;
-      canvas.style.height = `${donutHeight}px`;
-      const dataset = {
+      content.appendChild(combinedCard);
+
+      const combinedCanvas = combinedCard.querySelector('canvas');
+      combinedCanvas.height = donutHeight;
+      combinedCanvas.style.height = `${donutHeight}px`;
+      const combinedDataset = {
         data: donutMeta.map(meta => entry.totals[meta.amountKey]),
         backgroundColor: donutMeta.map(meta => meta.color),
         hoverOffset: 8,
@@ -1976,11 +2037,11 @@ function renderCharts(summary) {
           percentage: entry.percentages[meta.percKey]
         }))
       };
-      const chart = new Chart(canvas.getContext('2d'), {
+      const combinedChart = new Chart(combinedCanvas.getContext('2d'), {
         type: 'doughnut',
         data: {
           labels: donutMeta.map(meta => meta.label),
-          datasets: [dataset]
+          datasets: [combinedDataset]
         },
         options: {
           responsive: true,
@@ -1995,14 +2056,14 @@ function renderCharts(summary) {
             tooltip: {
               callbacks: {
                 title() {
-                  return entry.label;
+                  return `PO ${entry.id}`;
                 },
                 label(context) {
-                  const info = dataset.metaInfo?.[context.dataIndex];
+                  const info = combinedDataset.metaInfo?.[context.dataIndex];
                   if (info) {
                     return `${info.label}: $${formatCurrency(info.amount)} (${formatPercentageLabel(info.percentage)})`;
                   }
-                  const totalValue = dataset.data.reduce((sum, value) => sum + value, 0);
+                  const totalValue = combinedDataset.data.reduce((sum, value) => sum + value, 0);
                   const percentage = totalValue > 0 ? (context.parsed / totalValue) * 100 : 0;
                   return `${context.label}: $${formatCurrency(context.parsed)} (${formatPercentageLabel(percentage)})`;
                 }
@@ -2011,7 +2072,98 @@ function renderCharts(summary) {
           }
         }
       });
-      state.charts.set(`ext-${index}`, chart);
+      state.charts.set(`ext-${index}`, combinedChart);
+
+      const variantDetails = Array.isArray(entry.variants) ? entry.variants : [];
+      if (variantDetails.length > 1) {
+        const variantGrid = document.createElement('div');
+        variantGrid.className = 'extension-variant-grid';
+        variantDetails.forEach((variant, variantIndex) => {
+          const roleLabel = variant.isBase ? 'PO base' : 'Extensión';
+          const badgeClass = variant.isBase ? 'text-bg-primary' : 'text-bg-info';
+          const badgeLabel = variant.isBase ? 'Base' : 'Ext';
+          const variantChartHeight = 200;
+          const card = document.createElement('article');
+          card.className = 'card shadow-sm chart-card extension-variant-card';
+          card.innerHTML = `
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start gap-3">
+                <div>
+                  <h6 class="card-title mb-1">${escapeHtml(variant.id)}</h6>
+                  <p class="small text-muted mb-0">${escapeHtml(roleLabel)}</p>
+                </div>
+                <span class="badge ${badgeClass}">${escapeHtml(badgeLabel)}</span>
+              </div>
+              <div class="chart-wrapper mt-2" style="min-height: ${variantChartHeight}px">
+                <canvas id="extChart-${index}-variant-${variantIndex}"></canvas>
+              </div>
+              <div class="chart-metrics mt-2">
+                ${donutMeta
+                  .map(meta => `
+                    <div class="metric-row">
+                      <span class="metric-label ${meta.labelClass}">${meta.label}</span>
+                      <span>$${formatCurrency(variant.totals[meta.amountKey])} · ${formatPercentageLabel(variant.percentages[meta.percKey])}</span>
+                    </div>
+                  `)
+                  .join('')}
+              </div>
+            </div>
+          `;
+          variantGrid.appendChild(card);
+
+          const canvas = card.querySelector('canvas');
+          canvas.height = variantChartHeight;
+          canvas.style.height = `${variantChartHeight}px`;
+          const variantDataset = {
+            data: donutMeta.map(meta => variant.totals[meta.amountKey]),
+            backgroundColor: donutMeta.map(meta => meta.color),
+            hoverOffset: 8,
+            metaInfo: donutMeta.map(meta => ({
+              label: meta.label,
+              amount: variant.totals[meta.amountKey],
+              percentage: variant.percentages[meta.percKey]
+            }))
+          };
+          const chart = new Chart(canvas.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+              labels: donutMeta.map(meta => meta.label),
+              datasets: [variantDataset]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              cutout: '60%',
+              layout: { padding: 6 },
+              plugins: {
+                legend: {
+                  display: false
+                },
+                tooltip: {
+                  callbacks: {
+                    title() {
+                      return variant.id;
+                    },
+                    label(context) {
+                      const info = variantDataset.metaInfo?.[context.dataIndex];
+                      if (info) {
+                        return `${info.label}: $${formatCurrency(info.amount)} (${formatPercentageLabel(info.percentage)})`;
+                      }
+                      const totalValue = variantDataset.data.reduce((sum, value) => sum + value, 0);
+                      const percentage = totalValue > 0 ? (context.parsed / totalValue) * 100 : 0;
+                      return `${context.label}: $${formatCurrency(context.parsed)} (${formatPercentageLabel(percentage)})`;
+                    }
+                  }
+                }
+              }
+            }
+          });
+          state.charts.set(`ext-${index}-variant-${variantIndex}`, chart);
+        });
+        content.appendChild(variantGrid);
+      }
+
+      extensionContainer.appendChild(section);
     });
   }
 }
