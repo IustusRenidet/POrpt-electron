@@ -650,10 +650,9 @@ function updatePoFoundList() {
     container.title = '';
     return;
   }
-  const ids = state.pos.map(po => po.id).filter(Boolean);
   const summary = `${total} PO${total !== 1 ? 's' : ''} encontradas`;
-  container.textContent = ids.length ? `${summary}: ${ids.join(', ')}` : summary;
-  container.title = container.textContent;
+  container.textContent = summary;
+  container.title = summary;
 }
 
 async function ensureEmpresasCatalog() {
