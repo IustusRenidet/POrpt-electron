@@ -987,7 +987,7 @@ async function getPoSummary(empresa, poId, options = {}) {
       `Restante: $${totals.restante.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRest.toFixed(2)}%)`;
     const alerts = items.flatMap(item => item.alerts);
     if (totals.totalConsumo >= totals.total * 0.1 && totals.total > 0) {
-      alerts.push(buildAlert(`El consumo total del grupo ${baseId} supera el 10% (${(totals.totalConsumo / totals.total * 100).toFixed(2)}%)`, 'warning'));
+      alerts.push(buildAlert(`El consumo total del grupo ${baseId} supera el 90% (${(totals.totalConsumo / totals.total * 100).toFixed(2)}%)`, 'warning'));
     }
     const alertasTexto = alerts.length
       ? alerts.map(alerta => `[${alerta.type.toUpperCase()}] ${alerta.message}`).join('\n')
@@ -1064,7 +1064,7 @@ async function getPoSummaryGroup(empresa, selectionEntries) {
   if (totals.total > 0 && totals.totalConsumo >= totals.total * 0.1) {
     alerts.push(
       buildAlert(
-        `El consumo total combinado supera el 10% (${((totals.totalConsumo / totals.total) * 100).toFixed(2)}%)`,
+        `El consumo total combinado supera el 90% (${((totals.totalConsumo / totals.total) * 100).toFixed(2)}%)`,
         'warning'
       )
     );
@@ -1236,7 +1236,7 @@ async function getUniverseSummary(empresa, rawFilter) {
     } else if (totals.totalConsumo >= totals.total * 0.1) {
       alerts.push(
         buildAlert(
-          `El consumo del universo supera el 10% (${((totals.totalConsumo / totals.total) * 100).toFixed(2)}%)`,
+          `El consumo del universo supera el 90% (${((totals.totalConsumo / totals.total) * 100).toFixed(2)}%)`,
           'warning'
         )
       );
