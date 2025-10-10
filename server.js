@@ -1080,34 +1080,80 @@ async function getUniverseSummary(empresa, rawFilter) {
   const filter = normalizeUniverseFilter(rawFilter);
   return await withFirebirdConnection(empresa, async (db, tables) => {
     const { clause: poClause, params: poParams } = buildDateFilterClause('f.FECHA_DOC', filter);
-    const totalRows = await queryWithTimeout(
+    const poRows = await queryWithTimeout(
       db,
-      `SELECT COALESCE(SUM(f.IMPORTE), 0) AS total
+      `SELECT
+         TRIM(f.CVE_DOC) AS id,
+         COALESCE(f.IMPORTE, 0) AS importe,
+         TRIM(f.TIP_DOC_SIG) AS tip_doc_sig,
+         TRIM(f.DOC_SIG) AS doc_sig
        FROM ${tables.FACTP} f
        WHERE f.STATUS <> 'C'${poClause}`,
       poParams
     );
-    const total = Number(totalRows[0]?.TOTAL ?? totalRows[0]?.total ?? 0);
 
-    const { clause: remClause, params: remParams } = buildDateFilterClause('r.FECHA_DOC', filter);
-    const remRows = await queryWithTimeout(
-      db,
-      `SELECT COALESCE(SUM(r.IMPORTE), 0) AS total
-       FROM ${tables.FACTR} r
-       WHERE r.STATUS <> 'C'${remClause}`,
-      remParams
-    );
-    const totalRem = Number(remRows[0]?.TOTAL ?? remRows[0]?.total ?? 0);
+    const total = poRows.reduce((sum, row) => sum + Number(row.IMPORTE ?? row.importe ?? 0), 0);
+    const poIds = new Set();
+    const remDocIds = new Set();
+    const factDocIdsFromPo = new Set();
 
-    const { clause: facClause, params: facParams } = buildDateFilterClause('f.FECHA_DOC', filter);
-    const facRows = await queryWithTimeout(
-      db,
-      `SELECT COALESCE(SUM(f.IMPORTE), 0) AS total
-       FROM ${tables.FACTF} f
-       WHERE f.STATUS <> 'C'${facClause}`,
-      facParams
-    );
-    const totalFac = Number(facRows[0]?.TOTAL ?? facRows[0]?.total ?? 0);
+    poRows.forEach(row => {
+      const id = normalizePoId(row.ID ?? row.id ?? '');
+      if (id) {
+        poIds.add(id);
+      }
+      const tipDoc = typeof row.TIP_DOC_SIG === 'string' ? row.TIP_DOC_SIG.trim().toUpperCase() :
+        typeof row.tip_doc_sig === 'string' ? row.tip_doc_sig.trim().toUpperCase() : '';
+      const docSig = typeof row.DOC_SIG === 'string' ? row.DOC_SIG.trim() :
+        typeof row.doc_sig === 'string' ? row.doc_sig.trim() : '';
+      if (!docSig) {
+        return;
+      }
+      if (tipDoc === 'R') {
+        remDocIds.add(docSig);
+      } else if (tipDoc === 'F') {
+        factDocIdsFromPo.add(docSig);
+      }
+    });
+
+    const remRows = await fetchRemisiones(db, tables.FACTR, {
+      docAntValues: Array.from(poIds),
+      docIds: Array.from(remDocIds)
+    });
+
+    const remData = remRows.map(row => ({
+      id: normalizeDocKey(row.ID ?? row.id ?? ''),
+      monto: Number(row.IMPORTE ?? row.importe ?? 0),
+      tipDocSig:
+        typeof row.TIP_DOC_SIG === 'string'
+          ? row.TIP_DOC_SIG.trim().toUpperCase()
+          : typeof row.tip_doc_sig === 'string'
+            ? row.tip_doc_sig.trim().toUpperCase()
+            : '',
+      docSig: typeof row.DOC_SIG === 'string' ? row.DOC_SIG.trim() :
+        typeof row.doc_sig === 'string' ? row.doc_sig.trim() : ''
+    }));
+
+    const factDocIdsFromRem = new Set();
+    const factDocAntFromRem = new Set();
+
+    remData.forEach(rem => {
+      if (rem.id) {
+        factDocAntFromRem.add(rem.id);
+      }
+      if (rem.tipDocSig === 'F' && rem.docSig) {
+        factDocIdsFromRem.add(rem.docSig);
+      }
+    });
+
+    const factRows = await fetchFacturas(db, tables.FACTF, {
+      docAntPoValues: Array.from(poIds),
+      docAntRemValues: Array.from(factDocAntFromRem),
+      docIds: Array.from(new Set([...factDocIdsFromPo, ...factDocIdsFromRem]))
+    });
+
+    const totalRem = remData.reduce((sum, rem) => sum + rem.monto, 0);
+    const totalFac = factRows.reduce((sum, row) => sum + Number(row.IMPORTE ?? row.importe ?? 0), 0);
 
     const totals = calculateTotals(total, totalRem, totalFac);
     const totalsTexto =
