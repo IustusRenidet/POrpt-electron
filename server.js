@@ -64,6 +64,16 @@ function parseToggle(value, defaultValue) {
   return Boolean(value);
 }
 
+function normalizeNumber(value) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function roundTo(value, decimals = 2) {
+  const factor = 10 ** decimals;
+  return Math.round(normalizeNumber(value) * factor) / factor;
+}
+
 function mergeCustomization(baseCustomization = {}, requestCustomization = {}) {
   const baseCsv = baseCustomization.csv || {};
   const merged = {

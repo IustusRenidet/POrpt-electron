@@ -2072,7 +2072,7 @@ function renderCharts(summary) {
           </div>
           <div class="extension-group-summary mt-2">${badgeListMarkup}</div>
           <p class="extension-group-note mb-0">${escapeHtml(compositionNote)}</p>
-          <div class="chart-wrapper mt-2" style="min-height: ${donutHeight}px">
+          <div class="chart-wrapper mt-2" style="min-height: ${donutHeight}px; height: ${donutHeight}px; max-height: ${donutHeight}px">
             <canvas id="extChart-${index}"></canvas>
           </div>
           <div class="chart-metrics mt-2">
@@ -2090,8 +2090,15 @@ function renderCharts(summary) {
       `;
       extensionContainer.appendChild(card);
       const canvas = card.querySelector('canvas');
+      const wrapper = canvas?.closest('.chart-wrapper');
+      if (wrapper) {
+        wrapper.style.minHeight = `${donutHeight}px`;
+        wrapper.style.height = `${donutHeight}px`;
+        wrapper.style.maxHeight = `${donutHeight}px`;
+      }
       canvas.height = donutHeight;
       canvas.style.height = `${donutHeight}px`;
+      canvas.style.maxHeight = `${donutHeight}px`;
       const dataset = {
         data: donutMeta.map(meta => entry.totals[meta.amountKey]),
         backgroundColor: donutMeta.map(meta => meta.color),
