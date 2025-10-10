@@ -633,6 +633,27 @@ function renderPoOptions() {
     select.value = '';
   }
   applySearchableSelectFilter(select, selectState?.text || '');
+  updatePoFoundList();
+}
+
+function updatePoFoundList() {
+  const container = document.getElementById('poFoundList');
+  if (!container) return;
+  if (!state.selectedEmpresa) {
+    container.textContent = '';
+    container.title = '';
+    return;
+  }
+  const total = Array.isArray(state.pos) ? state.pos.length : 0;
+  if (!total) {
+    container.textContent = 'Sin POs disponibles';
+    container.title = '';
+    return;
+  }
+  const ids = state.pos.map(po => po.id).filter(Boolean);
+  const summary = `${total} PO${total !== 1 ? 's' : ''} encontradas`;
+  container.textContent = ids.length ? `${summary}: ${ids.join(', ')}` : summary;
+  container.title = container.textContent;
 }
 
 async function ensureEmpresasCatalog() {
