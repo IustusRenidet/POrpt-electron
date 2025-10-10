@@ -113,7 +113,8 @@ canvas {
 
 .chart-wrapper canvas {
   width: 100% !important;
-  height: 100% !important;
+  height: auto !important;
+  display: block;
 }
 
 .chart-metrics {
