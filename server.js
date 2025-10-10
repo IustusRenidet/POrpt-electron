@@ -1228,6 +1228,23 @@ async function getPoSummaryGroup(empresa, selectionEntries) {
 async function getUniverseSummary(empresa, rawFilter) {
   const filter = normalizeUniverseFilter(rawFilter);
   return await withFirebirdConnection(empresa, async (db, tables) => {
+    const isDateWithinFilter = value => {
+      if (!filter || filter.mode === 'global') {
+        return true;
+      }
+      const formatted = formatFirebirdDate(value);
+      if (!formatted) {
+        return false;
+      }
+      if (filter.mode === 'range') {
+        return formatted >= filter.startDate && formatted <= filter.endDate;
+      }
+      if (filter.mode === 'single') {
+        return formatted === filter.startDate;
+      }
+      return true;
+    };
+
     const { clause: poClause, params: poParams } = buildDateFilterClause('f.FECHA_DOC', filter);
     const poRows = await queryWithTimeout(
       db,
@@ -1241,13 +1258,34 @@ async function getUniverseSummary(empresa, rawFilter) {
       poParams
     );
 
-    const total = poRows.reduce((sum, row) => sum + Number(row.IMPORTE ?? row.importe ?? 0), 0);
     const poIds = new Set();
     const poDocKeys = new Set();
     const remDocIds = new Set();
     const remDocKeys = new Set();
     const factDocIdsFromPo = new Set();
     const factDocIdKeysFromPo = new Set();
+    const poMap = new Map();
+    const ensureUniversePo = poId => {
+      const normalized = normalizePoId(poId);
+      if (!normalized) return null;
+      if (!poMap.has(normalized)) {
+        const baseId = basePoId(normalized);
+        poMap.set(normalized, {
+          id: normalized,
+          baseId: baseId || normalized,
+          fecha: '',
+          total: 0,
+          subtotal: 0,
+          docSig: '',
+          tipDoc: '',
+          remisiones: [],
+          facturas: [],
+          totals: { total: 0, totalRem: 0, totalFac: 0, totalConsumo: 0, restante: 0 },
+          alerts: []
+        });
+      }
+      return poMap.get(normalized);
+    };
 
     poRows.forEach(row => {
       const id = normalizePoId(row.ID ?? row.id ?? '');
@@ -1257,6 +1295,18 @@ async function getUniverseSummary(empresa, rawFilter) {
         if (poKey) {
           poDocKeys.add(poKey);
         }
+        const entry = ensureUniversePo(id);
+        const fecha = formatFirebirdDate(row.FECHA_DOC ?? row.fecha);
+        const totalImporte = Number(row.IMPORTE ?? row.importe ?? 0);
+        entry.fecha = fecha;
+        entry.total = roundTo(totalImporte);
+        entry.totals.total = roundTo(totalImporte);
+        entry.docSig = typeof row.DOC_SIG === 'string' ? row.DOC_SIG.trim() : typeof row.doc_sig === 'string' ? row.doc_sig.trim() : '';
+        entry.tipDoc = typeof row.TIP_DOC_SIG === 'string'
+          ? row.TIP_DOC_SIG.trim().toUpperCase()
+          : typeof row.tip_doc_sig === 'string'
+            ? row.tip_doc_sig.trim().toUpperCase()
+            : '';
       }
       const tipDoc = typeof row.TIP_DOC_SIG === 'string' ? row.TIP_DOC_SIG.trim().toUpperCase() :
         typeof row.tip_doc_sig === 'string' ? row.tip_doc_sig.trim().toUpperCase() : '';
@@ -1286,21 +1336,49 @@ async function getUniverseSummary(empresa, rawFilter) {
       const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
       const linkedById = remKey && remDocKeys.has(remKey);
       const linkedByPo = docAntKey && poDocKeys.has(docAntKey) && (tipDocAnt === 'P' || !tipDocAnt);
-      return linkedById || linkedByPo;
+      const fechaOk = isDateWithinFilter(row.FECHA_DOC ?? row.fecha);
+      return fechaOk && (linkedById || linkedByPo);
     });
 
-    const remData = filteredRemRows.map(row => ({
-      id: normalizeDocKey(row.ID ?? row.id ?? ''),
-      monto: Number(row.IMPORTE ?? row.importe ?? 0),
-      tipDocSig:
-        typeof row.TIP_DOC_SIG === 'string'
-          ? row.TIP_DOC_SIG.trim().toUpperCase()
-          : typeof row.tip_doc_sig === 'string'
-            ? row.tip_doc_sig.trim().toUpperCase()
-            : '',
-      docSig: typeof row.DOC_SIG === 'string' ? row.DOC_SIG.trim() :
-        typeof row.doc_sig === 'string' ? row.doc_sig.trim() : ''
-    }));
+    const remKeysFromData = new Set(
+      filteredRemRows
+        .map(row => normalizeDocKey(row.ID ?? row.id ?? ''))
+        .filter(Boolean)
+    );
+
+    const remToPo = new Map();
+    filteredRemRows.forEach(row => {
+      const remId = normalizePoId(row.ID ?? row.id ?? '');
+      const docAnt = normalizePoId(row.DOC_ANT ?? row.doc_ant ?? '');
+      if (!remId) return;
+      let targetPo = '';
+      if (docAnt) {
+        if (poMap.has(docAnt)) {
+          targetPo = docAnt;
+        } else {
+          const baseCandidate = basePoId(docAnt);
+          if (baseCandidate && poMap.has(baseCandidate)) {
+            targetPo = baseCandidate;
+          } else {
+            targetPo = docAnt;
+          }
+        }
+      }
+      if (!targetPo) return;
+      const entry = ensureUniversePo(targetPo);
+      if (!entry) return;
+      const monto = Number(row.IMPORTE ?? row.importe ?? 0);
+      const fecha = formatFirebirdDate(row.FECHA_DOC ?? row.fecha);
+      entry.remisiones.push({
+        id: remId,
+        fecha,
+        monto,
+        porcentaje: entry.total > 0 ? roundTo((monto / entry.total) * 100) : 0,
+        vinculado: true
+      });
+      entry.totals.totalRem += monto;
+      remToPo.set(remId, entry.id);
+    });
 
     const factDocIdsFromRem = new Set();
     const factDocIdKeysFromRem = new Set();
@@ -1327,7 +1405,6 @@ async function getUniverseSummary(empresa, rawFilter) {
       docIds: Array.from(new Set([...factDocIdsFromPo, ...factDocIdsFromRem]))
     });
 
-    const remKeysFromData = new Set(remData.map(rem => rem.id).filter(Boolean));
     const filteredFactRows = factRows.filter(row => {
       const factKey = normalizeDocKey(row.ID ?? row.id ?? '');
       const docAntKey = normalizeDocKey(row.DOC_ANT ?? row.doc_ant ?? '');
@@ -1337,13 +1414,121 @@ async function getUniverseSummary(empresa, rawFilter) {
       const linkedByRem = docAntKey && remKeysFromData.has(docAntKey) && (tipDocAnt === 'R' || !tipDocAnt);
       const linkedById =
         factKey && (factDocIdKeysFromPo.has(factKey) || factDocIdKeysFromRem.has(factKey));
-      return linkedByPo || linkedByRem || linkedById;
+      const fechaOk = isDateWithinFilter(row.FECHA_DOC ?? row.fecha);
+      return fechaOk && (linkedByPo || linkedByRem || linkedById);
     });
 
-    const totalRem = remData.reduce((sum, rem) => sum + rem.monto, 0);
-    const totalFac = filteredFactRows.reduce((sum, row) => sum + Number(row.IMPORTE ?? row.importe ?? 0), 0);
+    filteredFactRows.forEach(row => {
+      const factId = normalizePoId(row.ID ?? row.id ?? '');
+      const docAnt = normalizePoId(row.DOC_ANT ?? row.doc_ant ?? '');
+      const tipDocAntRaw = row.TIP_DOC_ANT ?? row.tip_doc_ant ?? '';
+      const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+      let targetPo = '';
+      if (tipDocAnt === 'P' && docAnt) {
+        if (poMap.has(docAnt)) {
+          targetPo = docAnt;
+        } else {
+          const baseCandidate = basePoId(docAnt);
+          if (baseCandidate && poMap.has(baseCandidate)) {
+            targetPo = baseCandidate;
+          } else {
+            targetPo = docAnt;
+          }
+        }
+      } else if (tipDocAnt === 'R' && docAnt) {
+        targetPo = remToPo.get(docAnt) || '';
+      }
+      if (!targetPo && docAnt) {
+        const baseCandidate = basePoId(docAnt);
+        if (baseCandidate && poMap.has(baseCandidate)) {
+          targetPo = baseCandidate;
+        }
+      }
+      if (!targetPo && factId) {
+        const baseCandidate = basePoId(factId);
+        if (baseCandidate && poMap.has(baseCandidate)) {
+          targetPo = baseCandidate;
+        }
+      }
+      if (!targetPo) return;
+      const entry = ensureUniversePo(targetPo);
+      if (!entry) return;
+      const monto = Number(row.IMPORTE ?? row.importe ?? 0);
+      const fecha = formatFirebirdDate(row.FECHA_DOC ?? row.fecha);
+      entry.facturas.push({
+        id: factId,
+        fecha,
+        monto,
+        porcentaje: entry.total > 0 ? roundTo((monto / entry.total) * 100) : 0,
+        vinculado: true
+      });
+      entry.totals.totalFac += monto;
+    });
 
-    const totals = calculateTotals(total, totalRem, totalFac);
+    const items = Array.from(poMap.values())
+      .map(entry => {
+        const totals = calculateTotals(entry.total, entry.totals.totalRem, entry.totals.totalFac);
+        const alerts = [];
+        if (totals.total > 0) {
+          const ratio = totals.totalConsumo / totals.total;
+          if (totals.restante > 0 && ratio >= 0.9) {
+            alerts.push(
+              buildAlert(
+                `El consumo del PO ${entry.id} ha alcanzado el ${(ratio * 100).toFixed(2)}%`,
+                'warning'
+              )
+            );
+          }
+        }
+        const alertasTexto = alerts.length
+          ? alerts.map(alerta => `[${(alerta.type || 'info').toUpperCase()}] ${alerta.message}`).join('\n')
+          : 'Sin alertas';
+        const remisionesTexto = entry.remisiones.length
+          ? entry.remisiones
+              .map(rem => {
+                const fechaLabel = rem.fecha || '-';
+                return `${rem.id} • ${fechaLabel} • $${rem.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${rem.porcentaje.toFixed(2)}%)`;
+              })
+              .join('\n')
+          : 'Sin remisiones registradas';
+        const facturasTexto = entry.facturas.length
+          ? entry.facturas
+              .map(fac => {
+                const fechaLabel = fac.fecha || '-';
+                return `${fac.id} • ${fechaLabel} • $${fac.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${fac.porcentaje.toFixed(2)}%)`;
+              })
+              .join('\n')
+          : 'Sin facturas registradas';
+        return {
+          id: entry.id,
+          baseId: entry.baseId,
+          fecha: entry.fecha,
+          total: entry.total,
+          subtotal: entry.subtotal,
+          remisiones: entry.remisiones,
+          facturas: entry.facturas,
+          remisionesTexto,
+          facturasTexto,
+          totals,
+          alerts,
+          alertasTexto,
+          docSig: entry.docSig,
+          tipDoc: entry.tipDoc
+        };
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+
+    const aggregated = items.reduce(
+      (acc, item) => {
+        acc.total += Number(item.total || 0);
+        acc.totalRem += Number(item.totals?.totalRem || 0);
+        acc.totalFac += Number(item.totals?.totalFac || 0);
+        return acc;
+      },
+      { total: 0, totalRem: 0, totalFac: 0 }
+    );
+
+    const totals = calculateTotals(aggregated.total, aggregated.totalRem, aggregated.totalFac);
     const totalsTexto =
       `Total universo: $${totals.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n` +
       `Remisiones: $${totals.totalRem.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRem.toFixed(2)}%)\n` +
@@ -1383,7 +1568,7 @@ async function getUniverseSummary(empresa, rawFilter) {
       selectedTargets: [],
       totals,
       totalsTexto,
-      items: [],
+      items,
       alerts,
       alertasTexto,
       universe: filter
