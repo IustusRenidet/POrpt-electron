@@ -465,46 +465,104 @@ function getTotalsWithDefaults(totals) {
   };
 }
 
+function normalizeDocumentId(value) {
+  return typeof value === 'string' ? value.trim().toUpperCase() : '';
+}
+
 function buildPoGroups(items = []) {
   const groups = new Map();
+
   items.forEach(item => {
     const baseId = item?.baseId || item?.id;
     if (!baseId) {
       return;
     }
+
     const key = baseId.trim();
     if (!key) {
       return;
     }
+
     if (!groups.has(key)) {
       groups.set(key, {
         baseId: key,
         ids: [],
         total: 0,
-        totalRem: 0,
-        totalFac: 0
+        remisiones: new Map(),
+        facturas: new Map(),
+        remFallback: 0,
+        facFallback: 0
       });
     }
+
     const group = groups.get(key);
     const totals = getTotalsWithDefaults(item?.totals);
     const authorized = normalizeNumber(item?.total ?? totals.total);
+
     group.ids.push(item.id);
     group.total += authorized;
-    group.totalRem += normalizeNumber(totals.totalRem);
-    group.totalFac += normalizeNumber(totals.totalFac);
+
+    const remisiones = Array.isArray(item?.remisiones) ? item.remisiones : [];
+    if (remisiones.length) {
+      remisiones.forEach(rem => {
+        const docKey = normalizeDocumentId(rem?.id);
+        if (!docKey) return;
+        const amount = normalizeNumber(rem?.monto);
+        if (!group.remisiones.has(docKey)) {
+          group.remisiones.set(docKey, {
+            id: typeof rem?.id === 'string' ? rem.id.trim() : docKey,
+            monto: amount
+          });
+        } else {
+          const entry = group.remisiones.get(docKey);
+          entry.monto = Math.max(entry.monto, amount);
+          if (!entry.id && rem?.id) {
+            entry.id = rem.id.trim();
+          }
+        }
+      });
+    } else if (totals.totalRem > 0) {
+      group.remFallback += normalizeNumber(totals.totalRem);
+    }
+
+    const facturas = Array.isArray(item?.facturas) ? item.facturas : [];
+    if (facturas.length) {
+      facturas.forEach(fac => {
+        const docKey = normalizeDocumentId(fac?.id);
+        if (!docKey) return;
+        const amount = normalizeNumber(fac?.monto);
+        if (!group.facturas.has(docKey)) {
+          group.facturas.set(docKey, {
+            id: typeof fac?.id === 'string' ? fac.id.trim() : docKey,
+            monto: amount
+          });
+        } else {
+          const entry = group.facturas.get(docKey);
+          entry.monto = Math.max(entry.monto, amount);
+          if (!entry.id && fac?.id) {
+            entry.id = fac.id.trim();
+          }
+        }
+      });
+    } else if (totals.totalFac > 0) {
+      group.facFallback += normalizeNumber(totals.totalFac);
+    }
   });
 
   return Array.from(groups.values())
     .map(group => {
-      const totalConsumo = group.totalRem + group.totalFac;
+      const totalRem = Array.from(group.remisiones.values()).reduce((sum, entry) => sum + entry.monto, 0) + group.remFallback;
+      const totalFac = Array.from(group.facturas.values()).reduce((sum, entry) => sum + entry.monto, 0) + group.facFallback;
+      const totalConsumo = totalRem + totalFac;
       const restante = Math.max(group.total - totalConsumo, 0);
       const totals = {
         total: roundTo(group.total),
-        totalRem: roundTo(group.totalRem),
-        totalFac: roundTo(group.totalFac),
+        totalRem: roundTo(totalRem),
+        totalFac: roundTo(totalFac),
         totalConsumo: roundTo(totalConsumo),
         restante: roundTo(restante)
       };
+
       return {
         baseId: group.baseId,
         ids: group.ids,
