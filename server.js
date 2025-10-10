@@ -680,6 +680,36 @@ async function getPoSummary(empresa, poId, options = {}) {
   const allowedSet = allowedIds.length > 0 ? new Set(allowedIds) : null;
   return await withFirebirdConnection(empresa, async (db, tables) => {
     const baseId = basePoId(targetPo);
+    const extensionPrefix = baseId ? `${baseId}-` : null;
+    const manualIds = allowedSet
+      ? Array.from(
+          new Set(
+            allowedIds
+              .map(id => normalizePoId(id))
+              .filter(id =>
+                id &&
+                id !== targetPo &&
+                id !== baseId &&
+                !(extensionPrefix && id.startsWith(extensionPrefix))
+              )
+          )
+        )
+      : [];
+
+    const whereParts = ['TRIM(f.CVE_DOC) = ?'];
+    const params = [targetPo];
+
+    if (baseId) {
+      whereParts.push('TRIM(f.CVE_DOC) LIKE ?');
+      params.push(`${baseId}-%`);
+    }
+
+    if (manualIds.length > 0) {
+      const placeholders = manualIds.map(() => '?').join(',');
+      whereParts.push(`TRIM(f.CVE_DOC) IN (${placeholders})`);
+      params.push(...manualIds);
+    }
+
     const poRows = await queryWithTimeout(
       db,
       `SELECT
@@ -690,9 +720,9 @@ async function getPoSummary(empresa, poId, options = {}) {
          TRIM(f.TIP_DOC_SIG) AS tip_doc_sig,
          TRIM(f.DOC_SIG) AS doc_sig
        FROM ${tables.FACTP} f
-       WHERE f.STATUS <> 'C' AND (TRIM(f.CVE_DOC) = ? OR TRIM(f.CVE_DOC) LIKE ?)
+       WHERE f.STATUS <> 'C' AND (${whereParts.join(' OR ')})
        ORDER BY TRIM(f.CVE_DOC)`,
-      [targetPo, `${baseId}-%`]
+      params
     );
     let targetRows = allowedSet
       ? poRows.filter(row => allowedSet.has(normalizePoId(row.ID || row.id || '')))
