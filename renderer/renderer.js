@@ -469,16 +469,41 @@ function normalizeDocumentId(value) {
   return typeof value === 'string' ? value.trim().toUpperCase() : '';
 }
 
-function buildPoGroups(items = []) {
+function buildPoGroups(items = [], selectionDetails = []) {
   const groups = new Map();
+  const manualMap = new Map();
+  const normalizePoKey = value => (typeof value === 'string' ? value.trim().toUpperCase() : '');
+
+  if (Array.isArray(selectionDetails)) {
+    selectionDetails.forEach(detail => {
+      const baseValue = typeof detail?.baseId === 'string' ? detail.baseId.trim() : '';
+      const normalizedBase = normalizePoKey(baseValue);
+      if (!normalizedBase) return;
+      manualMap.set(normalizedBase, baseValue);
+      const variants = new Set();
+      variants.add(baseValue);
+      (Array.isArray(detail?.variants) ? detail.variants : []).forEach(id => {
+        if (typeof id === 'string' && id.trim()) {
+          variants.add(id.trim());
+        }
+      });
+      variants.forEach(id => {
+        const normalizedVariant = normalizePoKey(id);
+        if (!normalizedVariant) return;
+        manualMap.set(normalizedVariant, baseValue);
+      });
+    });
+  }
 
   items.forEach(item => {
-    const baseId = item?.baseId || item?.id;
-    if (!baseId) {
+    const itemId = typeof item?.id === 'string' ? item.id.trim() : '';
+    if (!itemId) {
       return;
     }
 
-    const key = baseId.trim();
+    const manualBase = manualMap.get(normalizePoKey(itemId));
+    const baseCandidate = manualBase || item?.baseId || itemId;
+    const key = typeof baseCandidate === 'string' ? baseCandidate.trim() : '';
     if (!key) {
       return;
     }
@@ -486,23 +511,37 @@ function buildPoGroups(items = []) {
     if (!groups.has(key)) {
       groups.set(key, {
         baseId: key,
-        ids: new Set(),
+        ids: new Set([key]),
         total: 0,
         remisiones: new Map(),
         facturas: new Map(),
         remFallback: 0,
-        facFallback: 0
+        facFallback: 0,
+        items: new Map()
       });
     }
 
     const group = groups.get(key);
+    group.ids.add(itemId);
+
     const totals = getTotalsWithDefaults(item?.totals);
     const authorized = normalizeNumber(item?.total ?? totals.total);
+    const baseTotal = authorized > 0 ? authorized : normalizeNumber(totals.total);
+    const totalRem = normalizeNumber(totals.totalRem);
+    const totalFac = normalizeNumber(totals.totalFac);
+    const restante = totals.restante != null
+      ? normalizeNumber(totals.restante)
+      : Math.max(baseTotal - (totalRem + totalFac), 0);
+    const normalizedTotals = {
+      total: roundTo(baseTotal),
+      totalRem: roundTo(totalRem),
+      totalFac: roundTo(totalFac),
+      totalConsumo: roundTo(totalRem + totalFac),
+      restante: roundTo(restante)
+    };
+    const percentages = computePercentagesFromTotals(normalizedTotals);
 
-    if (item?.id) {
-      group.ids.add(item.id);
-    }
-    group.total += authorized;
+    group.total += baseTotal;
 
     const remisiones = Array.isArray(item?.remisiones) ? item.remisiones : [];
     if (remisiones.length) {
@@ -523,8 +562,8 @@ function buildPoGroups(items = []) {
           }
         }
       });
-    } else if (totals.totalRem > 0) {
-      group.remFallback += normalizeNumber(totals.totalRem);
+    } else if (totalRem > 0) {
+      group.remFallback += totalRem;
     }
 
     const facturas = Array.isArray(item?.facturas) ? item.facturas : [];
@@ -546,16 +585,28 @@ function buildPoGroups(items = []) {
           }
         }
       });
-    } else if (totals.totalFac > 0) {
-      group.facFallback += normalizeNumber(totals.totalFac);
+    } else if (totalFac > 0) {
+      group.facFallback += totalFac;
     }
+
+    const isBaseVariant = normalizePoKey(itemId) === normalizePoKey(group.baseId);
+    group.items.set(itemId, {
+      id: itemId,
+      label: itemId,
+      totals: normalizedTotals,
+      percentages,
+      isBase: isBaseVariant,
+      fecha: item?.fecha || ''
+    });
   });
 
   return Array.from(groups.values())
     .map(group => {
       const variantIds = Array.from(group.ids);
-      const orderedIds = [group.baseId, ...variantIds.filter(id => id !== group.baseId)];
-      const extensionIds = orderedIds.filter(id => id !== group.baseId);
+      const orderedVariants = variantIds.includes(group.baseId)
+        ? [group.baseId, ...variantIds.filter(id => id !== group.baseId).sort((a, b) => a.localeCompare(b))]
+        : variantIds.sort((a, b) => a.localeCompare(b));
+      const extensionIds = orderedVariants.filter(id => id !== group.baseId);
       const totalRem = Array.from(group.remisiones.values()).reduce((sum, entry) => sum + entry.monto, 0) + group.remFallback;
       const totalFac = Array.from(group.facturas.values()).reduce((sum, entry) => sum + entry.monto, 0) + group.facFallback;
       const totalConsumo = totalRem + totalFac;
@@ -567,13 +618,23 @@ function buildPoGroups(items = []) {
         totalConsumo: roundTo(totalConsumo),
         restante: roundTo(restante)
       };
+      const baseKey = normalizePoKey(group.baseId);
+      const items = Array.from(group.items.values())
+        .sort((a, b) => {
+          const aKey = normalizePoKey(a.id);
+          const bKey = normalizePoKey(b.id);
+          if (aKey === baseKey) return -1;
+          if (bKey === baseKey) return 1;
+          return aKey.localeCompare(bKey);
+        });
 
       return {
         baseId: group.baseId,
-        ids: orderedIds,
+        ids: orderedVariants,
         extensionIds,
         totals,
-        percentages: computePercentagesFromTotals(totals)
+        percentages: computePercentagesFromTotals(totals),
+        items
       };
     })
     .sort((a, b) => a.baseId.localeCompare(b.baseId));
@@ -1650,7 +1711,7 @@ function attachTableHandlers(summary) {
 function renderCharts(summary) {
   destroyCharts();
   const items = Array.isArray(summary.items) ? summary.items : [];
-  const groups = buildPoGroups(items);
+  const groups = buildPoGroups(items, summary.selectionDetails);
   const extensionContainer = document.getElementById('extensionsContainer');
   if (!groups.length) {
     if (extensionContainer) {
@@ -1688,7 +1749,8 @@ function renderCharts(summary) {
       variantIds: group.ids,
       extensionIds,
       totals: group.totals,
-      percentages: group.percentages
+      percentages: group.percentages,
+      items: Array.isArray(group.items) ? group.items : []
     };
   });
 
@@ -1936,6 +1998,48 @@ function renderCharts(summary) {
       const donutHeight = Math.min(320, Math.max(220, 180 + Math.max(entry.variantCount - 1, 0) * 22));
       const badgeListMarkup = buildGroupBadgeList(entry.id, entry.extensionIds);
       const compositionNote = buildGroupCompositionNote(entry.extensionIds);
+      const breakdownRows = entry.items
+        .map(item => {
+          const badge = item.isBase
+            ? '<span class="badge text-bg-secondary ms-2">Base</span>'
+            : '<span class="badge text-bg-info ms-2">Extensión</span>';
+          return `
+            <tr>
+              <td>
+                <span class="fw-semibold">${escapeHtml(item.id)}</span>
+                ${badge}
+              </td>
+              <td>$${formatCurrency(item.totals.total)}</td>
+              <td>$${formatCurrency(item.totals.totalRem)} (${formatPercentageLabel(item.percentages.rem)})</td>
+              <td>$${formatCurrency(item.totals.totalFac)} (${formatPercentageLabel(item.percentages.fac)})</td>
+              <td>$${formatCurrency(item.totals.restante)} (${formatPercentageLabel(item.percentages.rest)})</td>
+            </tr>
+          `;
+        })
+        .join('');
+      const breakdownTable = breakdownRows
+        ? `
+          <div class="group-breakdown mt-3">
+            <h6 class="text-secondary">Desglose por PO</h6>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0 group-breakdown-table">
+                <thead class="table-light">
+                  <tr>
+                    <th>PO</th>
+                    <th>Total</th>
+                    <th>Remisiones</th>
+                    <th>Facturas</th>
+                    <th>Disponible</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${breakdownRows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `
+        : '';
       card.innerHTML = `
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-start gap-3">
@@ -1960,6 +2064,7 @@ function renderCharts(summary) {
               `)
               .join('')}
           </div>
+          ${breakdownTable}
         </div>
       `;
       extensionContainer.appendChild(card);
@@ -2166,7 +2271,7 @@ function renderReportSelectionOverview() {
     return;
   }
   const items = Array.isArray(state.summary.items) ? state.summary.items : [];
-  const groups = buildPoGroups(items);
+  const groups = buildPoGroups(items, state.summary?.selectionDetails);
   if (!groups.length) {
     container.innerHTML = '<p class="text-muted mb-0">No se encontraron POs activas con la selección actual.</p>';
     if (help) {
