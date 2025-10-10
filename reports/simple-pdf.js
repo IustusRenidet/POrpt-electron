@@ -130,6 +130,54 @@ function formatPercentage(value) {
   return `${roundTo(value, 2).toFixed(2)}%`;
 }
 
+function normalizePoId(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+}
+
+function getBasePoId(poId) {
+  const normalized = normalizePoId(poId);
+  if (!normalized) {
+    return '';
+  }
+  return normalized.replace(/-\d+$/u, '');
+}
+
+function normalizeAlertEntries(alerts = [], fallback = []) {
+  const registry = new Set();
+  const addEntry = value => {
+    if (!value) return;
+    const trimmed = value.replace(/\s+/gu, ' ').trim();
+    if (!trimmed || trimmed.toLowerCase().startsWith('sin alertas')) {
+      return;
+    }
+    if (!registry.has(trimmed)) {
+      registry.add(trimmed);
+    }
+  };
+
+  alerts.forEach(alert => {
+    if (!alert) return;
+    if (typeof alert === 'string') {
+      addEntry(alert);
+      return;
+    }
+    const message = typeof alert.message === 'string' ? alert.message.trim() : '';
+    if (!message) return;
+    const type = typeof alert.type === 'string' ? alert.type.trim().toUpperCase() : 'INFO';
+    addEntry(`[${type}] ${message}`);
+  });
+
+  const fallbackArray = Array.isArray(fallback)
+    ? fallback
+    : typeof fallback === 'string'
+      ? fallback.split(/\n+/u)
+      : [];
+  fallbackArray.forEach(entry => addEntry(entry));
+
+  return Array.from(registry);
+}
+
 function getContentBounds(doc) {
   const left = doc.page.margins.left;
   const right = doc.page.width - doc.page.margins.right;
@@ -786,6 +834,37 @@ function drawLegendRows(doc, entries, startX, startY, maxWidth) {
   return currentY;
 }
 
+function drawAlertList(doc, alerts, options = {}) {
+  const entries = normalizeAlertEntries(alerts, options.fallback || []);
+  if (!entries.length) {
+    return;
+  }
+  const startX = doc.page.margins.left;
+  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const prepared = entries.map(entry => entry.replace(/\s+/gu, ' ').trim()).filter(Boolean);
+  if (!prepared.length) {
+    return;
+  }
+  const measuringFont = doc.font('Helvetica').fontSize(11);
+  const contentHeight = prepared.reduce((sum, entry) => {
+    const height = measuringFont.heightOfString(entry, { width });
+    return sum + height + 4;
+  }, 0);
+  const requiredHeight = contentHeight + 28;
+  ensureSpace(doc, requiredHeight);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .fillColor('#b91c1c')
+    .text(options.title || 'Alertas', startX, doc.y, { width });
+  doc.moveDown(0.2);
+  prepared.forEach(entry => {
+    doc.font('Helvetica').fontSize(11).fillColor('#b91c1c').text(entry, startX, doc.y, { width });
+    doc.moveDown(0.1);
+  });
+  doc.moveDown(0.4);
+}
+
 function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
   const bounds = getContentBounds(doc);
   const availableWidth = Math.max(0, bounds.width);
@@ -825,159 +904,230 @@ function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
   doc.y = legendBottom + 14;
 }
 
-function buildPoChartGroups(summary) {
+function drawSmallConsumptionBar(doc, totals, branding, options = {}) {
+  const bounds = getContentBounds(doc);
+  const startX = options.startX ?? bounds.left;
+  const width = Math.min(options.width ?? bounds.width, bounds.width);
+  if (width <= 0) {
+    return;
+  }
+  const barHeight = options.barHeight || 16;
+  const legendGap = 6;
+  const percentages = computePercentages(totals);
+  const legendEntries = [
+    { label: `Remisiones: ${formatPercentage(percentages.rem)} (${formatCurrency(totals.totalRem)})`, color: branding.remColor },
+    { label: `Facturas: ${formatPercentage(percentages.fac)} (${formatCurrency(totals.totalFac)})`, color: branding.facColor },
+    { label: `Disponible: ${formatPercentage(percentages.rest)} (${formatCurrency(totals.restante)})`, color: branding.restanteColor }
+  ];
+  const measuring = doc.font('Helvetica').fontSize(10);
+  const legendHeight = legendEntries.reduce((sum, entry) => sum + measuring.heightOfString(entry.label, { width }) + 2, 0);
+  const requiredHeight = barHeight + legendGap + legendHeight + 6;
+  ensureSpace(doc, requiredHeight);
+  const barTop = doc.y;
+  doc.lineWidth(0.6).roundedRect(startX, barTop, width, barHeight, 5).stroke('#cbd5f5');
+  let cursorX = startX;
+  const segments = [
+    { value: percentages.rem, color: branding.remColor },
+    { value: percentages.fac, color: branding.facColor },
+    { value: percentages.rest, color: branding.restanteColor }
+  ];
+  segments.forEach(segment => {
+    const segmentWidth = (width * segment.value) / 100;
+    if (segmentWidth <= 0) return;
+    doc.save().rect(cursorX, barTop, segmentWidth, barHeight).fillOpacity(0.95).fill(segment.color).restore();
+    cursorX += segmentWidth;
+  });
+  doc.y = barTop + barHeight + legendGap;
+  legendEntries.forEach(entry => {
+    doc.font('Helvetica').fontSize(10).fillColor(entry.color).text(entry.label, startX, doc.y, { width });
+    doc.moveDown(0.1);
+  });
+  doc.moveDown(0.2);
+}
+
+function normalizeItemTotals(item) {
+  const totals = item?.totals || {};
+  const authorized = Number(item?.total ?? totals.total ?? 0);
+  const subtotal = Number(item?.subtotal ?? 0);
+  const totalRem = Number(totals.totalRem ?? totals.rem ?? 0);
+  const totalFac = Number(totals.totalFac ?? totals.fac ?? 0);
+  const restanteRaw = totals.restante != null ? Number(totals.restante) : authorized - (totalRem + totalFac);
+  const restante = roundTo(Math.max(restanteRaw, 0));
+  const normalized = {
+    total: roundTo(authorized),
+    subtotal: roundTo(subtotal),
+    totalRem: roundTo(totalRem),
+    totalFac: roundTo(totalFac),
+    totalConsumo: roundTo(totalRem + totalFac),
+    restante
+  };
+  const percentages = computePercentages(normalized);
+  percentages.consumo = clampPercentage(percentages.rem + percentages.fac);
+  return { totals: normalized, percentages };
+}
+
+function buildPoGroupDetails(summary) {
   const items = Array.isArray(summary.items) ? summary.items : [];
+  if (!items.length) {
+    return [];
+  }
   const groups = new Map();
   items.forEach(item => {
-    const baseId = item.baseId || item.id;
-    if (!baseId) return;
+    const id = normalizePoId(item?.id);
+    if (!id) return;
+    const providedBase = normalizePoId(item?.baseId);
+    const baseId = providedBase || getBasePoId(id) || id;
     if (!groups.has(baseId)) {
       groups.set(baseId, {
         baseId,
-        ids: [],
+        ids: new Set(),
+        items: [],
         total: 0,
         totalRem: 0,
-        totalFac: 0
+        totalFac: 0,
+        alerts: []
       });
     }
     const group = groups.get(baseId);
-    group.ids.push(item.id);
-    group.total += Number(item.total || 0);
-    group.totalRem += Number(item.totals?.totalRem || 0);
-    group.totalFac += Number(item.totals?.totalFac || 0);
+    const { totals, percentages } = normalizeItemTotals(item);
+    group.ids.add(id);
+    group.total += totals.total;
+    group.totalRem += totals.totalRem;
+    group.totalFac += totals.totalFac;
+    const itemAlerts = Array.isArray(item.alerts) ? item.alerts : [];
+    if (itemAlerts.length) {
+      group.alerts.push(...itemAlerts);
+    }
+    const isBase = providedBase ? providedBase === id : getBasePoId(id) === baseId;
+    group.items.push({
+      id,
+      fecha: item.fecha || '',
+      clave: item.docSig || item.doc_sig || item.tipDoc || item.tip_doc || '',
+      totals,
+      percentages,
+      isBase,
+      alerts: itemAlerts
+    });
   });
   return Array.from(groups.values())
     .map(group => {
-      const totalConsumo = group.totalRem + group.totalFac;
-      const restante = Math.max(group.total - totalConsumo, 0);
+      const orderedItems = group.items.sort((a, b) => {
+        if (a.isBase === b.isBase) {
+          return a.id.localeCompare(b.id);
+        }
+        return a.isBase ? -1 : 1;
+      });
       const totals = {
         total: roundTo(group.total),
         totalRem: roundTo(group.totalRem),
-        totalFac: roundTo(group.totalFac),
-        totalConsumo: roundTo(totalConsumo),
-        restante: roundTo(restante)
+        totalFac: roundTo(group.totalFac)
       };
+      totals.totalConsumo = roundTo(totals.totalRem + totals.totalFac);
+      totals.restante = roundTo(Math.max(totals.total - totals.totalConsumo, 0));
+      const percentages = computePercentages(totals);
+      percentages.consumo = clampPercentage(percentages.rem + percentages.fac);
+      const ids = Array.from(group.ids.values());
+      const extensionIds = ids.filter(id => id !== group.baseId);
       return {
         baseId: group.baseId,
-        ids: group.ids,
-        count: group.ids.length,
+        ids,
+        extensionIds,
         totals,
-        percentages: computePercentages(totals)
+        percentages,
+        items: orderedItems,
+        alerts: group.alerts
       };
     })
     .sort((a, b) => a.baseId.localeCompare(b.baseId));
 }
 
-function drawPerPoConsumptionCards(doc, groups, branding) {
-  if (!groups.length) return;
-  const bounds = getContentBounds(doc);
-  const availableWidth = bounds.width;
-  if (availableWidth <= 0) {
-    return;
-  }
-  const minCardWidth = 240;
-  const maxColumns = 3;
-  const gapSize = 14;
-  let columns = Math.max(1, Math.floor((availableWidth + gapSize) / (minCardWidth + gapSize)));
-  columns = Math.min(maxColumns, columns);
-  while (columns > 1) {
-    const tentativeGap = gapSize;
-    const tentativeWidth = (availableWidth - tentativeGap * (columns - 1)) / columns;
-    if (tentativeWidth >= minCardWidth - 0.5) {
-      break;
-    }
-    columns -= 1;
-  }
-  const gap = columns > 1 ? gapSize : 0;
-  const rawCardWidth = columns === 1 ? availableWidth : (availableWidth - gap * (columns - 1)) / columns;
-  const cardWidth = Math.max(0, Math.min(rawCardWidth, availableWidth));
-  const cardHeight = columns >= 3 ? 120 : 130;
-  let rowTop = doc.y;
-  groups.forEach((group, index) => {
-    const columnIndex = index % columns;
-    if (columnIndex === 0) {
-      ensureSpace(doc, cardHeight + 32);
-      rowTop = doc.y;
-    }
-    const x = bounds.left + columnIndex * (cardWidth + gap);
-    const y = rowTop;
-    const { x: cardX, width: safeCardWidth } = clampHorizontalRect(bounds, x, cardWidth);
+function drawGroupTable(doc, group, options = {}) {
+  const startX = options.startX ?? doc.page.margins.left;
+  const width = options.width ?? (doc.page.width - doc.page.margins.left - doc.page.margins.right);
+  const columns = [
+    { key: 'id', label: 'PO / Ext', width: width * 0.15 },
+    { key: 'fecha', label: 'Fecha', width: width * 0.11 },
+    { key: 'clave', label: 'Clave', width: width * 0.11 },
+    { key: 'autorizado', label: 'Autorizado', width: width * 0.14 },
+    { key: 'rem', label: 'Remisiones', width: width * 0.14 },
+    { key: 'fac', label: 'Facturas', width: width * 0.14 },
+    { key: 'consumo', label: 'Consumido', width: width * 0.10 },
+    { key: 'rest', label: 'Disponible', width: width * 0.11 }
+  ];
+  const headerHeight = 24;
+  const rowHeight = 22;
+  const drawHeader = () => {
+    ensureSpace(doc, headerHeight + 6);
+    const y = doc.y;
     doc.save();
-    doc.roundedRect(cardX, y, safeCardWidth, cardHeight, 10).fill('#ffffff').stroke('#dbeafe');
+    doc.lineWidth(1);
+    doc.rect(startX, y, width, headerHeight).fillAndStroke('#0f172a', '#1f2937');
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(10);
+    let offsetX = startX;
+    columns.forEach(column => {
+      doc.text(column.label, offsetX + 8, y + 6, { width: column.width - 16 });
+      offsetX += column.width;
+    });
     doc.restore();
-    const textWidth = Math.max(0, safeCardWidth - 28);
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(12)
-      .fillColor(branding.accentColor || '#0f172a')
-      .text(`PO ${group.baseId}`, cardX + 14, y + 12, { width: textWidth });
-    const variantLabel = group.count === 1 ? 'Solo base incluida' : `${group.count} variantes seleccionadas`;
-    doc
-      .font('Helvetica')
-      .fontSize(10)
-      .fillColor('#475569')
-      .text(variantLabel, cardX + 14, y + 28, { width: textWidth });
-    doc
-      .font('Helvetica')
-      .fontSize(10)
-      .fillColor('#0f172a')
-      .text(`Autorizado: ${formatCurrency(group.totals.total)}`, cardX + 14, y + 42, { width: textWidth });
-    const barX = cardX + 14;
-    const barY = y + 58;
-    const barWidth = Math.max(0, safeCardWidth - 28);
-    const barHeight = 12;
-    doc.save();
-    doc.roundedRect(barX, barY, barWidth, barHeight, 6).fill('#e2e8f0');
-    doc.restore();
-    const remWidth = (barWidth * group.percentages.rem) / 100;
-    const facWidth = (barWidth * group.percentages.fac) / 100;
-    const restWidth = Math.max(0, barWidth - remWidth - facWidth);
-    let cursorX = barX;
-    if (remWidth > 0) {
-      doc.save().rect(cursorX, barY, remWidth, barHeight).fillOpacity(0.95).fill(branding.remColor).restore();
-      cursorX += remWidth;
+    doc.y = y + headerHeight;
+  };
+  drawHeader();
+  group.items.forEach(item => {
+    if (ensureSpace(doc, rowHeight + 6)) {
+      drawHeader();
     }
-    if (facWidth > 0) {
-      doc.save().rect(cursorX, barY, facWidth, barHeight).fillOpacity(0.95).fill(branding.facColor).restore();
-      cursorX += facWidth;
-    }
-    if (restWidth > 0) {
-      doc.save().rect(cursorX, barY, restWidth, barHeight).fillOpacity(0.95).fill(branding.restanteColor).restore();
-    }
-    const metricsY = barY + barHeight + 8;
-    const totalAuthorized = Math.max(0, Number(group.totals.total || 0));
-    const totalConsumo = Math.max(0, Number(group.totals.totalRem || 0) + Number(group.totals.totalFac || 0));
-    const consumoPercent = formatPercentage(
-      totalAuthorized > 0 ? roundTo((totalConsumo / totalAuthorized) * 100) : 0
-    );
-    doc
-      .font('Helvetica')
-      .fontSize(9.5)
-      .fillColor('#111827')
-      .text(`Consumido: ${formatCurrency(group.totals.totalConsumo)} (${consumoPercent})`, cardX + 14, metricsY, {
-        width: textWidth
-      });
-    doc
-      .font('Helvetica')
-      .fontSize(9.5)
-      .fillColor('#111827')
-      .text(`Disponible: ${formatCurrency(group.totals.restante)} (${formatPercentage(group.percentages.rest)})`, cardX + 14, metricsY + 12, {
-        width: textWidth
-      });
-    doc
-      .font('Helvetica')
-      .fontSize(8.5)
-      .fillColor('#475569')
-      .text(
-        `Rem ${formatPercentage(group.percentages.rem)} · Fac ${formatPercentage(group.percentages.fac)} · Disp ${formatPercentage(group.percentages.rest)}`,
-        cardX + 14,
-        metricsY + 22,
-        { width: textWidth }
-      );
-    if (columnIndex === columns - 1 || index === groups.length - 1) {
-      doc.y = rowTop + cardHeight + 24;
-    }
+    const y = doc.y;
+    const background = item.isBase ? '#f8fafc' : '#ffffff';
+    doc.save().fillColor(background).rect(startX, y, width, rowHeight).fill().restore();
+    doc.lineWidth(0.5).strokeColor('#d1d5db').rect(startX, y, width, rowHeight).stroke();
+    doc.font('Helvetica').fontSize(10).fillColor('#111827');
+    const rowValues = [
+      item.isBase ? `${item.id} (base)` : item.id,
+      item.fecha || '-',
+      item.clave || '-',
+      formatCurrency(item.totals.total),
+      `${formatCurrency(item.totals.totalRem)} (${formatPercentage(item.percentages.rem)})`,
+      `${formatCurrency(item.totals.totalFac)} (${formatPercentage(item.percentages.fac)})`,
+      `${formatCurrency(item.totals.totalConsumo)} (${formatPercentage(item.percentages.consumo)})`,
+      `${formatCurrency(item.totals.restante)} (${formatPercentage(item.percentages.rest)})`
+    ];
+    let offsetX = startX;
+    rowValues.forEach((value, index) => {
+      const align = index >= 3 ? 'right' : 'left';
+      doc.text(value, offsetX + 8, y + 6, { width: columns[index].width - 16, align });
+      offsetX += columns[index].width;
+    });
+    doc.y = y + rowHeight;
   });
+  doc.moveDown(0.4);
+}
+
+function drawGroupSection(doc, group, branding) {
+  const startX = doc.page.margins.left;
+  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const title = group.extensionIds.length
+    ? `PO base ${group.baseId} (incluye ${group.extensionIds.length} extensión${group.extensionIds.length === 1 ? '' : 'es'})`
+    : `PO ${group.baseId}`;
+  ensureSpace(doc, 60);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(13)
+    .fillColor(branding.accentColor || '#111827')
+    .text(title, startX, doc.y, { width });
+  if (group.extensionIds.length) {
+    doc
+      .font('Helvetica')
+      .fontSize(10)
+      .fillColor('#475569')
+      .text(`Detalle: ${[group.baseId, ...group.extensionIds].join(', ')}`, startX, doc.y, { width });
+  }
+  doc.moveDown(0.2);
+  drawSmallConsumptionBar(doc, group.totals, branding, { startX, width });
+  drawGroupTable(doc, group, { startX, width });
+  const alertEntries = normalizeAlertEntries(group.alerts || []);
+  if (alertEntries.length) {
+    drawAlertList(doc, alertEntries, { title: 'Alertas del grupo' });
+  }
 }
 
 function renderObservationBox(doc, notes, options = {}) {
@@ -1017,17 +1167,25 @@ function renderObservationBox(doc, notes, options = {}) {
 }
 
 function drawChartsSection(doc, summary, branding) {
+  const groups = buildPoGroupDetails(summary);
+  if (!groups.length) {
+    return;
+  }
   const totals = summary.totals || {};
-  const groups = buildPoChartGroups(summary);
-  if (!groups.length) return;
   const title = groups.length > 1
     ? 'Consumo combinado de la selección'
     : `Consumo de la PO ${groups[0].baseId}`;
   drawCombinedConsumptionBar(doc, totals, branding, { title });
-  doc.moveDown(0.2);
-  doc.font('Helvetica-Bold').fontSize(14).fillColor(branding.accentColor || '#111827').text('Consumo por PEO', doc.page.margins.left, doc.y);
   doc.moveDown(0.3);
-  drawPerPoConsumptionCards(doc, groups, branding);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(14)
+    .fillColor(branding.accentColor || '#111827')
+    .text('Detalle por pedido', doc.page.margins.left, doc.y);
+  doc.moveDown(0.3);
+  groups.forEach(group => {
+    drawGroupSection(doc, group, branding);
+  });
 }
 
 function drawObservations(doc, summary) {
@@ -1093,12 +1251,17 @@ async function generate(summary, branding = {}, customization = {}) {
       drawHeader(doc, summary, style);
       if (summary.universe?.isUniverse) {
         drawUniverseFilterInfo(doc, summary, style);
-        drawSummaryBox(doc, summary, style);
-        if (options.includeCharts) {
-          drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
-        } else {
-          doc.moveDown(1.2);
-        }
+      drawSummaryBox(doc, summary, style);
+      const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
+      const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
+      if (globalAlerts.length) {
+        drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+      }
+      if (options.includeCharts) {
+        drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
+      } else {
+        doc.moveDown(1.2);
+      }
         if (options.includeUniverse) {
           drawUniverseTotalsTable(doc, summary, style);
         }
@@ -1106,12 +1269,17 @@ async function generate(summary, branding = {}, customization = {}) {
           drawUniverseObservations(doc, summary);
         }
       } else {
-        drawSummaryBox(doc, summary, style);
-        if (options.includeCharts) {
-          drawChartsSection(doc, summary, style);
-        } else {
-          doc.moveDown(1.2);
-        }
+      drawSummaryBox(doc, summary, style);
+      const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
+      const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
+      if (globalAlerts.length) {
+        drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+      }
+      if (options.includeCharts) {
+        drawChartsSection(doc, summary, style);
+      } else {
+        doc.moveDown(1.2);
+      }
         drawPoBaseBreakdown(doc, summary, style);
         drawPoTable(doc, summary);
         if (options.includeMovements) {

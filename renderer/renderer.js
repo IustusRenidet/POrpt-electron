@@ -162,10 +162,29 @@ function sanitizeFileName(value, fallback) {
   return sanitized || fallback;
 }
 
+function resetChartCanvas(canvas) {
+  if (!canvas) return;
+  const context = canvas.getContext?.('2d');
+  if (context) {
+    context.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+  }
+  canvas.removeAttribute('height');
+  canvas.style.removeProperty('height');
+  canvas.style.removeProperty('width');
+  const wrapper = canvas.closest?.('.chart-wrapper');
+  if (wrapper) {
+    wrapper.style.removeProperty('minHeight');
+    wrapper.style.removeProperty('maxHeight');
+    wrapper.style.removeProperty('height');
+  }
+}
+
 function destroyCharts() {
   state.charts.forEach(chart => {
     if (chart && typeof chart.destroy === 'function') {
+      const canvas = chart.canvas || chart.ctx?.canvas;
       chart.destroy();
+      resetChartCanvas(canvas);
     }
   });
   state.charts.clear();
@@ -1677,30 +1696,26 @@ function attachTableHandlers(summary) {
     ]
       .filter(Boolean)
       .join('\n');
+    const resumenHtml = escapeHtml(totalesResumen);
+    const remisionesHtml = escapeHtml(item.remisionesTexto || 'Sin remisiones registradas');
+    const facturasHtml = escapeHtml(item.facturasTexto || 'Sin facturas registradas');
+    const alertasHtml = escapeHtml(item.alertasTexto || 'Sin alertas');
     modalBody.innerHTML = `
       <div class="mb-3">
         <h6 class="text-secondary">Totales del pedido</h6>
-        <pre class="bg-light rounded p-3 small">${totalesResumen}</pre>
+        <pre class="bg-light rounded p-3 small">${resumenHtml}</pre>
       </div>
       <div class="mb-3">
         <h6 class="text-primary">Remisiones</h6>
-        <pre class="bg-light rounded p-3 small">${item.remisionesTexto}</pre>
+        <pre class="bg-light rounded p-3 small">${remisionesHtml}</pre>
       </div>
       <div class="mb-3">
         <h6 class="text-danger">Facturas</h6>
-        <pre class="bg-light rounded p-3 small">${item.facturasTexto}</pre>
+        <pre class="bg-light rounded p-3 small">${facturasHtml}</pre>
       </div>
-      // <div class="mb-3">
-      //   <h6 class="text-success">Notas de venta vinculadas</h6>
-      //   <pre class="bg-light rounded p-3 small">${item.notasVentaTexto || 'Sin notas de venta vinculadas'}</pre>
-      // </div>
-      // <div class="mb-3">
-      //   <h6 class="text-info">Cotizaciones relacionadas</h6>
-      //   <pre class="bg-light rounded p-3 small">${item.cotizacionesTexto || 'Sin cotizaciones relacionadas'}</pre>
-      // </div>
-      <div>
-        <h6 class="text-warning">Alertas</h6>
-        <pre class="bg-light rounded p-3 small">${item.alertasTexto}</pre>
+      <div class="mb-0">
+        <h6 class="text-danger">Alertas</h6>
+        <pre class="bg-light border border-danger-subtle rounded p-3 small text-danger fw-semibold">${alertasHtml}</pre>
       </div>
     `;
     const modal = new bootstrap.Modal(modalElement);
@@ -1710,6 +1725,12 @@ function attachTableHandlers(summary) {
 
 function renderCharts(summary) {
   destroyCharts();
+  ['chartRem', 'chartFac', 'chartJunto'].forEach(id => {
+    const canvas = document.getElementById(id);
+    if (canvas) {
+      resetChartCanvas(canvas);
+    }
+  });
   const items = Array.isArray(summary.items) ? summary.items : [];
   const groups = buildPoGroups(items, summary.selectionDetails);
   const extensionContainer = document.getElementById('extensionsContainer');
