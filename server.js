@@ -704,12 +704,16 @@ async function getPoSummary(empresa, poId, options = {}) {
       throw new Error(`No se encontró información para el PO ${targetPo}`);
     }
     const remDocIds = [];
+    const remDocKeys = new Set();
     const factDocIdsFromPo = [];
+    const factDocIdKeysFromPo = new Set();
     const factDocAntFromPo = new Set();
+    const poDocKeys = new Set();
     targetRows.forEach(row => {
       const id = (row.ID || row.id || '').trim();
       if (id) {
         factDocAntFromPo.add(id);
+        poDocKeys.add(normalizeDocKey(id));
       }
       const tipDocRaw = row.TIP_DOC_SIG ?? row.tip_doc_sig;
       const docSigRaw = row.DOC_SIG ?? row.doc_sig;
@@ -720,17 +724,28 @@ async function getPoSummary(empresa, poId, options = {}) {
       }
       if (tipDoc === 'R') {
         remDocIds.push(docSig);
+        remDocKeys.add(normalizeDocKey(docSig));
       } else if (tipDoc === 'F') {
         factDocIdsFromPo.push(docSig);
+        factDocIdKeysFromPo.add(normalizeDocKey(docSig));
       }
     });
 
     const remRows = await fetchRemisiones(db, tables.FACTR, { docIds: remDocIds });
+    const filteredRemRows = remRows.filter(row => {
+      const remKey = normalizeDocKey(row.ID ?? row.id ?? '');
+      const docAntKey = normalizeDocKey(row.DOC_ANT ?? row.doc_ant ?? '');
+      const tipDocAntRaw = row.TIP_DOC_ANT ?? row.tip_doc_ant ?? '';
+      const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+      const linkedById = remKey && remDocKeys.has(remKey);
+      const linkedByPo = docAntKey && poDocKeys.has(docAntKey) && (tipDocAnt === 'P' || !tipDocAnt);
+      return linkedById || linkedByPo;
+    });
     const remDataById = new Map();
     const factDocIdsFromRem = new Set();
     const factDocAntFromRem = new Set();
 
-    remRows.forEach(row => {
+    filteredRemRows.forEach(row => {
       const remId = (row.ID || row.id || '').trim();
       if (!remId) return;
       const remKey = normalizeDocKey(remId);
@@ -760,9 +775,23 @@ async function getPoSummary(empresa, poId, options = {}) {
       docIds: [...factDocIdsFromPo, ...factDocIdsFromRem]
     });
 
+    const remKeysFromData = new Set(filteredRemRows.map(row => normalizeDocKey(row.ID ?? row.id ?? '')));
+    const factDocIdKeysFromRem = new Set(Array.from(factDocIdsFromRem, normalizeDocKey));
+    const filteredFactRows = factRows.filter(row => {
+      const factKey = normalizeDocKey(row.ID ?? row.id ?? '');
+      const docAntKey = normalizeDocKey(row.DOC_ANT ?? row.doc_ant ?? '');
+      const tipDocAntRaw = row.TIP_DOC_ANT ?? row.tip_doc_ant ?? '';
+      const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+      const linkedByPo = docAntKey && poDocKeys.has(docAntKey) && (tipDocAnt === 'P' || !tipDocAnt);
+      const linkedByRem = docAntKey && remKeysFromData.has(docAntKey) && (tipDocAnt === 'R' || !tipDocAnt);
+      const linkedById =
+        factKey && (factDocIdKeysFromPo.has(factKey) || factDocIdKeysFromRem.has(factKey));
+      return linkedByPo || linkedByRem || linkedById;
+    });
+
     const factDataById = new Map();
 
-    factRows.forEach(row => {
+    filteredFactRows.forEach(row => {
       const facId = (row.ID || row.id || '').trim();
       if (!facId) return;
       const facKey = normalizeDocKey(facId);
@@ -1094,13 +1123,20 @@ async function getUniverseSummary(empresa, rawFilter) {
 
     const total = poRows.reduce((sum, row) => sum + Number(row.IMPORTE ?? row.importe ?? 0), 0);
     const poIds = new Set();
+    const poDocKeys = new Set();
     const remDocIds = new Set();
+    const remDocKeys = new Set();
     const factDocIdsFromPo = new Set();
+    const factDocIdKeysFromPo = new Set();
 
     poRows.forEach(row => {
       const id = normalizePoId(row.ID ?? row.id ?? '');
       if (id) {
         poIds.add(id);
+        const poKey = normalizeDocKey(id);
+        if (poKey) {
+          poDocKeys.add(poKey);
+        }
       }
       const tipDoc = typeof row.TIP_DOC_SIG === 'string' ? row.TIP_DOC_SIG.trim().toUpperCase() :
         typeof row.tip_doc_sig === 'string' ? row.tip_doc_sig.trim().toUpperCase() : '';
@@ -1111,8 +1147,10 @@ async function getUniverseSummary(empresa, rawFilter) {
       }
       if (tipDoc === 'R') {
         remDocIds.add(docSig);
+        remDocKeys.add(normalizeDocKey(docSig));
       } else if (tipDoc === 'F') {
         factDocIdsFromPo.add(docSig);
+        factDocIdKeysFromPo.add(normalizeDocKey(docSig));
       }
     });
 
@@ -1121,7 +1159,17 @@ async function getUniverseSummary(empresa, rawFilter) {
       docIds: Array.from(remDocIds)
     });
 
-    const remData = remRows.map(row => ({
+    const filteredRemRows = remRows.filter(row => {
+      const remKey = normalizeDocKey(row.ID ?? row.id ?? '');
+      const docAntKey = normalizeDocKey(row.DOC_ANT ?? row.doc_ant ?? '');
+      const tipDocAntRaw = row.TIP_DOC_ANT ?? row.tip_doc_ant ?? '';
+      const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+      const linkedById = remKey && remDocKeys.has(remKey);
+      const linkedByPo = docAntKey && poDocKeys.has(docAntKey) && (tipDocAnt === 'P' || !tipDocAnt);
+      return linkedById || linkedByPo;
+    });
+
+    const remData = filteredRemRows.map(row => ({
       id: normalizeDocKey(row.ID ?? row.id ?? ''),
       monto: Number(row.IMPORTE ?? row.importe ?? 0),
       tipDocSig:
@@ -1135,14 +1183,21 @@ async function getUniverseSummary(empresa, rawFilter) {
     }));
 
     const factDocIdsFromRem = new Set();
+    const factDocIdKeysFromRem = new Set();
     const factDocAntFromRem = new Set();
 
-    remData.forEach(rem => {
-      if (rem.id) {
-        factDocAntFromRem.add(rem.id);
+    filteredRemRows.forEach(row => {
+      const remId = (row.ID || row.id || '').trim();
+      if (remId) {
+        factDocAntFromRem.add(remId);
       }
-      if (rem.tipDocSig === 'F' && rem.docSig) {
-        factDocIdsFromRem.add(rem.docSig);
+      const tipDocSigRaw = row.TIP_DOC_SIG ?? row.tip_doc_sig ?? '';
+      const tipDocSig = typeof tipDocSigRaw === 'string' ? tipDocSigRaw.trim().toUpperCase() : '';
+      const docSigRaw = row.DOC_SIG ?? row.doc_sig ?? '';
+      const docSig = typeof docSigRaw === 'string' ? docSigRaw.trim() : '';
+      if (tipDocSig === 'F' && docSig) {
+        factDocIdsFromRem.add(docSig);
+        factDocIdKeysFromRem.add(normalizeDocKey(docSig));
       }
     });
 
@@ -1152,8 +1207,21 @@ async function getUniverseSummary(empresa, rawFilter) {
       docIds: Array.from(new Set([...factDocIdsFromPo, ...factDocIdsFromRem]))
     });
 
+    const remKeysFromData = new Set(remData.map(rem => rem.id).filter(Boolean));
+    const filteredFactRows = factRows.filter(row => {
+      const factKey = normalizeDocKey(row.ID ?? row.id ?? '');
+      const docAntKey = normalizeDocKey(row.DOC_ANT ?? row.doc_ant ?? '');
+      const tipDocAntRaw = row.TIP_DOC_ANT ?? row.tip_doc_ant ?? '';
+      const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+      const linkedByPo = docAntKey && poDocKeys.has(docAntKey) && (tipDocAnt === 'P' || !tipDocAnt);
+      const linkedByRem = docAntKey && remKeysFromData.has(docAntKey) && (tipDocAnt === 'R' || !tipDocAnt);
+      const linkedById =
+        factKey && (factDocIdKeysFromPo.has(factKey) || factDocIdKeysFromRem.has(factKey));
+      return linkedByPo || linkedByRem || linkedById;
+    });
+
     const totalRem = remData.reduce((sum, rem) => sum + rem.monto, 0);
-    const totalFac = factRows.reduce((sum, row) => sum + Number(row.IMPORTE ?? row.importe ?? 0), 0);
+    const totalFac = filteredFactRows.reduce((sum, row) => sum + Number(row.IMPORTE ?? row.importe ?? 0), 0);
 
     const totals = calculateTotals(total, totalRem, totalFac);
     const totalsTexto =
