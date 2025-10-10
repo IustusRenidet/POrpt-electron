@@ -902,10 +902,6 @@ function renderExtensionSelection() {
   const container = document.getElementById('extensionSelectionContainer');
   if (!container) return;
   container.innerHTML = '';
-  if (!state.selectedPoIds.length) {
-    container.innerHTML = '<p class="text-muted small mb-0">Selecciona una PO base para ver sus extensiones sugeridas.</p>';
-    return;
-  }
 
   state.selectedPoIds.forEach(baseId => {
     const suggestedVariants = getSuggestedVariants(baseId);
@@ -945,7 +941,7 @@ function renderExtensionSelection() {
     const header = document.createElement('div');
     header.className = 'extension-selection-header';
     const authorizedText = poMeta
-      ? `Autorizado: $${formatCurrency(poMeta.total || 0)}. Marca solo las extensiones que suman consumo.`
+      ? `Autorizado: $${formatCurrency(poMeta.total || 0)}`
       : 'Marca solo las extensiones que suman consumo.';
     header.innerHTML = `
       <div>
@@ -1017,7 +1013,6 @@ function renderExtensionSelection() {
     if (variants.length <= 1) {
       const empty = document.createElement('p');
       empty.className = 'extension-selection-empty';
-      empty.textContent = 'Sin extensiones adicionales registradas para esta PO. Agrega una manual desde el campo inferior.';
       optionsGrid.appendChild(empty);
     }
 
@@ -1188,9 +1183,6 @@ function renderSelectedPoChips() {
     }
     renderExtensionSelection();
     return;
-  }
-  if (help) {
-    help.textContent = 'Selecciona si tu PO cuenta con extensión, generamos sugerencias pero puedes agregar una manualmente.';
   }
   state.selectedPoIds.forEach(baseId => {
     const chip = document.createElement('span');
@@ -1502,14 +1494,14 @@ function attachTableHandlers(summary) {
         <h6 class="text-danger">Facturas</h6>
         <pre class="bg-light rounded p-3 small">${item.facturasTexto}</pre>
       </div>
-      <div class="mb-3">
-        <h6 class="text-success">Notas de venta vinculadas</h6>
-        <pre class="bg-light rounded p-3 small">${item.notasVentaTexto || 'Sin notas de venta vinculadas'}</pre>
-      </div>
-      <div class="mb-3">
-        <h6 class="text-info">Cotizaciones relacionadas</h6>
-        <pre class="bg-light rounded p-3 small">${item.cotizacionesTexto || 'Sin cotizaciones relacionadas'}</pre>
-      </div>
+      // <div class="mb-3">
+      //   <h6 class="text-success">Notas de venta vinculadas</h6>
+      //   <pre class="bg-light rounded p-3 small">${item.notasVentaTexto || 'Sin notas de venta vinculadas'}</pre>
+      // </div>
+      // <div class="mb-3">
+      //   <h6 class="text-info">Cotizaciones relacionadas</h6>
+      //   <pre class="bg-light rounded p-3 small">${item.cotizacionesTexto || 'Sin cotizaciones relacionadas'}</pre>
+      // </div>
       <div>
         <h6 class="text-warning">Alertas</h6>
         <pre class="bg-light rounded p-3 small">${item.alertasTexto}</pre>
@@ -2021,16 +2013,10 @@ function renderReportSelectionOverview() {
   const help = document.getElementById('reportDownloadHelp');
   if (state.selectedPoIds.length === 0 || !state.selectedEmpresa) {
     container.innerHTML = '<p class="text-muted mb-0">Selecciona una empresa y al menos una PO en la pestaña "Selección".</p>';
-    if (help) {
-      help.textContent = 'Aún no hay suficientes datos para preparar el reporte.';
-    }
-    return;
+    
   }
   if (!state.summary) {
     container.innerHTML = '<p class="text-muted mb-0">Cuando el dashboard termine de cargar, verás aquí el resumen del reporte.</p>';
-    if (help) {
-      help.textContent = 'Actualiza el dashboard para habilitar la descarga.';
-    }
     return;
   }
   const items = Array.isArray(state.summary.items) ? state.summary.items : [];
@@ -2066,9 +2052,6 @@ function renderReportSelectionOverview() {
       ${rows}
     </ul>
   `;
-  if (help) {
-    help.textContent = 'Todo listo. Revisa el resumen y después descarga el reporte.';
-  }
 }
 
 function updateReportOverviewMeta() {
