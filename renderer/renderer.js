@@ -70,6 +70,22 @@ function showAlert(message, type = 'info', delay = 6000) {
   wrapper.addEventListener('hidden.bs.toast', () => wrapper.remove());
 }
 
+function initializeHoverToolkit(root = document) {
+  if (typeof bootstrap === 'undefined' || !root) {
+    return;
+  }
+  const tooltipTriggers = root.querySelectorAll('[data-bs-toggle="tooltip"]');
+  tooltipTriggers.forEach(trigger => {
+    bootstrap.Tooltip.getInstance(trigger)?.dispose();
+    new bootstrap.Tooltip(trigger);
+  });
+  const popoverTriggers = root.querySelectorAll('[data-bs-toggle="popover"]');
+  popoverTriggers.forEach(trigger => {
+    bootstrap.Popover.getInstance(trigger)?.dispose();
+    new bootstrap.Popover(trigger);
+  });
+}
+
 function saveSession(key, value) {
   sessionStorage.setItem(key, JSON.stringify(value));
 }
@@ -3345,6 +3361,7 @@ function setupLoginPage() {
   const passwordInput = document.getElementById('password');
   usernameInput?.addEventListener('input', () => usernameInput.classList.remove('is-invalid'));
   passwordInput?.addEventListener('input', () => passwordInput.classList.remove('is-invalid'));
+  initializeHoverToolkit(document);
 }
 
 async function setupDashboard() {
