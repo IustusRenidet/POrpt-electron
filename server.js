@@ -611,20 +611,21 @@ async function fetchRemisiones(db, tableName, { docAntValues = [], docIds = [] }
   }
 
   const whereClause = conditions.map(condition => `(${condition})`).join(' OR ');
-  const query = `
-    SELECT
-      TRIM(${alias}.CVE_DOC) AS id,
-      ${alias}.FECHA_DOC AS fecha,
-      COALESCE(SUM(${alias}.IMPORTE), 0) AS importe,
-      MAX(${alias}.TIP_DOC_SIG) AS tip_doc_sig,
-      MAX(${alias}.DOC_SIG) AS doc_sig,
-      MAX(${alias}.TIP_DOC_ANT) AS tip_doc_ant,
-      MAX(${alias}.DOC_ANT) AS doc_ant
-    FROM ${tableName} ${alias}
-    WHERE ${alias}.STATUS <> 'C' AND (${whereClause})
-    GROUP BY ${alias}.CVE_DOC, ${alias}.FECHA_DOC
-    ORDER BY TRIM(${alias}.CVE_DOC)
-  `;
+    const query = `
+      SELECT
+        TRIM(${alias}.CVE_DOC) AS id,
+        ${alias}.FECHA_DOC AS fecha,
+        COALESCE(SUM(${alias}.IMPORTE), 0) AS importe,
+        MAX(${alias}.TIP_DOC_SIG) AS tip_doc_sig,
+        MAX(${alias}.DOC_SIG) AS doc_sig,
+        MAX(${alias}.TIP_DOC_ANT) AS tip_doc_ant,
+        MAX(${alias}.DOC_ANT) AS doc_ant,
+        MAX(${alias}.STATUS) AS status
+      FROM ${tableName} ${alias}
+      WHERE ${alias}.STATUS <> 'C' AND (${whereClause})
+      GROUP BY ${alias}.CVE_DOC, ${alias}.FECHA_DOC
+      ORDER BY TRIM(${alias}.CVE_DOC)
+    `;
   return await queryWithTimeout(db, query, params);
 }
 
@@ -672,13 +673,42 @@ async function fetchFacturas(
       MAX(${alias}.TIP_DOC_SIG) AS tip_doc_sig,
       MAX(${alias}.DOC_SIG) AS doc_sig,
       MAX(${alias}.TIP_DOC_ANT) AS tip_doc_ant,
-      MAX(${alias}.DOC_ANT) AS doc_ant
+      MAX(${alias}.DOC_ANT) AS doc_ant,
+      MAX(${alias}.STATUS) AS status
     FROM ${tableName} ${alias}
     WHERE ${alias}.STATUS <> 'C' AND (${whereClause})
     GROUP BY ${alias}.CVE_DOC, ${alias}.FECHA_DOC
     ORDER BY TRIM(${alias}.CVE_DOC)
   `;
   return await queryWithTimeout(db, query, params);
+}
+
+async function fetchFacturaStatuses(db, tableName, docIds = []) {
+  if (!tableName) return new Map();
+  const alias = 'fs';
+  const normalizedDocIds = uniqueNormalizedValues(docIds);
+  if (normalizedDocIds.length === 0) {
+    return new Map();
+  }
+  const placeholders = normalizedDocIds.map(() => '?').join(',');
+  const query = `
+    SELECT
+      TRIM(${alias}.CVE_DOC) AS id,
+      MAX(${alias}.STATUS) AS status
+    FROM ${tableName} ${alias}
+    WHERE TRIM(${alias}.CVE_DOC) IN (${placeholders})
+    GROUP BY TRIM(${alias}.CVE_DOC)
+  `;
+  const rows = await queryWithTimeout(db, query, normalizedDocIds);
+  const map = new Map();
+  rows.forEach(row => {
+    const id = (row.ID || row.id || '').trim();
+    if (!id) return;
+    const statusRaw = row.STATUS ?? row.status ?? '';
+    const status = typeof statusRaw === 'string' ? statusRaw.trim().toUpperCase() : '';
+    map.set(normalizeDocKey(id), status);
+  });
+  return map;
 }
 
 async function getPoSummary(empresa, poId, options = {}) {
@@ -850,6 +880,7 @@ async function getPoSummary(empresa, poId, options = {}) {
     const factIdsByPoKey = new Map();
     const factIdsByRemKey = new Map();
     const factDataById = new Map();
+    const factStatusByKey = new Map();
 
     filteredFactRows.forEach(row => {
       const facId = (row.ID || row.id || '').trim();
@@ -863,6 +894,8 @@ async function getPoSummary(empresa, poId, options = {}) {
       const docAntKey = normalizeDocKey(docAnt);
       const tipDocAntRaw = row.TIP_DOC_ANT ?? row.tip_doc_ant ?? '';
       const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+      const statusRaw = row.STATUS ?? row.status ?? '';
+      const status = typeof statusRaw === 'string' ? statusRaw.trim().toUpperCase() : '';
       if (docAntKey) {
         if (tipDocAnt === 'R') {
           if (!factIdsByRemKey.has(docAntKey)) {
@@ -890,8 +923,24 @@ async function getPoSummary(empresa, poId, options = {}) {
         linkedByDocSig,
         linkedByPo,
         linkedByRem,
-        remSources
+        remSources,
+        status,
+        cancelada: status === 'C'
       });
+      if (status) {
+        factStatusByKey.set(facKey, status);
+      }
+    });
+
+    const statusLookup = await fetchFacturaStatuses(
+      db,
+      tables.FACTF,
+      [...factDocIdsFromPo, ...Array.from(factDocIdsFromRem)]
+    );
+    statusLookup.forEach((status, key) => {
+      if (status && !factStatusByKey.has(key)) {
+        factStatusByKey.set(key, status);
+      }
     });
 
     const linkingAvailable = true;
@@ -974,6 +1023,8 @@ async function getPoSummary(empresa, poId, options = {}) {
 
       orderedFactKeys.forEach(factKey => {
         const factEntry = factDataById.get(factKey);
+        const status = factStatusByKey.get(factKey) || (factEntry && factEntry.status) || '';
+        const cancelada = status === 'C';
         if (factEntry) {
           const monto = Number(factEntry.monto || 0);
           const linkedByDocSig = tipDoc === 'F' && docSigKey === factKey;
@@ -988,7 +1039,9 @@ async function getPoSummary(empresa, poId, options = {}) {
             fecha: formatFirebirdDate(factEntry.fecha),
             monto,
             porcentaje: totalOriginal > 0 ? (monto / totalOriginal) * 100 : 0,
-            vinculado: linkedByDocSig || linkedByPo || linkedByRem
+            vinculado: linkedByDocSig || linkedByPo || linkedByRem,
+            status,
+            cancelada
           });
         } else {
           facturas.push({
@@ -996,7 +1049,9 @@ async function getPoSummary(empresa, poId, options = {}) {
             fecha: null,
             monto: 0,
             porcentaje: 0,
-            vinculado: false
+            vinculado: false,
+            status,
+            cancelada
           });
         }
       });
@@ -1030,11 +1085,14 @@ async function getPoSummary(empresa, poId, options = {}) {
         );
       }
       const facSinVinculo = facturas.filter(fac => !fac.vinculado);
-      if (facSinVinculo.length > 0) {
+      const facSinVinculoActivas = facSinVinculo.filter(fac => !fac.cancelada);
+      if (facSinVinculoActivas.length > 0) {
         alerts.push(
           buildAlert(
-            `Facturas sin documento encontrado por DOC_SIG: ${facSinVinculo.map(fac => fac.id).join(', ')}`,
-            'warning'
+            `Facturas sin documento encontrado por DOC_SIG: ${facSinVinculoActivas
+              .map(fac => fac.id)
+              .join(', ')}`,
+            'error'
           )
         );
       }
@@ -1077,7 +1135,9 @@ async function getPoSummary(empresa, poId, options = {}) {
         linking: {
           disponible: linkingAvailable,
           remisionesSinVinculo: remisiones.filter(rem => !rem.vinculado).map(rem => rem.id),
-          facturasSinVinculo: facturas.filter(fac => !fac.vinculado).map(fac => fac.id)
+          facturasSinVinculo: facturas
+            .filter(fac => !fac.vinculado && !fac.cancelada)
+            .map(fac => fac.id)
         },
         alertasTexto,
         tipDoc,
