@@ -366,7 +366,7 @@ function drawHeader(doc, summary, branding) {
     .fillColor(branding.accentColor || '#1f2937')
     .text(`Empresa: ${empresaLabel}`, { align: 'center' });
   if (summary.universe?.isUniverse) {
-    const titleText = summary.universe.title || 'Reporte del universo de POs';
+    const titleText = summary.universe.title || 'Reporte del universo global';
     doc.moveDown(0.2);
     doc
       .font('Helvetica')
@@ -1025,6 +1025,16 @@ function buildPoGroupDetails(summary) {
         }
         return a.isBase ? -1 : 1;
       });
+      const fallbackDate = orderedItems
+        .map(item => item.fecha)
+        .filter(Boolean)
+        .sort()[0] || '';
+      const normalizedItems = orderedItems.map(item => {
+        if (!item.fecha && fallbackDate && item.isBase) {
+          return { ...item, fecha: fallbackDate };
+        }
+        return item;
+      });
       const totals = {
         total: roundTo(group.total),
         totalRem: roundTo(group.totalRem),
@@ -1042,7 +1052,7 @@ function buildPoGroupDetails(summary) {
         extensionIds,
         totals,
         percentages,
-        items: orderedItems,
+        items: normalizedItems,
         alerts: group.alerts
       };
     })
