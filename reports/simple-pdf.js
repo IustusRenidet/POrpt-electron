@@ -366,7 +366,7 @@ function drawHeader(doc, summary, branding) {
     .fillColor(branding.accentColor || '#1f2937')
     .text(`Empresa: ${empresaLabel}`, { align: 'center' });
   if (summary.universe?.isUniverse) {
-    const titleText = summary.universe.title || 'Reporte del universo global';
+    const titleText = summary.universe.title || 'Reporte del universo de POs';
     doc.moveDown(0.2);
     doc
       .font('Helvetica')
