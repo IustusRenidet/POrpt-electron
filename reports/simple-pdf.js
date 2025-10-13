@@ -391,16 +391,33 @@ function drawUniverseObservations(doc, summary) {
   const universe = summary.universe || {};
   const label = universe.label || 'Global';
   const company = summary.companyName || summary.empresaLabel || summary.empresa || 'SSITEL';
-  const notes = [
-    `Universo de ${company} con el filtro "${label}".`,
-    'Flujo del reporte: se inicia con el importe autorizado, continúa con el consumo acumulado (remisiones + facturas) y finaliza con el disponible.',
-    'El consumo refleja toda la operación registrada en el periodo para dimensionar el avance del presupuesto.',
-    'El disponible señala si es necesario liberar nuevas POs o ajustar el gasto antes de revisar cada pedido.'
-  ];
+  const notes = [`Universo de ${company} con el filtro "${label}".`];
   if (summary.totals && summary.totals.total === 0) {
     notes.push('No se encontraron POs activas con el filtro aplicado.');
   }
   renderObservationBox(doc, Array.from(new Set(notes)));
+}
+
+function drawUniverseGroupDetails(doc, summary, branding) {
+  const groups = buildPoGroupDetails(summary);
+  if (!groups.length) {
+    return;
+  }
+
+  const startX = doc.page.margins.left;
+  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+  doc.moveDown(0.6);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(14)
+    .fillColor(branding.accentColor || '#111827')
+    .text('Detalle por pedido del universo', startX, doc.y, { width });
+  doc.moveDown(0.3);
+
+  groups.forEach(group => {
+    drawGroupSection(doc, group, branding);
+  });
 }
 
 
@@ -1149,35 +1166,37 @@ async function generate(summary, branding = {}, customization = {}) {
       drawHeader(doc, summary, style);
       if (summary.universe?.isUniverse) {
         drawUniverseFilterInfo(doc, summary, style);
-      drawSummaryBox(doc, summary, style);
-      const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
-      const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
-      if (globalAlerts.length) {
-        drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-      }
-      if (options.includeCharts) {
-        drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
-      } else {
-        doc.moveDown(1.2);
-      }
+        drawSummaryBox(doc, summary, style);
+        const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
+        const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
+        if (globalAlerts.length) {
+          drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+        }
+        if (options.includeCharts) {
+          drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
+        } else {
+          doc.moveDown(1.2);
+        }
         if (options.includeUniverse) {
           drawUniverseTotalsTable(doc, summary, style);
         }
         if (options.includeObservations) {
           drawUniverseObservations(doc, summary);
         }
+        drawPoSummaryTable(doc, summary, style);
+        drawUniverseGroupDetails(doc, summary, style);
       } else {
-      drawSummaryBox(doc, summary, style);
-      const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
-      const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
-      if (globalAlerts.length) {
-        drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-      }
-      if (options.includeCharts) {
-        drawChartsSection(doc, summary, style);
-      } else {
-        doc.moveDown(1.2);
-      }
+        drawSummaryBox(doc, summary, style);
+        const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
+        const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
+        if (globalAlerts.length) {
+          drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+        }
+        if (options.includeCharts) {
+          drawChartsSection(doc, summary, style);
+        } else {
+          doc.moveDown(1.2);
+        }
         drawPoSummaryTable(doc, summary, style);
         if (options.includeMovements) {
           drawMovements(doc, summary, style);
