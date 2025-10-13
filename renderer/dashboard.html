@@ -90,6 +90,31 @@
                       <label for="universeFileName" class="form-label">Nombre del archivo (opcional)</label>
                       <input type="text" id="universeFileName" class="form-control" placeholder="">
                     </div>
+                    <div class="col-12">
+                      <div class="d-flex flex-wrap align-items-center gap-3 report-content-toggle">
+                        <span class="small text-muted text-uppercase fw-semibold">Contenido del reporte</span>
+                        <div class="form-check form-check-inline">
+                          <input
+                            class="form-check-input"
+                            type="checkbox"
+                            id="universeIncludeSummary"
+                            data-customization-toggle="includeSummary"
+                            checked
+                          >
+                          <label class="form-check-label" for="universeIncludeSummary">Resumen</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                          <input
+                            class="form-check-input"
+                            type="checkbox"
+                            id="universeIncludeDetail"
+                            data-customization-toggle="includeDetail"
+                            checked
+                          >
+                          <label class="form-check-label" for="universeIncludeDetail">Detalle</label>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -348,7 +373,7 @@
                 <div class="d-flex flex-wrap align-items-center gap-2">
                   <!-- <button class="btn btn-outline-secondary" type="button" data-wizard-action="prev">Volver a filtros globales</button> -->
                   <div class="d-flex flex-column gap-1">
-                    <button id="generateReportBtn" class="btn btn-primary">Previsualizar y descargar</button>
+                    <button id="generateReportBtn" class="btn btn-preview-download">Previsualizar y descargar</button>
                   </div>
                 </div>
               </div>
@@ -442,6 +467,31 @@
             <ul class="list-group list-group-flush rounded-4 border" id="previewTotals"></ul>
           </div>
           <div class="mb-3">
+            <h6 class="text-uppercase text-muted small mb-2">Contenido a incluir</h6>
+            <div class="d-flex flex-wrap align-items-center gap-3 report-content-toggle">
+              <div class="form-check form-check-inline">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="previewIncludeSummary"
+                  data-customization-toggle="includeSummary"
+                  checked
+                >
+                <label class="form-check-label" for="previewIncludeSummary">Resumen</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="previewIncludeDetail"
+                  data-customization-toggle="includeDetail"
+                  checked
+                >
+                <label class="form-check-label" for="previewIncludeDetail">Detalle</label>
+              </div>
+            </div>
+          </div>
+          <div class="mb-3">
             <h6 class="text-uppercase text-muted small mb-2">Personalización aplicada</h6>
             <div id="previewCustomization" class="d-flex flex-wrap gap-2"></div>
           </div>
@@ -452,7 +502,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-primary" id="confirmReportDownloadBtn">Descargar ahora</button>
+          <button type="button" class="btn btn-preview-download" id="confirmReportDownloadBtn">Descargar ahora</button>
         </div>
       </div>
     </div>

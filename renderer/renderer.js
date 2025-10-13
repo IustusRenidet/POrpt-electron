@@ -14,6 +14,8 @@ const state = {
   reportFormatsCatalog: [],
   selectedFormat: 'pdf',
   customization: {
+    includeSummary: true,
+    includeDetail: true,
     includeCharts: true,
     includeMovements: true,
     includeObservations: true,
@@ -2157,6 +2159,8 @@ function renderAlerts(alerts) {
 function normalizeCustomizationState(customization = {}) {
   const csv = customization.csv || {};
   return {
+    includeSummary: customization.includeSummary !== false,
+    includeDetail: customization.includeDetail !== false,
     includeCharts: customization.includeCharts !== false,
     includeMovements: customization.includeMovements !== false,
     includeObservations: customization.includeObservations !== false,
@@ -2190,6 +2194,8 @@ function mergeCustomizationSettings(baseCustomization = {}, overrides) {
 function buildCustomizationBadgesMarkup() {
   const config = normalizeCustomizationState(state.customization);
   const badges = [];
+  badges.push({ label: config.includeSummary ? 'Resumen incluido' : 'Sin resumen', active: config.includeSummary });
+  badges.push({ label: config.includeDetail ? 'Detalle incluido' : 'Sin detalle', active: config.includeDetail });
   badges.push({ label: config.includeCharts ? 'Gráficas activas' : 'Sin gráficas', active: config.includeCharts });
   badges.push({ label: config.includeMovements ? 'Movimientos incluidos' : 'Ocultar movimientos', active: config.includeMovements });
   badges.push({ label: config.includeObservations ? 'Observaciones visibles' : 'Sin observaciones', active: config.includeObservations });
@@ -2230,6 +2236,13 @@ function setCustomizationControlStates() {
     const value = group === 'csv' ? config.csv?.[key] !== false : config[key] !== false;
     select.value = value ? 'true' : 'false';
   });
+  document.querySelectorAll('input[data-customization-toggle]').forEach(input => {
+    const key = input.getAttribute('data-customization-toggle');
+    if (!key) return;
+    const group = input.getAttribute('data-customization-group');
+    const enabled = group === 'csv' ? config.csv?.[key] !== false : config[key] !== false;
+    input.checked = enabled;
+  });
 }
 
 function handleCustomizationSelectChange(event) {
@@ -2265,6 +2278,38 @@ function setupCustomizationControls() {
     select.removeEventListener('change', handleCustomizationSelectChange);
     select.addEventListener('change', handleCustomizationSelectChange);
   });
+  document.querySelectorAll('input[data-customization-toggle]').forEach(input => {
+    if (input.dataset.customizationBound === 'true') return;
+    input.dataset.customizationBound = 'true';
+    input.addEventListener('change', event => {
+      const target = event.target;
+      if (!target || target.tagName !== 'INPUT') return;
+      const key = target.getAttribute('data-customization-toggle');
+      if (!key) return;
+      const group = target.getAttribute('data-customization-group');
+      const enabled = target.checked;
+      if (group === 'csv') {
+        state.customization = {
+          ...state.customization,
+          csv: {
+            ...state.customization.csv,
+            [key]: enabled
+          }
+        };
+      } else {
+        state.customization = {
+          ...state.customization,
+          [key]: enabled
+        };
+      }
+      state.customization = normalizeCustomizationState(state.customization);
+      saveSession('porpt-customization', state.customization);
+      setCustomizationControlStates();
+      renderCustomizationSummary();
+      updateReportOverviewMeta();
+    });
+  });
+  setCustomizationControlStates();
 }
 
 function handleReportFileNameChange(event) {
