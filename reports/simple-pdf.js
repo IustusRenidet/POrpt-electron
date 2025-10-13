@@ -429,7 +429,7 @@ function drawUniverseGroupDetails(doc, summary, branding) {
 function drawPoSummaryTable(doc, summary, branding) {
   const groups = buildPoGroupDetails(summary);
   if (!groups.length) {
-    return;
+    return false;
   }
 
   const startX = doc.page.margins.left;
@@ -549,6 +549,7 @@ function drawPoSummaryTable(doc, summary, branding) {
   doc.text(`Consumido: ${formatCurrency(totalConsumido)}`, startX, doc.y);
   doc.text(`Disponible: ${formatCurrency(totals.restante || 0)}`, startX, doc.y);
   doc.moveDown(0.6);
+  return true;
 }
 function collectMovements(items, totals, key) {
   const grandTotal = totals.total || 0;
@@ -1168,12 +1169,20 @@ function drawChartsSection(doc, summary, branding) {
     ? 'Consumo combinado de la selección'
     : `Consumo de la PO ${groups[0].baseId}`;
   drawCombinedConsumptionBar(doc, totals, branding, { title });
-  doc.moveDown(0.3);
+  doc.moveDown(0.6);
+}
+
+function drawSelectionGroupDetails(doc, summary, branding) {
+  const groups = buildPoGroupDetails(summary);
+  if (!groups.length) {
+    return;
+  }
+  const startX = doc.page.margins.left;
   doc
     .font('Helvetica-Bold')
     .fontSize(14)
     .fillColor(branding.accentColor || '#111827')
-    .text('Detalle por pedido', doc.page.margins.left, doc.y);
+    .text('Detalle por pedido', startX, doc.y);
   doc.moveDown(0.3);
   groups.forEach((group, index) => {
     drawGroupSection(doc, group, branding, { isLast: index === groups.length - 1 });
@@ -1226,15 +1235,15 @@ async function generate(summary, branding = {}, customization = {}) {
         const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
         const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
         let alertsDisplayed = false;
+        let summaryDrewTable = false;
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
           if (globalAlerts.length) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
             alertsDisplayed = true;
           }
-          if (options.includeCharts) {
-            drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
-          }
+          drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
+          summaryDrewTable = drawPoSummaryTable(doc, summary, style) || summaryDrewTable;
           if (options.includeUniverse) {
             drawUniverseTotalsTable(doc, summary, style);
           }
@@ -1247,10 +1256,12 @@ async function generate(summary, branding = {}, customization = {}) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
             alertsDisplayed = true;
           }
-          if (options.includeCharts && !options.includeSummary) {
+          if (!options.includeSummary) {
             drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
           }
-          drawPoSummaryTable(doc, summary, style);
+          if (!summaryDrewTable) {
+            summaryDrewTable = drawPoSummaryTable(doc, summary, style) || summaryDrewTable;
+          }
           drawUniverseGroupDetails(doc, summary, style);
         } else if (!alertsDisplayed && globalAlerts.length) {
           drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
@@ -1259,27 +1270,28 @@ async function generate(summary, branding = {}, customization = {}) {
         const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
         const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
         let alertsDisplayed = false;
+        let summaryDrewTable = false;
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
           if (globalAlerts.length) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
             alertsDisplayed = true;
           }
-          if (options.includeCharts) {
-            drawChartsSection(doc, summary, style);
-          } else {
-            doc.moveDown(1.2);
-          }
+          drawChartsSection(doc, summary, style);
+          summaryDrewTable = drawPoSummaryTable(doc, summary, style) || summaryDrewTable;
         }
         if (options.includeDetail) {
           if (!alertsDisplayed && globalAlerts.length) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
             alertsDisplayed = true;
           }
-          if (options.includeCharts && !options.includeSummary) {
+          if (!options.includeSummary) {
             drawChartsSection(doc, summary, style);
           }
-          drawPoSummaryTable(doc, summary, style);
+          if (!summaryDrewTable) {
+            summaryDrewTable = drawPoSummaryTable(doc, summary, style) || summaryDrewTable;
+          }
+          drawSelectionGroupDetails(doc, summary, style);
           if (options.includeMovements) {
             drawMovements(doc, summary, style);
           }
