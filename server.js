@@ -38,6 +38,34 @@ function padTo2(value) {
 
 function formatFirebirdDate(value) {
   if (!value) return '';
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return '';
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/u.test(trimmed)) {
+      return trimmed;
+    }
+    if (/^\d{8}$/u.test(trimmed)) {
+      const year = trimmed.slice(0, 4);
+      const month = trimmed.slice(4, 6);
+      const day = trimmed.slice(6, 8);
+      return `${year}-${month}-${day}`;
+    }
+    const isoPrefix = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/u);
+    if (isoPrefix) {
+      const [, year, month, day] = isoPrefix;
+      return `${year}-${month}-${day}`;
+    }
+    const normalized = trimmed.replace(/ /u, 'T');
+    const parsedFromNormalized = new Date(normalized);
+    if (!Number.isNaN(parsedFromNormalized.getTime())) {
+      const year = parsedFromNormalized.getFullYear();
+      const month = padTo2(parsedFromNormalized.getMonth() + 1);
+      const day = padTo2(parsedFromNormalized.getDate());
+      return `${year}-${month}-${day}`;
+    }
+  }
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
     return '';
@@ -379,7 +407,9 @@ async function withFirebirdConnection(empresa, handler) {
 }
 
 function buildAlert(message, type = 'info') {
-  return { message, type };
+  const normalizedType = typeof type === 'string' ? type.trim().toLowerCase() : 'info';
+  const finalType = normalizedType === 'warning' ? 'alerta' : normalizedType;
+  return { message, type: finalType };
 }
 
 function calculateTotals(total, totalRem, totalFac) {
@@ -1065,13 +1095,12 @@ async function getPoSummary(empresa, poId, options = {}) {
       const alerts = [];
       if (totalOriginal > 0) {
         const ratio = totals.totalConsumo / totalOriginal;
-        const fullyConsumed = totals.restante <= 0;
-        if (!fullyConsumed && ratio >= 0.9) {
+        const fullyConsumed = totals.restante <= 0.01;
+        if (fullyConsumed) {
+          alerts.push(buildAlert(`El PO ${id} está consumido al 100%`, 'alerta'));
+        } else if (ratio >= 0.9) {
           alerts.push(
-            buildAlert(
-              `El consumo del PO ${id} ha alcanzado el ${(ratio * 100).toFixed(2)}%`,
-              'warning'
-            )
+            buildAlert(`El consumo del PO ${id} ha alcanzado el ${(ratio * 100).toFixed(2)}%`, 'alerta')
           );
         }
       }
@@ -1165,12 +1194,14 @@ async function getPoSummary(empresa, poId, options = {}) {
     const alerts = items.flatMap(item => item.alerts);
     if (totals.total > 0) {
       const ratio = totals.totalConsumo / totals.total;
-      const fullyConsumed = totals.restante <= 0;
-      if (!fullyConsumed && ratio >= 0.9) {
+      const fullyConsumed = totals.restante <= 0.01;
+      if (fullyConsumed) {
+        alerts.push(buildAlert(`Los recursos del grupo ${baseId} están consumidos al 100%`, 'alerta'));
+      } else if (ratio >= 0.9) {
         alerts.push(
           buildAlert(
             `El consumo total del grupo ${baseId} supera el 90% (${(ratio * 100).toFixed(2)}%)`,
-            'warning'
+            'alerta'
           )
         );
       }
@@ -1249,12 +1280,14 @@ async function getPoSummaryGroup(empresa, selectionEntries) {
   const alerts = summaries.flatMap(summary => summary.alerts || []);
   if (totals.total > 0) {
     const ratio = totals.totalConsumo / totals.total;
-    const fullyConsumed = totals.restante <= 0;
-    if (!fullyConsumed && ratio >= 0.9) {
+    const fullyConsumed = totals.restante <= 0.01;
+    if (fullyConsumed) {
+      alerts.push(buildAlert('Los recursos combinados están consumidos al 100%', 'alerta'));
+    } else if (ratio >= 0.9) {
       alerts.push(
         buildAlert(
           `El consumo total combinado supera el 90% (${(ratio * 100).toFixed(2)}%)`,
-          'warning'
+          'alerta'
         )
       );
     }
@@ -1320,7 +1353,9 @@ async function getUniverseSummary(empresa, rawFilter) {
       db,
       `SELECT
          TRIM(f.CVE_DOC) AS id,
+         f.FECHA_DOC AS fecha,
          COALESCE(f.IMPORTE, 0) AS importe,
+         COALESCE(f.CAN_TOT, 0) AS subtotal,
          TRIM(f.TIP_DOC_SIG) AS tip_doc_sig,
          TRIM(f.DOC_SIG) AS doc_sig
        FROM ${tables.FACTP} f
@@ -1368,8 +1403,10 @@ async function getUniverseSummary(empresa, rawFilter) {
         const entry = ensureUniversePo(id);
         const fecha = formatFirebirdDate(row.FECHA_DOC ?? row.fecha);
         const totalImporte = Number(row.IMPORTE ?? row.importe ?? 0);
+        const subtotalImporte = Number(row.SUBTOTAL ?? row.subtotal ?? row.CAN_TOT ?? row.can_tot ?? 0);
         entry.fecha = fecha;
         entry.total = roundTo(totalImporte);
+        entry.subtotal = roundTo(subtotalImporte);
         entry.totals.total = roundTo(totalImporte);
         entry.docSig = typeof row.DOC_SIG === 'string' ? row.DOC_SIG.trim() : typeof row.doc_sig === 'string' ? row.doc_sig.trim() : '';
         entry.tipDoc = typeof row.TIP_DOC_SIG === 'string'
@@ -1541,11 +1578,14 @@ async function getUniverseSummary(empresa, rawFilter) {
         const alerts = [];
         if (totals.total > 0) {
           const ratio = totals.totalConsumo / totals.total;
-          if (totals.restante > 0 && ratio >= 0.9) {
+          const fullyConsumed = totals.restante <= 0.01;
+          if (fullyConsumed) {
+            alerts.push(buildAlert(`El PO ${entry.id} está consumido al 100%`, 'alerta'));
+          } else if (ratio >= 0.9) {
             alerts.push(
               buildAlert(
                 `El consumo del PO ${entry.id} ha alcanzado el ${(ratio * 100).toFixed(2)}%`,
-                'warning'
+                'alerta'
               )
             );
           }
@@ -1610,12 +1650,14 @@ async function getUniverseSummary(empresa, rawFilter) {
       alerts.push(buildAlert('No se encontraron POs activas con el filtro seleccionado.', 'info'));
     } else {
       const ratio = totals.totalConsumo / totals.total;
-      const fullyConsumed = totals.restante <= 0;
-      if (!fullyConsumed && ratio >= 0.9) {
+      const fullyConsumed = totals.restante <= 0.01;
+      if (fullyConsumed) {
+        alerts.push(buildAlert('El universo está consumido al 100%', 'alerta'));
+      } else if (ratio >= 0.9) {
         alerts.push(
           buildAlert(
             `El consumo del universo supera el 90% (${(ratio * 100).toFixed(2)}%)`,
-            'warning'
+            'alerta'
           )
         );
       }
