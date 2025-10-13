@@ -19,9 +19,9 @@ const PDF_UNAVAILABLE_MESSAGE =
   'Ejecuta "npm install" (o "npm install --omit=optional" si necesitas omitir dependencias opcionales) y vuelve a iniciar la aplicación.';
 
 const DEFAULT_BRANDING = {
-  headerTitle: 'Reporte de PEOs - Consumo',
+  headerTitle: 'Reporte de POs - Consumo',
   headerSubtitle: '',
-  footerText: 'PEOrpt • Aspel SAE 9',
+  footerText: 'POrpt • Aspel SAE 9',
   letterheadEnabled: false,
   letterheadTop: '',
   letterheadBottom: '',
@@ -319,7 +319,7 @@ function drawHeader(doc, summary, branding) {
     .font('Helvetica')
     .fontSize(12)
     .fillColor(branding.accentColor || '#1f2937')
-    .text(summary.universe?.isUniverse ? seleccion : `PO(s) seleccionada(s): ${seleccion}`, { align: 'center' });
+    .text(summary.universe?.isUniverse ? seleccion : `Selección: ${seleccion}`, { align: 'center' });
   if (summary.universe?.isUniverse) {
     const titleText = summary.universe.title || 'Reporte del universo de POs';
     doc.moveDown(0.2);
@@ -397,115 +397,30 @@ function drawUniverseObservations(doc, summary) {
     'El consumo refleja toda la operación registrada en el periodo para dimensionar el avance del presupuesto.',
     'El disponible señala si es necesario liberar nuevas POs o ajustar el gasto antes de revisar cada pedido.'
   ];
-  if (summary.alertasTexto && summary.alertasTexto !== 'Sin alertas generales') {
-    notes.push(`Alertas: ${summary.alertasTexto}`);
-  }
   if (summary.totals && summary.totals.total === 0) {
     notes.push('No se encontraron POs activas con el filtro aplicado.');
   }
-  notes.push('Importes redondeados a dos decimales para facilitar la lectura.');
   renderObservationBox(doc, Array.from(new Set(notes)));
 }
 
-function drawPoBaseBreakdown(doc, summary, branding) {
-  if (summary.universe?.isUniverse) return;
-  const selectedIds = Array.isArray(summary.selectedIds) ? summary.selectedIds.filter(Boolean) : [];
-  if (selectedIds.length <= 1) return;
-  const items = summary.items || [];
-  const groups = new Map();
-  items.forEach(item => {
-    const baseId = item.baseId || item.id;
-    if (!groups.has(baseId)) {
-      groups.set(baseId, {
-        ids: [],
-        total: 0,
-        rem: 0,
-        fac: 0
-      });
-    }
-    const group = groups.get(baseId);
-    group.ids.push(item.id);
-    group.total += Number(item.total || 0);
-    group.rem += Number(item.totals?.totalRem || 0);
-    group.fac += Number(item.totals?.totalFac || 0);
-  });
 
-  const breakdown = selectedIds.map(baseId => {
-    const group = groups.get(baseId) || { ids: [], total: 0, rem: 0, fac: 0 };
-    const consumo = group.rem + group.fac;
-    const restante = Math.max(group.total - consumo, 0);
-    return {
-      baseId,
-      label: `${baseId} (${group.ids.length || 1} partidas)`,
-      total: group.total,
-      consumo,
-      restante
-    };
-  });
+function drawPoSummaryTable(doc, summary, branding) {
+  const groups = buildPoGroupDetails(summary);
+  if (!groups.length) {
+    return;
+  }
 
-  const startX = doc.page.margins.left;
-  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const headerHeight = 26;
-  const rowHeight = 24;
-  const tableHeight = headerHeight + rowHeight * breakdown.length;
-  ensureSpace(doc, tableHeight + 70);
-
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(14)
-    .fillColor(branding.accentColor || '#111827')
-    .text('Resumen por PEO base', startX, doc.y);
-  doc.moveDown(0.4);
-
-  const tableTop = doc.y;
-  const columnPercents = [0.32, 0.34, 0.34];
-  const columnXs = [startX, startX + width * columnPercents[0], startX + width * (columnPercents[0] + columnPercents[1])];
-
-  doc.lineWidth(1).rect(startX, tableTop, width, tableHeight).stroke('#d1d5db');
-  doc.save();
-  doc.rect(startX, tableTop, width, headerHeight).fillAndStroke('#0f172a', '#1f2937');
-  doc
-    .fillColor('#ffffff')
-    .font('Helvetica-Bold')
-    .fontSize(11)
-    .text('PEO base', columnXs[0] + 12, tableTop + 6, { width: width * columnPercents[0] - 24 });
-  doc.text('Autorizado', columnXs[1] + 12, tableTop + 6, { width: width * columnPercents[1] - 24, align: 'right' });
-  doc.text('Consumido / Restante', columnXs[2] + 12, tableTop + 6, {
-    width: width * columnPercents[2] - 24,
-    align: 'right'
-  });
-  doc.restore();
-
-  breakdown.forEach((row, index) => {
-    const y = tableTop + headerHeight + index * rowHeight;
-    doc.lineWidth(0.5).moveTo(startX, y).lineTo(startX + width, y).stroke('#e5e7eb');
-    doc
-      .font('Helvetica')
-      .fontSize(11)
-      .fillColor('#111827')
-      .text(row.label, columnXs[0] + 12, y + 6, { width: width * columnPercents[0] - 24 });
-    doc.text(formatCurrency(row.total), columnXs[1] + 12, y + 6, {
-      width: width * columnPercents[1] - 24,
-      align: 'right'
-    });
-    doc.text(`${formatCurrency(row.consumo)} / ${formatCurrency(row.restante)}`, columnXs[2] + 12, y + 6, {
-      width: width * columnPercents[2] - 24,
-      align: 'right'
-    });
-  });
-
-  doc.y = tableTop + tableHeight + 16;
-}
-
-function drawPoTable(doc, summary) {
-  const items = summary.items || [];
-  if (!items.length) return;
   const startX = doc.page.margins.left;
   const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const headerHeight = 26;
-  const rowHeight = 22;
-  const colWidths = [tableWidth * 0.38, tableWidth * 0.24, tableWidth * 0.38];
-  const colXs = [startX, startX + colWidths[0], startX + colWidths[0] + colWidths[1]];
+  const rowPadding = 12;
+  const columns = [
+    { key: 'po', label: 'PO', width: tableWidth * 0.28, align: 'left' },
+    { key: 'fecha', label: 'Fecha', width: tableWidth * 0.14, align: 'left' },
+    { key: 'subtotal', label: 'Subtotal', width: tableWidth * 0.18, align: 'right' },
+    { key: 'total', label: 'Total autorizado', width: tableWidth * 0.18, align: 'right' },
+    { key: 'consumo', label: 'Consumido / Disponible', width: tableWidth * 0.22, align: 'right' }
+  ];
 
   const drawHeader = () => {
     ensureSpace(doc, headerHeight + 8);
@@ -514,102 +429,105 @@ function drawPoTable(doc, summary) {
     doc.lineWidth(1);
     doc.rect(startX, y, tableWidth, headerHeight).fillAndStroke('#111827', '#1f2937');
     doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(11);
-    doc.text('PEO ID', colXs[0] + 10, y + 6, { width: colWidths[0] - 20 });
-    doc.text('Fecha', colXs[1] + 10, y + 6, { width: colWidths[1] - 20 });
-    doc.text('Total', colXs[2] + 10, y + 6, { width: colWidths[2] - 20 });
+    let offsetX = startX;
+    columns.forEach(column => {
+      doc.text(column.label, offsetX + 10, y + 6, { width: column.width - 20, align: column.align });
+      offsetX += column.width;
+    });
     doc.restore();
     doc.y = y + headerHeight;
   };
 
+  const measureRowHeight = values => {
+    const measuringFont = doc.font('Helvetica').fontSize(11);
+    return values.reduce((height, value, index) => {
+      const column = columns[index];
+      const cellWidth = Math.max(0, column.width - 20);
+      const text = String(value ?? '');
+      const cellHeight = measuringFont.heightOfString(text, { width: cellWidth });
+      return Math.max(height, cellHeight + rowPadding);
+    }, rowPadding);
+  };
+
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(14)
+    .fillColor(branding.accentColor || '#111827')
+    .text('Resumen de POs seleccionadas', startX, doc.y);
+  doc.moveDown(0.3);
+
   drawHeader();
 
-  items.forEach(item => {
-    if (ensureSpace(doc, rowHeight + 6)) {
-      drawHeader();
-    }
-    const y = doc.y;
-    doc.lineWidth(0.5).rect(startX, y, tableWidth, rowHeight).stroke('#d1d5db');
-    doc.font('Helvetica').fontSize(11).fillColor('#1f2937');
-    doc.text(item.id, colXs[0] + 10, y + 6, { width: colWidths[0] - 20 });
-    doc.text(item.fecha || '-', colXs[1] + 10, y + 6, { width: colWidths[1] - 20 });
-    const totalAmount = Number(item.total || 0);
-    const subtotalAmount = Number(item.subtotal || 0);
-    const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - totalAmount) > 0.009;
-    const totalText = showSubtotal
-      ? `${formatCurrency(totalAmount)} (Sub: ${formatCurrency(subtotalAmount)})`
-      : formatCurrency(totalAmount);
-    doc.text(totalText, colXs[2] + 10, y + 6, {
-      width: colWidths[2] - 20,
-      align: 'left'
-    });
-    doc.y = y + rowHeight;
+  const subtotalLookup = new Map();
+  const rawItems = Array.isArray(summary.items) ? summary.items : [];
+  rawItems.forEach(item => {
+    if (!item || typeof item.id !== 'string') return;
+    subtotalLookup.set(item.id, Number(item.subtotal || 0));
   });
 
-  const totalsOnNewPage = ensureSpace(doc, 50);
-  if (totalsOnNewPage) {
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(12)
-      .fillColor('#111827')
-      .text('Resumen de totales', startX, doc.y);
-    doc.moveDown(0.2);
-  } else {
-    doc.moveDown(0.3);
-  }
-  const baseCount = (summary.selectedIds || []).length;
-  if (baseCount === 1) {
-    const baseId = summary.selectedIds[0];
-    const baseItem = items.find(item => item.id === baseId);
-    const extensionItems = items.filter(item => item.id !== baseId);
-    const originalTotal = baseItem ? Number(baseItem.total || 0) : 0;
-    const extensionTotal = extensionItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
-    const total = originalTotal + extensionTotal;
-    doc.lineWidth(0.5);
-    doc.moveTo(startX, doc.y).lineTo(startX + tableWidth, doc.y).stroke('#d1d5db');
-    doc.moveDown(0.4);
-    if (extensionItems.length === 0) {
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(12)
-        .fillColor('#111827')
-        .text('Total PEO:', startX + 10, doc.y);
-      doc
-        .font('Helvetica')
-        .fontSize(12)
-        .text(formatCurrency(total), startX + 110, doc.y);
-    } else {
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(12)
-        .fillColor('#111827')
-        .text('Totales', startX + 10, doc.y);
-      doc
-        .font('Helvetica')
-        .fontSize(12)
-        .text(`Original: ${formatCurrency(originalTotal)}`, startX + 110, doc.y);
-      doc.text(`Extensión: ${formatCurrency(extensionTotal)}`, startX + 280, doc.y);
-      doc
-        .font('Helvetica-Bold')
-        .text(`Total: ${formatCurrency(total)}`, startX + tableWidth - 180, doc.y, { width: 170, align: 'right' });
-    }
-  } else {
-    doc.lineWidth(0.5);
-    doc.moveTo(startX, doc.y).lineTo(startX + tableWidth, doc.y).stroke('#d1d5db');
-    doc.moveDown(0.4);
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(12)
-      .fillColor('#111827')
-      .text(`Totales (${baseCount} PEOs)`, startX + 10, doc.y);
-    doc
-      .font('Helvetica')
-      .fontSize(12)
-      .text(`Autorizado: ${formatCurrency(summary.totals.total)}`, startX + 200, doc.y);
-    doc.text(`Consumido: ${formatCurrency(summary.totals.totalConsumo)}`, startX + 380, doc.y);
-  }
-  doc.moveDown(1);
-}
+  groups.forEach(group => {
+    group.items.forEach(item => {
+      const totals = item.totals || {};
+      const subtotalAmount = subtotalLookup.get(item.id) || 0;
+      const totalAmount = totals.total;
+      const consumido = Number.isFinite(totals.totalConsumo)
+        ? totals.totalConsumo
+        : roundTo((totals.totalRem || 0) + (totals.totalFac || 0));
+      const disponible = Number.isFinite(totals.restante)
+        ? totals.restante
+        : roundTo(Math.max(totalAmount - consumido, 0));
+      const isExtension = !item.isBase;
+      const poLabel = isExtension
+        ? `${item.id} · Ext. de ${group.baseId}`
+        : `${item.id} (base)`;
+      const rowValues = [
+        poLabel,
+        item.fecha || '-',
+        subtotalAmount > 0 ? formatCurrency(subtotalAmount) : '—',
+        formatCurrency(totalAmount),
+        `${formatCurrency(consumido)} / ${formatCurrency(disponible)}`
+      ];
+      const rowHeight = measureRowHeight(rowValues);
+      if (ensureSpace(doc, rowHeight + 4)) {
+        drawHeader();
+      }
+      const y = doc.y;
+      const background = isExtension ? '#ffffff' : '#f8fafc';
+      doc.save().fillColor(background).rect(startX, y, tableWidth, rowHeight).fill().restore();
+      doc.lineWidth(0.5).strokeColor('#d1d5db').rect(startX, y, tableWidth, rowHeight).stroke();
+      let offsetX = startX;
+      columns.forEach((column, index) => {
+        doc
+          .font('Helvetica')
+          .fontSize(11)
+          .fillColor('#111827')
+          .text(rowValues[index], offsetX + 10, y + 6, { width: column.width - 20, align: column.align });
+        offsetX += column.width;
+      });
+      doc.y = y + rowHeight;
+    });
+  });
 
+  doc.moveDown(0.4);
+  const totals = summary.totals || {};
+  const totalConsumido = roundTo((totals.totalRem || 0) + (totals.totalFac || 0));
+  doc.lineWidth(0.5).moveTo(startX, doc.y).lineTo(startX + tableWidth, doc.y).stroke('#d1d5db');
+  doc.moveDown(0.3);
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .fillColor('#111827')
+    .text('Totales del reporte', startX, doc.y);
+  doc.moveDown(0.2);
+  doc
+    .font('Helvetica')
+    .fontSize(11)
+    .fillColor('#111827')
+    .text(`Autorizado: ${formatCurrency(totals.total || 0)}`, startX, doc.y);
+  doc.text(`Consumido: ${formatCurrency(totalConsumido)}`, startX, doc.y);
+  doc.text(`Disponible: ${formatCurrency(totals.restante || 0)}`, startX, doc.y);
+  doc.moveDown(0.6);
+}
 function collectMovements(items, totals, key) {
   const grandTotal = totals.total || 0;
   const movements = [];
@@ -1195,33 +1113,13 @@ function drawObservations(doc, summary) {
   const notes = [];
   if (baseCount === 1) {
     const detail = selectionDetails.find(entry => entry.baseId === summary.selectedIds[0]);
-    if (detail && (detail.count || detail.variants?.length || 0) > 1) {
-      const totalVariants = detail.count || detail.variants.length;
-      notes.push(`Se incluyeron ${totalVariants - 1} extensiones manuales para la base ${detail.baseId}.`);
-    } else if (itemCount <= 1) {
-      notes.push('La base seleccionada no presenta extensiones activas en este reporte.');
+    if (!detail && itemCount <= 1) {
+      notes.push('La PO seleccionada no presenta extensiones activas en este reporte.');
     }
-  }
-  if (baseCount > 1) {
-    notes.push(`Se combinan ${baseCount} PEOs base; revisa las tarjetas por PEO para conocer su consumo individual.`);
-  }
-  const manualGroups = selectionDetails.filter(entry => entry.baseId && (entry.count || entry.variants?.length || 0) > 1);
-  if (manualGroups.length > 0) {
-    const detailText = manualGroups
-      .map(entry => {
-        const count = entry.count || entry.variants.length;
-        return `${entry.baseId}: ${count - 1} ext.`;
-      })
-      .join(', ');
-    notes.push(`Extensiones incluidas manualmente → ${detailText}.`);
-  }
-  if (summary.alertasTexto && summary.alertasTexto !== 'Sin alertas generales') {
-    notes.push(`Alertas relevantes: ${summary.alertasTexto}`);
   }
   if ((summary.totals?.restante ?? 0) <= 0) {
     notes.push('El presupuesto autorizado se encuentra completamente consumido.');
   }
-  notes.push('Importes redondeados a dos decimales para facilitar la lectura.');
   renderObservationBox(doc, Array.from(new Set(notes)));
 }
 
@@ -1280,8 +1178,7 @@ async function generate(summary, branding = {}, customization = {}) {
       } else {
         doc.moveDown(1.2);
       }
-        drawPoBaseBreakdown(doc, summary, style);
-        drawPoTable(doc, summary);
+        drawPoSummaryTable(doc, summary, style);
         if (options.includeMovements) {
           drawMovements(doc, summary, style);
         }

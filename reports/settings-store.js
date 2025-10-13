@@ -25,9 +25,9 @@ const defaultSettings = {
     }
   },
   branding: {
-    headerTitle: 'Reporte de PEOs - Consumo',
+    headerTitle: 'Reporte de POs - Consumo',
     headerSubtitle: '',
-    footerText: 'PEOrpt • Aspel SAE 9',
+    footerText: 'POrpt • Aspel SAE 9',
     letterheadEnabled: false,
     letterheadTop: '',
     letterheadBottom: '',
