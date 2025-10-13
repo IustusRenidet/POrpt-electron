@@ -33,6 +33,8 @@ const DEFAULT_BRANDING = {
 };
 
 const DEFAULT_CUSTOMIZATION = {
+  includeSummary: true,
+  includeDetail: true,
   includeCharts: true,
   includeMovements: true,
   includeObservations: true,
@@ -85,6 +87,8 @@ function normalizeBranding(branding = {}) {
 function normalizeCustomization(customization = {}) {
   return {
     ...DEFAULT_CUSTOMIZATION,
+    includeSummary: customization.includeSummary !== false,
+    includeDetail: customization.includeDetail !== false,
     includeCharts: customization.includeCharts !== false,
     includeMovements: customization.includeMovements !== false,
     includeObservations: customization.includeObservations !== false,
@@ -304,8 +308,7 @@ function drawHeader(doc, summary, branding) {
   const selectedIds = Array.isArray(summary.selectedIds) ? summary.selectedIds.filter(Boolean) : [];
   let seleccion = summary.selectedId || summary.baseId || '-';
   if (summary.universe?.isUniverse) {
-    const universeLabel = summary.universe.label || 'Global (todas las POs)';
-    seleccion = `Alcance: ${universeLabel}`;
+    seleccion = '';
   } else if (selectedIds.length > 1) {
     seleccion = `${selectedIds.length} bases (${selectedIds.join(', ')})`;
   } else if (selectedIds.length === 1) {
@@ -316,19 +319,20 @@ function drawHeader(doc, summary, branding) {
     .fontSize(12)
     .fillColor(branding.accentColor || '#1f2937')
     .text(`Empresa: ${empresaLabel}`, { align: 'center' });
-  doc
-    .font('Helvetica')
-    .fontSize(12)
-    .fillColor(branding.accentColor || '#1f2937')
-    .text(summary.universe?.isUniverse ? seleccion : `Selección: ${seleccion}`, { align: 'center' });
   if (summary.universe?.isUniverse) {
     const titleText = summary.universe.title || 'Reporte del universo de POs';
     doc.moveDown(0.2);
     doc
       .font('Helvetica')
       .fontSize(12)
-      .fillColor('#475569')
+      .fillColor(branding.accentColor || '#1f2937')
       .text(titleText, { align: 'center' });
+  } else {
+    doc
+      .font('Helvetica')
+      .fontSize(12)
+      .fillColor(branding.accentColor || '#1f2937')
+      .text(`Selección: ${seleccion}`, { align: 'center' });
   }
   doc.moveDown(0.8);
 }
@@ -1219,43 +1223,71 @@ async function generate(summary, branding = {}, customization = {}) {
       drawHeader(doc, summary, style);
       if (summary.universe?.isUniverse) {
         drawUniverseFilterInfo(doc, summary, style);
-        drawSummaryBox(doc, summary, style);
         const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
         const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
-        if (globalAlerts.length) {
+        let alertsDisplayed = false;
+        if (options.includeSummary) {
+          drawSummaryBox(doc, summary, style);
+          if (globalAlerts.length) {
+            drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+            alertsDisplayed = true;
+          }
+          if (options.includeCharts) {
+            drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
+          }
+          if (options.includeUniverse) {
+            drawUniverseTotalsTable(doc, summary, style);
+          }
+          if (options.includeObservations) {
+            drawUniverseObservations(doc, summary);
+          }
+        }
+        if (options.includeDetail) {
+          if (!alertsDisplayed && globalAlerts.length) {
+            drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+            alertsDisplayed = true;
+          }
+          if (options.includeCharts && !options.includeSummary) {
+            drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
+          }
+          drawPoSummaryTable(doc, summary, style);
+          drawUniverseGroupDetails(doc, summary, style);
+        } else if (!alertsDisplayed && globalAlerts.length) {
           drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
         }
-        if (options.includeCharts) {
-          drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
-        } else {
-          doc.moveDown(1.2);
-        }
-        if (options.includeUniverse) {
-          drawUniverseTotalsTable(doc, summary, style);
-        }
-        if (options.includeObservations) {
-          drawUniverseObservations(doc, summary);
-        }
-        drawPoSummaryTable(doc, summary, style);
-        drawUniverseGroupDetails(doc, summary, style);
       } else {
-        drawSummaryBox(doc, summary, style);
         const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
         const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
-        if (globalAlerts.length) {
+        let alertsDisplayed = false;
+        if (options.includeSummary) {
+          drawSummaryBox(doc, summary, style);
+          if (globalAlerts.length) {
+            drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+            alertsDisplayed = true;
+          }
+          if (options.includeCharts) {
+            drawChartsSection(doc, summary, style);
+          } else {
+            doc.moveDown(1.2);
+          }
+        }
+        if (options.includeDetail) {
+          if (!alertsDisplayed && globalAlerts.length) {
+            drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+            alertsDisplayed = true;
+          }
+          if (options.includeCharts && !options.includeSummary) {
+            drawChartsSection(doc, summary, style);
+          }
+          drawPoSummaryTable(doc, summary, style);
+          if (options.includeMovements) {
+            drawMovements(doc, summary, style);
+          }
+          if (options.includeObservations) {
+            drawObservations(doc, summary);
+          }
+        } else if (!alertsDisplayed && globalAlerts.length) {
           drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-        }
-        if (options.includeCharts) {
-          drawChartsSection(doc, summary, style);
-        } else {
-          doc.moveDown(1.2);
-        }
-        drawPoSummaryTable(doc, summary, style);
-        if (options.includeMovements) {
-          drawMovements(doc, summary, style);
-        }
-        if (options.includeObservations) {
-          drawObservations(doc, summary);
         }
       }
       drawFooter(doc, style);

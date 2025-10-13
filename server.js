@@ -105,6 +105,8 @@ function roundTo(value, decimals = 2) {
 function mergeCustomization(baseCustomization = {}, requestCustomization = {}) {
   const baseCsv = baseCustomization.csv || {};
   const merged = {
+    includeSummary: baseCustomization.includeSummary !== false,
+    includeDetail: baseCustomization.includeDetail !== false,
     includeCharts: baseCustomization.includeCharts !== false,
     includeMovements: baseCustomization.includeMovements !== false,
     includeObservations: baseCustomization.includeObservations !== false,
@@ -121,7 +123,7 @@ function mergeCustomization(baseCustomization = {}, requestCustomization = {}) {
   const overrides = requestCustomization && typeof requestCustomization === 'object'
     ? requestCustomization
     : {};
-  ['includeCharts', 'includeMovements', 'includeObservations', 'includeUniverse'].forEach(key => {
+  ['includeSummary', 'includeDetail', 'includeCharts', 'includeMovements', 'includeObservations', 'includeUniverse'].forEach(key => {
     if (Object.prototype.hasOwnProperty.call(overrides, key)) {
       merged[key] = parseToggle(overrides[key], merged[key]);
     }
@@ -1404,7 +1406,9 @@ async function getUniverseSummary(empresa, rawFilter) {
         const fecha = formatFirebirdDate(row.FECHA_DOC ?? row.fecha);
         const totalImporte = Number(row.IMPORTE ?? row.importe ?? 0);
         const subtotalImporte = Number(row.SUBTOTAL ?? row.subtotal ?? row.CAN_TOT ?? row.can_tot ?? 0);
-        entry.fecha = fecha;
+        if (fecha) {
+          entry.fecha = fecha;
+        }
         entry.total = roundTo(totalImporte);
         entry.subtotal = roundTo(subtotalImporte);
         entry.totals.total = roundTo(totalImporte);

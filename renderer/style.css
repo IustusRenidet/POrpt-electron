@@ -159,6 +159,60 @@ canvas {
   min-width: 90px;
 }
 
+.btn-preview-download {
+  background: linear-gradient(135deg, #6d28d9 0%, #7c3aed 50%, #8b5cf6 100%);
+  border-color: #6d28d9;
+  color: #fff;
+  box-shadow: 0 10px 18px -12px rgba(109, 40, 217, 0.9);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  animation: previewBounce 2.8s ease-in-out infinite;
+}
+
+.btn-preview-download:hover,
+.btn-preview-download:focus {
+  animation-play-state: paused;
+  color: #fff;
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 12px 20px -10px rgba(124, 58, 237, 0.85);
+  filter: brightness(1.05);
+}
+
+.btn-preview-download:active {
+  animation-play-state: paused;
+  transform: translateY(0) scale(0.99);
+  box-shadow: 0 6px 12px -6px rgba(76, 29, 149, 0.9);
+}
+
+@keyframes previewBounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(-4px);
+  }
+  60% {
+    transform: translateY(0);
+  }
+  80% {
+    transform: translateY(-2px);
+  }
+}
+
+.report-content-toggle .form-check-input:focus {
+  box-shadow: 0 0 0 0.2rem rgba(109, 40, 217, 0.25);
+}
+
+.report-content-toggle .form-check-input:checked {
+  background-color: #6d28d9;
+  border-color: #6d28d9;
+}
+
+#collapseReportOverview hr {
+  border-top-width: 2px;
+  opacity: 0.75;
+}
+
 .avatar-initial {
   width: 42px;
   height: 42px;
