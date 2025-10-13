@@ -43,6 +43,7 @@ const ALERT_TYPE_CLASS = {
   success: 'success',
   danger: 'danger',
   warning: 'warning',
+  alerta: 'warning',
   info: 'info'
 };
 

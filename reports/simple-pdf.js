@@ -151,8 +151,9 @@ function normalizeAlertEntries(alerts = [], fallback = []) {
     if (!trimmed || trimmed.toLowerCase().startsWith('sin alertas')) {
       return;
     }
-    if (!registry.has(trimmed)) {
-      registry.add(trimmed);
+    const normalizedLabel = trimmed.replace(/\[warning\]/giu, '[ALERTA]');
+    if (!registry.has(normalizedLabel)) {
+      registry.add(normalizedLabel);
     }
   };
 
@@ -415,8 +416,8 @@ function drawUniverseGroupDetails(doc, summary, branding) {
     .text('Detalle por pedido del universo', startX, doc.y, { width });
   doc.moveDown(0.3);
 
-  groups.forEach(group => {
-    drawGroupSection(doc, group, branding);
+  groups.forEach((group, index) => {
+    drawGroupSection(doc, group, branding, { isLast: index === groups.length - 1 });
   });
 }
 
@@ -781,10 +782,17 @@ function drawAlertList(doc, alerts, options = {}) {
     return;
   }
   const measuringFont = doc.font('Helvetica').fontSize(11);
-  const contentHeight = prepared.reduce((sum, entry) => {
-    const height = measuringFont.heightOfString(entry, { width });
-    return sum + height + 4;
-  }, 0);
+  const parsedEntries = prepared.map(entry => {
+    const match = entry.match(/^\[([^\]]+)\]\s*(.*)$/u);
+    const type = match ? match[1].toUpperCase() : 'INFO';
+    const message = match ? match[2] : entry;
+    const label = match ? `[${type}] ${message}` : entry;
+    const padX = type === 'ALERTA' ? 6 : 0;
+    const effectiveWidth = Math.max(0, width - padX * 2);
+    const height = measuringFont.heightOfString(label, { width: effectiveWidth });
+    return { type, label, padX, width: effectiveWidth, height };
+  });
+  const contentHeight = parsedEntries.reduce((sum, entry) => sum + entry.height + 6, 0);
   const requiredHeight = contentHeight + 28;
   ensureSpace(doc, requiredHeight);
   doc
@@ -793,9 +801,20 @@ function drawAlertList(doc, alerts, options = {}) {
     .fillColor('#b91c1c')
     .text(options.title || 'Alertas', startX, doc.y, { width });
   doc.moveDown(0.2);
-  prepared.forEach(entry => {
-    doc.font('Helvetica').fontSize(11).fillColor('#b91c1c').text(entry, startX, doc.y, { width });
-    doc.moveDown(0.1);
+  parsedEntries.forEach(entry => {
+    const entryTop = doc.y;
+    if (entry.type === 'ALERTA') {
+      const backgroundHeight = entry.height + 6;
+      doc.save().fillColor('#fef3c7').rect(startX, entryTop - 2, width, backgroundHeight).fill().restore();
+    }
+    doc
+      .font('Helvetica')
+      .fontSize(11)
+      .fillColor(entry.type === 'ALERTA' ? '#92400e' : '#b91c1c')
+      .text(entry.label, startX + entry.padX, entryTop, { width: entry.width });
+    const drawnHeight = doc.y - entryTop;
+    const finalHeight = Math.max(drawnHeight, entry.height);
+    doc.y = entryTop + finalHeight + 4;
   });
   doc.moveDown(0.4);
 }
@@ -990,7 +1009,17 @@ function drawGroupTable(doc, group, options = {}) {
     { key: 'rest', label: 'Disponible', width: width * 0.11 }
   ];
   const headerHeight = 24;
-  const rowHeight = 22;
+  const rowPadding = 12;
+  const measureRowHeight = values => {
+    const measuringFont = doc.font('Helvetica').fontSize(10);
+    return values.reduce((height, value, index) => {
+      const column = columns[index];
+      const cellWidth = Math.max(0, column.width - 16);
+      const text = String(value ?? '');
+      const cellHeight = measuringFont.heightOfString(text, { width: cellWidth });
+      return Math.max(height, cellHeight + rowPadding);
+    }, rowPadding);
+  };
   const drawHeader = () => {
     ensureSpace(doc, headerHeight + 6);
     const y = doc.y;
@@ -1008,28 +1037,42 @@ function drawGroupTable(doc, group, options = {}) {
   };
   drawHeader();
   group.items.forEach(item => {
-    if (ensureSpace(doc, rowHeight + 6)) {
-      drawHeader();
-    }
-    const y = doc.y;
-    const background = item.isBase ? '#f8fafc' : '#ffffff';
-    doc.save().fillColor(background).rect(startX, y, width, rowHeight).fill().restore();
-    doc.lineWidth(0.5).strokeColor('#d1d5db').rect(startX, y, width, rowHeight).stroke();
-    doc.font('Helvetica').fontSize(10).fillColor('#111827');
+    const percentages = item.percentages || {};
+    const totals = item.totals || {};
+    const consumido = Number.isFinite(totals.totalConsumo) ? totals.totalConsumo : 0;
+    const restanteBase = Number.isFinite(totals.restante) ? totals.restante : totals.total - consumido;
+    const restante = Math.max(Number(restanteBase) || 0, 0);
+    const fullyConsumed = Number(restante) <= 0.01;
+    const consumoLabel = `${formatCurrency(consumido)} (${formatPercentage(percentages.consumo)})`;
+    const disponibleLabel = `${formatCurrency(restante)} (${formatPercentage(percentages.rest)})`;
     const rowValues = [
       item.isBase ? `${item.id} (base)` : item.id,
       item.fecha || '-',
       item.clave || '-',
-      formatCurrency(item.totals.total),
-      `${formatCurrency(item.totals.totalRem)} (${formatPercentage(item.percentages.rem)})`,
-      `${formatCurrency(item.totals.totalFac)} (${formatPercentage(item.percentages.fac)})`,
-      `${formatCurrency(item.totals.totalConsumo)} (${formatPercentage(item.percentages.consumo)})`,
-      `${formatCurrency(item.totals.restante)} (${formatPercentage(item.percentages.rest)})`
+      formatCurrency(totals.total),
+      `${formatCurrency(totals.totalRem)} (${formatPercentage(percentages.rem)})`,
+      `${formatCurrency(totals.totalFac)} (${formatPercentage(percentages.fac)})`,
+      consumoLabel,
+      disponibleLabel
     ];
+    const rowHeight = measureRowHeight(rowValues);
+    if (ensureSpace(doc, rowHeight + 6)) {
+      drawHeader();
+    }
+    const y = doc.y;
+    const background = fullyConsumed ? '#fef3c7' : item.isBase ? '#f8fafc' : '#ffffff';
+    const textColor = fullyConsumed ? '#92400e' : '#111827';
+    doc.save().fillColor(background).rect(startX, y, width, rowHeight).fill().restore();
+    doc.lineWidth(0.5).strokeColor('#d1d5db').rect(startX, y, width, rowHeight).stroke();
     let offsetX = startX;
     rowValues.forEach((value, index) => {
       const align = index >= 3 ? 'right' : 'left';
-      doc.text(value, offsetX + 8, y + 6, { width: columns[index].width - 16, align });
+      const cellWidth = columns[index].width - 16;
+      doc
+        .font('Helvetica')
+        .fontSize(10)
+        .fillColor(textColor)
+        .text(value, offsetX + 8, y + 6, { width: cellWidth, align });
       offsetX += columns[index].width;
     });
     doc.y = y + rowHeight;
@@ -1037,7 +1080,7 @@ function drawGroupTable(doc, group, options = {}) {
   doc.moveDown(0.4);
 }
 
-function drawGroupSection(doc, group, branding) {
+function drawGroupSection(doc, group, branding, options = {}) {
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const title = group.extensionIds.length
@@ -1062,6 +1105,16 @@ function drawGroupSection(doc, group, branding) {
   const alertEntries = normalizeAlertEntries(group.alerts || []);
   if (alertEntries.length) {
     drawAlertList(doc, alertEntries, { title: 'Alertas del grupo' });
+  }
+  if (!options.isLast) {
+    const addedPage = ensureSpace(doc, 12);
+    if (!addedPage) {
+      const separatorY = doc.y;
+      doc.lineWidth(0.5).strokeColor('#e2e8f0').moveTo(startX, separatorY).lineTo(startX + width, separatorY).stroke();
+      doc.moveDown(0.6);
+    } else {
+      doc.moveDown(0.3);
+    }
   }
 }
 
@@ -1118,8 +1171,8 @@ function drawChartsSection(doc, summary, branding) {
     .fillColor(branding.accentColor || '#111827')
     .text('Detalle por pedido', doc.page.margins.left, doc.y);
   doc.moveDown(0.3);
-  groups.forEach(group => {
-    drawGroupSection(doc, group, branding);
+  groups.forEach((group, index) => {
+    drawGroupSection(doc, group, branding, { isLast: index === groups.length - 1 });
   });
 }
 
