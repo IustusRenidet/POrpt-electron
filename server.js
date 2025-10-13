@@ -76,6 +76,17 @@ function formatFirebirdDate(value) {
   return `${year}-${month}-${day}`;
 }
 
+function pickEarliestDate(values = []) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return '';
+  }
+  const normalized = values
+    .map(value => formatFirebirdDate(value))
+    .filter(Boolean)
+    .sort();
+  return normalized[0] || '';
+}
+
 function parseToggle(value, defaultValue) {
   if (value === undefined || value === null) {
     return defaultValue;
@@ -1613,10 +1624,17 @@ async function getUniverseSummary(empresa, rawFilter) {
               })
               .join('\n')
           : 'Sin facturas registradas';
+        const resolvedDate = pickEarliestDate([
+          entry.fecha,
+          ...entry.remisiones.map(rem => rem.fecha),
+          ...entry.facturas.map(fac => fac.fecha)
+        ]);
+        const finalDate = resolvedDate || formatFirebirdDate(entry.fecha);
+        entry.fecha = finalDate;
         return {
           id: entry.id,
           baseId: entry.baseId,
-          fecha: entry.fecha,
+          fecha: finalDate,
           total: entry.total,
           subtotal: entry.subtotal,
           remisiones: entry.remisiones,
