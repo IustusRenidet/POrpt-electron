@@ -134,6 +134,52 @@ function formatPercentage(value) {
   return `${roundTo(value, 2).toFixed(2)}%`;
 }
 
+function padTo2(value) {
+  return value.toString().padStart(2, '0');
+}
+
+function formatDateLabel(value) {
+  if (!value) {
+    return '';
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return '';
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/u.test(trimmed)) {
+      return trimmed;
+    }
+    if (/^\d{8}$/u.test(trimmed)) {
+      const year = trimmed.slice(0, 4);
+      const month = trimmed.slice(4, 6);
+      const day = trimmed.slice(6, 8);
+      return `${year}-${month}-${day}`;
+    }
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/u);
+    if (isoMatch) {
+      const [, year, month, day] = isoMatch;
+      return `${year}-${month}-${day}`;
+    }
+    const normalized = trimmed.replace(/ /u, 'T');
+    const parsed = new Date(normalized);
+    if (!Number.isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear();
+      const month = padTo2(parsed.getMonth() + 1);
+      const day = padTo2(parsed.getDate());
+      return `${year}-${month}-${day}`;
+    }
+  }
+  const asDate = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(asDate.getTime())) {
+    return '';
+  }
+  const year = asDate.getFullYear();
+  const month = padTo2(asDate.getMonth() + 1);
+  const day = padTo2(asDate.getDate());
+  return `${year}-${month}-${day}`;
+}
+
 function normalizePoId(value) {
   if (typeof value !== 'string') return '';
   return value.trim();
@@ -478,8 +524,6 @@ function drawPoSummaryTable(doc, summary, branding) {
     .text('Resumen de POs seleccionadas', startX, doc.y);
   doc.moveDown(0.3);
 
-  drawHeader();
-
   const subtotalLookup = new Map();
   const rawItems = Array.isArray(summary.items) ? summary.items : [];
   rawItems.forEach(item => {
@@ -487,48 +531,51 @@ function drawPoSummaryTable(doc, summary, branding) {
     subtotalLookup.set(item.id, Number(item.subtotal || 0));
   });
 
-  groups.forEach(group => {
-    group.items.forEach(item => {
-      const totals = item.totals || {};
-      const subtotalAmount = subtotalLookup.get(item.id) || 0;
-      const totalAmount = totals.total;
-      const consumido = Number.isFinite(totals.totalConsumo)
-        ? totals.totalConsumo
-        : roundTo((totals.totalRem || 0) + (totals.totalFac || 0));
-      const disponible = Number.isFinite(totals.restante)
-        ? totals.restante
-        : roundTo(Math.max(totalAmount - consumido, 0));
-      const isExtension = !item.isBase;
-      const poLabel = isExtension
-        ? `${item.id} · Ext. de ${group.baseId}`
-        : `${item.id} (base)`;
-      const rowValues = [
-        poLabel,
-        item.fecha || '-',
-        subtotalAmount > 0 ? formatCurrency(subtotalAmount) : '—',
-        formatCurrency(totalAmount),
-        `${formatCurrency(consumido)} / ${formatCurrency(disponible)}`
-      ];
-      const rowHeight = measureRowHeight(rowValues);
-      if (ensureSpace(doc, rowHeight + 4)) {
-        drawHeader();
-      }
-      const y = doc.y;
-      const background = isExtension ? '#ffffff' : '#f8fafc';
-      doc.save().fillColor(background).rect(startX, y, tableWidth, rowHeight).fill().restore();
-      doc.lineWidth(0.5).strokeColor('#d1d5db').rect(startX, y, tableWidth, rowHeight).stroke();
-      let offsetX = startX;
-      columns.forEach((column, index) => {
-        doc
-          .font('Helvetica')
-          .fontSize(11)
-          .fillColor('#111827')
-          .text(rowValues[index], offsetX + 10, y + 6, { width: column.width - 20, align: column.align });
-        offsetX += column.width;
+  if (groups.length) {
+    drawHeader();
+    groups.forEach(group => {
+      group.items.forEach(item => {
+        const totals = item.totals || {};
+        const subtotalAmount = subtotalLookup.get(item.id) || 0;
+        const totalAmount = totals.total;
+        const consumido = Number.isFinite(totals.totalConsumo)
+          ? totals.totalConsumo
+          : roundTo((totals.totalRem || 0) + (totals.totalFac || 0));
+        const disponible = Number.isFinite(totals.restante)
+          ? totals.restante
+          : roundTo(Math.max(totalAmount - consumido, 0));
+        const isExtension = !item.isBase;
+        const poLabel = isExtension
+          ? `${item.id} · Ext. de ${group.baseId}`
+          : `${item.id} (base)`;
+        const rowValues = [
+          poLabel,
+          item.fecha || '-',
+          subtotalAmount > 0 ? formatCurrency(subtotalAmount) : '—',
+          formatCurrency(totalAmount),
+          `${formatCurrency(consumido)} / ${formatCurrency(disponible)}`
+        ];
+        const rowHeight = measureRowHeight(rowValues);
+        if (ensureSpace(doc, rowHeight + 4)) {
+          drawHeader();
+        }
+        const y = doc.y;
+        const background = isExtension ? '#ffffff' : '#f8fafc';
+        doc.save().fillColor(background).rect(startX, y, tableWidth, rowHeight).fill().restore();
+        doc.lineWidth(0.5).strokeColor('#d1d5db').rect(startX, y, tableWidth, rowHeight).stroke();
+        let offsetX = startX;
+        columns.forEach((column, index) => {
+          doc
+            .font('Helvetica')
+            .fontSize(11)
+            .fillColor('#111827')
+            .text(rowValues[index], offsetX + 10, y + 6, { width: column.width - 20, align: column.align });
+          offsetX += column.width;
+        });
+        doc.y = y + rowHeight;
       });
-      doc.y = y + rowHeight;
     });
-  });
+  }
 
   doc.moveDown(0.4);
   const totals = summary.totals || {};
@@ -958,9 +1005,11 @@ function buildPoGroupDetails(summary) {
       group.alerts.push(...itemAlerts);
     }
     const isBase = providedBase ? providedBase === id : getBasePoId(id) === baseId;
+    const rawDate =
+      item.fecha ?? item.FECHA_DOC ?? item.fecha_doc ?? item.fechaDoc ?? item.fechaDocumento ?? '';
     group.items.push({
       id,
-      fecha: item.fecha || '',
+      fecha: formatDateLabel(rawDate),
       clave: item.docSig || item.doc_sig || item.tipDoc || item.tip_doc || '',
       totals,
       percentages,
@@ -1235,71 +1284,76 @@ async function generate(summary, branding = {}, customization = {}) {
         const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
         const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
         let alertsDisplayed = false;
-        let summaryDrewTable = false;
+
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
           if (globalAlerts.length) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
             alertsDisplayed = true;
           }
-          drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
-          summaryDrewTable = drawPoSummaryTable(doc, summary, style) || summaryDrewTable;
-          if (options.includeUniverse) {
-            drawUniverseTotalsTable(doc, summary, style);
-          }
-          if (options.includeObservations) {
-            drawUniverseObservations(doc, summary);
-          }
         }
+
         if (options.includeDetail) {
           if (!alertsDisplayed && globalAlerts.length) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
             alertsDisplayed = true;
           }
-          if (!options.includeSummary) {
-            drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
-          }
-          if (!summaryDrewTable) {
-            summaryDrewTable = drawPoSummaryTable(doc, summary, style) || summaryDrewTable;
-          }
           drawUniverseGroupDetails(doc, summary, style);
-        } else if (!alertsDisplayed && globalAlerts.length) {
+        }
+
+        if (!alertsDisplayed && globalAlerts.length) {
           drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+          alertsDisplayed = true;
+        }
+
+        const shouldDrawResumenContent = options.includeSummary || options.includeDetail || options.includeUniverse;
+        if (shouldDrawResumenContent) {
+          drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
+        }
+        drawPoSummaryTable(doc, summary, style);
+        if (options.includeUniverse) {
+          drawUniverseTotalsTable(doc, summary, style);
+        }
+
+        if (options.includeObservations) {
+          drawUniverseObservations(doc, summary);
         }
       } else {
         const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
         const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
         let alertsDisplayed = false;
-        let summaryDrewTable = false;
+
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
           if (globalAlerts.length) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
             alertsDisplayed = true;
           }
-          drawChartsSection(doc, summary, style);
-          summaryDrewTable = drawPoSummaryTable(doc, summary, style) || summaryDrewTable;
         }
+
         if (options.includeDetail) {
           if (!alertsDisplayed && globalAlerts.length) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
             alertsDisplayed = true;
           }
-          if (!options.includeSummary) {
-            drawChartsSection(doc, summary, style);
-          }
-          if (!summaryDrewTable) {
-            summaryDrewTable = drawPoSummaryTable(doc, summary, style) || summaryDrewTable;
-          }
           drawSelectionGroupDetails(doc, summary, style);
-          if (options.includeMovements) {
-            drawMovements(doc, summary, style);
-          }
-          if (options.includeObservations) {
-            drawObservations(doc, summary);
-          }
-        } else if (!alertsDisplayed && globalAlerts.length) {
+        }
+
+        if (!alertsDisplayed && globalAlerts.length) {
           drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
+          alertsDisplayed = true;
+        }
+
+        if (options.includeCharts) {
+          drawChartsSection(doc, summary, style);
+        }
+        drawPoSummaryTable(doc, summary, style);
+        if (options.includeMovements) {
+          drawMovements(doc, summary, style);
+        }
+
+        if (options.includeObservations) {
+          drawObservations(doc, summary);
         }
       }
       drawFooter(doc, style);
