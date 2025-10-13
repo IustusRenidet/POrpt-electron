@@ -21,7 +21,7 @@ const PDF_UNAVAILABLE_MESSAGE =
 const DEFAULT_BRANDING = {
   headerTitle: 'Reporte de POs - Consumo',
   headerSubtitle: '',
-  footerText: 'POrpt • Aspel SAE 9',
+  footerText: 'POrpt • ICONET',
   letterheadEnabled: false,
   letterheadTop: '',
   letterheadBottom: '',
