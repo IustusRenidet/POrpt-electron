@@ -1725,75 +1725,106 @@ function renderSummaryCards(summary) {
 function renderTable(summary) {
   const table = document.getElementById('poTable');
   if (!table) return;
-  const rows = summary.items
-    .map(item => {
-      const totalAmount = Number(item.total || 0);
-      const totalOriginalAmount = Number(item.totalOriginal ?? item.total ?? 0);
-      const subtotalAmount = Number(item.subtotal || 0);
-      const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - totalAmount) > 0.009;
-      const subtotalHtml = showSubtotal
-        ? `<div class="small text-muted">Subtotal: $${formatCurrency(subtotalAmount)}</div>`
-        : '';
-      const adjustment = item.ajusteDocSig;
-      const appliedDiff = Number(adjustment?.diferenciaAplicada ?? 0);
-      const hasAdjustment = appliedDiff > 0.009;
-      const adjustmentDetails = [];
-      if (hasAdjustment) {
-        adjustmentDetails.push(`<div class="small text-muted">Original: $${formatCurrency(totalOriginalAmount)}</div>`);
-        const tipoLabel = adjustment?.tipo === 'F' ? 'Factura' : 'Remisión';
-        const docLabel = escapeHtml(adjustment?.docSig || '-');
-        adjustmentDetails.push(
-          `<div class="small text-warning">Ajuste por ${tipoLabel} ${docLabel}: -$${formatCurrency(appliedDiff)}</div>`
-        );
-      }
-      if (subtotalHtml) {
-        adjustmentDetails.push(subtotalHtml);
-      }
-      const totalCellDetails = adjustmentDetails.join('');
-      const totals = getTotalsWithDefaults(item.totals);
-      const totalBase = normalizeNumber(totals.total || totalAmount);
-      const totalRem = normalizeNumber(totals.totalRem);
-      const totalFac = normalizeNumber(totals.totalFac);
-      const restante = totals.restante != null
-        ? normalizeNumber(totals.restante)
-        : Math.max(totalBase - (totalRem + totalFac), 0);
-      const normalizedTotals = {
-        ...totals,
-        total: totalBase,
-        totalRem,
-        totalFac,
-        restante
-      };
-      const percentages = computePercentagesFromTotals(normalizedTotals);
-      return `
-      <tr data-po="${item.id}">
-        <td class="fw-semibold">${item.id}</td>
-        <td>${item.fecha || '-'}</td>
-        <td>$${formatCurrency(totalAmount)}${totalCellDetails}</td>
-        <td>$${formatCurrency(normalizedTotals.totalRem)} (${formatPercentageLabel(percentages.rem)})</td>
-        <td>$${formatCurrency(normalizedTotals.totalFac)} (${formatPercentageLabel(percentages.fac)})</td>
-        <td>$${formatCurrency(normalizedTotals.restante)} (${formatPercentageLabel(percentages.rest)})</td>
-        <td>
-          <button class="btn btn-outline-primary btn-sm" data-po="${item.id}" data-action="show-modal">Detalle</button>
-        </td>
-      </tr>
+  table.setAttribute('aria-busy', 'true');
+  try {
+    const items = Array.isArray(summary?.items) ? summary.items : [];
+    const rows = items
+      .map(item => {
+        const totalAmount = Number(item.total || 0);
+        const totalOriginalAmount = Number(item.totalOriginal ?? item.total ?? 0);
+        const subtotalAmount = Number(item.subtotal || 0);
+        const showSubtotal = subtotalAmount > 0 && Math.abs(subtotalAmount - totalAmount) > 0.009;
+        const adjustment = item.ajusteDocSig;
+        const appliedDiff = Number(adjustment?.diferenciaAplicada ?? 0);
+        const hasAdjustment = appliedDiff > 0.009;
+        const totalMetaLines = [];
+        if (hasAdjustment) {
+          totalMetaLines.push(`<span class="table-meta text-muted">Original: $${formatCurrency(totalOriginalAmount)}</span>`);
+          const tipoLabel = adjustment?.tipo === 'F' ? 'Factura' : 'Remisión';
+          const docLabel = escapeHtml(adjustment?.docSig || '-');
+          totalMetaLines.push(
+            `<span class="table-meta text-warning">Ajuste por ${tipoLabel} ${docLabel}: -$${formatCurrency(appliedDiff)}</span>`
+          );
+        }
+        if (showSubtotal) {
+          totalMetaLines.push(`<span class="table-meta text-muted">Subtotal sin IVA: $${formatCurrency(subtotalAmount)}</span>`);
+        }
+        const totals = getTotalsWithDefaults(item.totals);
+        const totalBase = normalizeNumber(totals.total || totalAmount);
+        const totalRem = normalizeNumber(totals.totalRem);
+        const totalFac = normalizeNumber(totals.totalFac);
+        const restante = totals.restante != null
+          ? normalizeNumber(totals.restante)
+          : Math.max(totalBase - (totalRem + totalFac), 0);
+        const normalizedTotals = {
+          ...totals,
+          total: totalBase,
+          totalRem,
+          totalFac,
+          restante
+        };
+        const percentages = computePercentagesFromTotals(normalizedTotals);
+        return `
+        <tr data-po="${escapeHtml(item.id || '')}">
+          <td class="fw-semibold">${escapeHtml(item.id || '')}</td>
+          <td>${escapeHtml(item.fecha || '-')}</td>
+          <td>
+            <span class="table-amount">$${formatCurrency(totalAmount)}</span>
+            ${totalMetaLines.join('')}
+          </td>
+          <td>
+            <span class="table-amount">$${formatCurrency(normalizedTotals.totalRem)}</span>
+            <span class="table-meta">${formatPercentageLabel(percentages.rem)}</span>
+          </td>
+          <td>
+            <span class="table-amount">$${formatCurrency(normalizedTotals.totalFac)}</span>
+            <span class="table-meta">${formatPercentageLabel(percentages.fac)}</span>
+          </td>
+          <td>
+            <span class="table-amount">$${formatCurrency(normalizedTotals.restante)}</span>
+            <span class="table-meta">${formatPercentageLabel(percentages.rest)}</span>
+          </td>
+          <td class="text-center">
+            <button class="btn btn-outline-primary btn-sm" data-po="${escapeHtml(item.id || '')}" data-action="show-modal">Detalle</button>
+          </td>
+        </tr>
+        `;
+      })
+      .join('');
+    const emptyState = `
+        <tr>
+          <td class="text-center text-muted py-4" colspan="7">No hay POs seleccionadas.</td>
+        </tr>
       `;
-    })
-    .join('');
-  table.innerHTML = `
-    <thead class="table-light">
-      <tr>
-        <th>PO</th>
-        <th>Fecha</th>
-        <th>Total</th>
-        <th>Remisiones</th>
-        <th>Facturas</th>
-        <th>Disponible</th>
-        <th>Acción</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  `;
+    table.innerHTML = `
+      <thead>
+        <tr>
+          <th scope="col">PO</th>
+          <th scope="col">Fecha</th>
+          <th scope="col">
+            <span class="table-heading-title">Total autorizado</span>
+            <span class="table-heading-sub">Monto aprobado</span>
+          </th>
+          <th scope="col">
+            <span class="table-heading-title">Remisiones</span>
+            <span class="table-heading-sub">Monto · % consumo</span>
+          </th>
+          <th scope="col">
+            <span class="table-heading-title">Facturas</span>
+            <span class="table-heading-sub">Monto · % consumo</span>
+          </th>
+          <th scope="col">
+            <span class="table-heading-title">Disponible</span>
+            <span class="table-heading-sub">Saldo restante</span>
+          </th>
+          <th scope="col" class="text-center">Acción</th>
+        </tr>
+      </thead>
+      <tbody>${rows || emptyState}</tbody>
+    `;
+  } finally {
+    table.setAttribute('aria-busy', 'false');
+  }
 }
 
 function attachTableHandlers(summary) {
@@ -2156,10 +2187,21 @@ function renderCharts(summary) {
                 <span class="fw-semibold">${escapeHtml(item.id)}</span>
                 ${badge}
               </td>
-              <td>$${formatCurrency(item.totals.total)}</td>
-              <td>$${formatCurrency(item.totals.totalRem)} (${formatPercentageLabel(item.percentages.rem)})</td>
-              <td>$${formatCurrency(item.totals.totalFac)} (${formatPercentageLabel(item.percentages.fac)})</td>
-              <td>$${formatCurrency(item.totals.restante)} (${formatPercentageLabel(item.percentages.rest)})</td>
+              <td class="text-end">
+                <span class="table-amount">$${formatCurrency(item.totals.total)}</span>
+              </td>
+              <td class="text-end">
+                <span class="table-amount">$${formatCurrency(item.totals.totalRem)}</span>
+                <span class="table-meta">${formatPercentageLabel(item.percentages.rem)}</span>
+              </td>
+              <td class="text-end">
+                <span class="table-amount">$${formatCurrency(item.totals.totalFac)}</span>
+                <span class="table-meta">${formatPercentageLabel(item.percentages.fac)}</span>
+              </td>
+              <td class="text-end">
+                <span class="table-amount">$${formatCurrency(item.totals.restante)}</span>
+                <span class="table-meta">${formatPercentageLabel(item.percentages.rest)}</span>
+              </td>
             </tr>
           `;
         })
@@ -2169,14 +2211,26 @@ function renderCharts(summary) {
           <div class="group-breakdown mt-3">
             <h6 class="text-secondary">Desglose por PO</h6>
             <div class="table-responsive">
-              <table class="table table-sm align-middle mb-0 group-breakdown-table">
-                <thead class="table-light">
+              <table class="table table-sm align-middle mb-0 group-breakdown-table table-modern table-modern-compact">
+                <thead>
                   <tr>
-                    <th>PO</th>
-                    <th>Total</th>
-                    <th>Remisiones</th>
-                    <th>Facturas</th>
-                    <th>Disponible</th>
+                    <th scope="col">PO</th>
+                    <th scope="col">
+                      <span class="table-heading-title">Total autorizado</span>
+                      <span class="table-heading-sub">Monto aprobado</span>
+                    </th>
+                    <th scope="col">
+                      <span class="table-heading-title">Remisiones</span>
+                      <span class="table-heading-sub">Monto · % consumo</span>
+                    </th>
+                    <th scope="col">
+                      <span class="table-heading-title">Facturas</span>
+                      <span class="table-heading-sub">Monto · % consumo</span>
+                    </th>
+                    <th scope="col">
+                      <span class="table-heading-title">Disponible</span>
+                      <span class="table-heading-sub">Saldo restante</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>

@@ -150,7 +150,27 @@
                       <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
                         <button id="clearSelectionBtn" class="btn btn-outline-secondary btn-sm" type="button">Limpiar selección</button>
                       </div>
-                      <div id="extensionSelectionContainer" class="mt-3"></div>
+                      <div class="card shadow-sm border-0 mt-3">
+                        <div class="card-header bg-transparent border-0">
+                          <button
+                            class="btn btn-link card-toggle-button collapsed"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#collapseExtensions"
+                            aria-expanded="false"
+                            aria-controls="collapseExtensions"
+                          >
+                            <span class="toggle-icon" aria-hidden="true">☰</span>
+                            <span class="toggle-label">Extensiones</span>
+                            <span class="toggle-chevron" aria-hidden="true">▾</span>
+                          </button>
+                        </div>
+                        <div id="collapseExtensions" class="collapse">
+                          <div class="card-body">
+                            <div id="extensionSelectionContainer" class="extension-selection-wrapper"></div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -424,9 +444,19 @@
         <p class="small text-muted mb-3">Los datos combinan la PO base con las extensiones seleccionadas para mostrar el resultado del subgrupo.</p>
         <div id="extensionsContainer" class="extensions-grid mb-4"></div>
 
-        <h3 class="h5 mb-2">Detalle de POs seleccionadas</h3>
-        <div class="table-responsive">
-          <table id="poTable" class="table table-hover align-middle"></table>
+        <div class="card shadow-sm table-section-card">
+          <div class="card-header">
+            <h3 id="poTableTitle" class="h6 mb-0">Detalle de POs seleccionadas</h3>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table
+                id="poTable"
+                class="table table-hover align-middle table-modern mb-0"
+                aria-describedby="poTableTitle"
+              ></table>
+            </div>
+          </div>
         </div>
       </div>
     </section>
