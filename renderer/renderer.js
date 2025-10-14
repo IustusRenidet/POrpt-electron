@@ -238,8 +238,70 @@ function getSearchableSelectState(select) {
   return state;
 }
 
+function getSearchablePlaceholder(select) {
+  if (!select) return '';
+  const state = getSearchableSelectState(select);
+  const hasItems = select.dataset.searchableHasItems !== 'false';
+  const emptyLabel = select.dataset.searchableEmptyLabel;
+  if (!hasItems && emptyLabel) {
+    return emptyLabel;
+  }
+  return state?.placeholder || select.getAttribute('placeholder') || '';
+}
+
+function updateTomSelectPlaceholder(control, placeholder) {
+  if (!control) return;
+  if (typeof placeholder === 'string') {
+    control.settings.placeholder = placeholder;
+    if (control.control_input) {
+      control.control_input.placeholder = placeholder;
+    }
+    if (control.dropdown_input) {
+      control.dropdown_input.placeholder = placeholder;
+    }
+  }
+}
+
+function refreshTomSelectOptions(select) {
+  if (!select?.tomselect) return;
+  const control = select.tomselect;
+  const options = Array.from(select.options || [])
+    .filter(option => option.dataset?.placeholderOption !== 'true')
+    .map(option => ({
+      value: option.value,
+      text: option.textContent,
+      disabled: option.disabled
+    }));
+  const placeholder = getSearchablePlaceholder(select);
+  try {
+    if (typeof control.clearOptions === 'function') {
+      control.clearOptions();
+    }
+    if (options.length) {
+      if (typeof control.addOptions === 'function') {
+        control.addOptions(options);
+      } else if (typeof control.addOption === 'function') {
+        options.forEach(option => control.addOption(option));
+      }
+    }
+    updateTomSelectPlaceholder(control, placeholder);
+    const currentValue = select.value;
+    if (currentValue) {
+      control.setValue(currentValue, true);
+    } else {
+      control.clear(true);
+    }
+    if (typeof control.refreshOptions === 'function') {
+      control.refreshOptions(false);
+    }
+  } catch (error) {
+    console.error('Error sincronizando TomSelect', error);
+  }
+}
+
 function ensureSearchableFilterInput(select) {
   if (!select) return null;
+  if (select.tomselect) return null;
   const state = getSearchableSelectState(select);
   if (!state) return null;
   if (state.filterInput && state.filterInput.isConnected) {
@@ -281,6 +343,10 @@ function ensureSearchableFilterInput(select) {
 
 function updateSearchableSelectPlaceholder(select, matches = 0) {
   if (!select) return;
+  if (select.tomselect) {
+    updateTomSelectPlaceholder(select.tomselect, getSearchablePlaceholder(select));
+    return;
+  }
   const state = getSearchableSelectState(select);
   const placeholderOption = select.querySelector('option[data-placeholder-option="true"]');
   if (!placeholderOption || !state) return;
@@ -301,6 +367,10 @@ function updateSearchableSelectPlaceholder(select, matches = 0) {
 
 function applySearchableSelectFilter(select, text = '') {
   if (!select) return;
+  if (select.tomselect) {
+    updateTomSelectPlaceholder(select.tomselect, getSearchablePlaceholder(select));
+    return;
+  }
   const state = getSearchableSelectState(select);
   if (!state) return;
   const nextText = typeof text === 'string' ? text : '';
@@ -346,6 +416,14 @@ function applySearchableSelectFilter(select, text = '') {
 
 function clearSearchableSelectFilter(select) {
   if (!select) return;
+  if (select.tomselect) {
+    const control = select.tomselect;
+    if (typeof control.setTextboxValue === 'function') {
+      control.setTextboxValue('');
+    }
+    updateTomSelectPlaceholder(control, getSearchablePlaceholder(select));
+    return;
+  }
   const state = getSearchableSelectState(select);
   if (!state) return;
   state.text = '';
@@ -357,6 +435,15 @@ function clearSearchableSelectFilter(select) {
 
 function resetSearchableSelect(select) {
   if (!select) return;
+  if (select.tomselect) {
+    const control = select.tomselect;
+    control.clear(true);
+    updateTomSelectPlaceholder(control, getSearchablePlaceholder(select));
+    if (typeof control.close === 'function') {
+      control.close();
+    }
+    return;
+  }
   select.value = '';
   clearSearchableSelectFilter(select);
   const placeholderOption = select.querySelector('option[data-placeholder-option="true"]');
@@ -367,6 +454,15 @@ function resetSearchableSelect(select) {
 
 function setSearchableSelectValue(select, value) {
   if (!select) return;
+  if (select.tomselect) {
+    const control = select.tomselect;
+    if (value) {
+      control.setValue(value, true);
+    } else {
+      control.clear(true);
+    }
+    return;
+  }
   const option = Array.from(select.options).find(item => item.value === value);
   if (option) {
     select.value = value;
@@ -380,6 +476,9 @@ function setSearchableSelectValue(select, value) {
 function handleSearchableSelectKeydown(event) {
   const select = event.target;
   if (!select || select.tagName !== 'SELECT' || !select.dataset.searchableSelect) {
+    return;
+  }
+  if (select.tomselect) {
     return;
   }
   const state = getSearchableSelectState(select);
@@ -420,11 +519,32 @@ function handleSearchableSelectKeydown(event) {
 
 function initializeSearchableSelect(select, { placeholder } = {}) {
   if (!select) return;
-  if (select.dataset.searchableInitialized === 'true') return;
   const state = getSearchableSelectState(select);
   if (placeholder) {
     state.placeholder = placeholder;
   }
+  if (window.TomSelect) {
+    if (!select.tomselect) {
+      const control = new TomSelect(select, {
+        valueField: 'value',
+        labelField: 'text',
+        searchField: ['text', 'value'],
+        allowEmptyOption: true,
+        create: false,
+        persist: false,
+        maxOptions: 500,
+        plugins: ['clear_button'],
+        placeholder: getSearchablePlaceholder(select)
+      });
+      updateTomSelectPlaceholder(control, getSearchablePlaceholder(select));
+      select.dataset.searchableInitialized = 'tomselect';
+    } else if (placeholder) {
+      updateTomSelectPlaceholder(select.tomselect, getSearchablePlaceholder(select));
+    }
+    refreshTomSelectOptions(select);
+    return;
+  }
+  if (select.dataset.searchableInitialized === 'true') return;
   ensureSearchableFilterInput(select);
   const hasInitialOptions = Array.from(select.options).some(option => option.value && !option.disabled);
   select.dataset.searchableHasItems = hasInitialOptions ? 'true' : 'false';
@@ -800,6 +920,7 @@ function renderEmpresaOptions() {
     select.value = '';
   }
   applySearchableSelectFilter(select, selectState?.text || '');
+  refreshTomSelectOptions(select);
 }
 
 function renderUniverseEmpresaSelect() {
@@ -853,6 +974,7 @@ function renderPoOptions() {
   }
   applySearchableSelectFilter(select, selectState?.text || '');
   updatePoFoundList();
+  refreshTomSelectOptions(select);
 }
 
 function updatePoFoundList() {
@@ -1058,6 +1180,7 @@ function renderManualExtensionSelectOptions(select, baseId) {
     select.value = '';
   }
   applySearchableSelectFilter(select, selectState?.text || '');
+  refreshTomSelectOptions(select);
 }
 
 function storeManualVariant(baseId, variant) {
