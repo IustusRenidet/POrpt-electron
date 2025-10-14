@@ -87,6 +87,25 @@ function pickEarliestDate(values = []) {
   return normalized[0] || '';
 }
 
+function getRowValue(row, ...keys) {
+  if (!row || typeof row !== 'object') {
+    return undefined;
+  }
+  for (const key of keys) {
+    if (!key) continue;
+    const variants = [key, key.toUpperCase(), key.toLowerCase()];
+    for (const variant of variants) {
+      if (Object.prototype.hasOwnProperty.call(row, variant)) {
+        const value = row[variant];
+        if (value !== undefined) {
+          return value;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 function parseToggle(value, defaultValue) {
   if (value === undefined || value === null) {
     return defaultValue;
@@ -1414,7 +1433,7 @@ async function getUniverseSummary(empresa, rawFilter) {
           poDocKeys.add(poKey);
         }
         const entry = ensureUniversePo(id);
-        const fecha = formatFirebirdDate(row.FECHA_DOC ?? row.fecha);
+        const fecha = formatFirebirdDate(getRowValue(row, 'FECHA_DOC', 'FECHA', 'fecha'));
         const totalImporte = Number(row.IMPORTE ?? row.importe ?? 0);
         const subtotalImporte = Number(row.SUBTOTAL ?? row.subtotal ?? row.CAN_TOT ?? row.can_tot ?? 0);
         if (fecha) {
@@ -1458,7 +1477,7 @@ async function getUniverseSummary(empresa, rawFilter) {
       const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
       const linkedById = remKey && remDocKeys.has(remKey);
       const linkedByPo = docAntKey && poDocKeys.has(docAntKey) && (tipDocAnt === 'P' || !tipDocAnt);
-      const fechaOk = isDateWithinFilter(row.FECHA_DOC ?? row.fecha);
+      const fechaOk = isDateWithinFilter(getRowValue(row, 'FECHA_DOC', 'FECHA', 'fecha'));
       return fechaOk && (linkedById || linkedByPo);
     });
 
@@ -1490,7 +1509,7 @@ async function getUniverseSummary(empresa, rawFilter) {
       const entry = ensureUniversePo(targetPo);
       if (!entry) return;
       const monto = Number(row.IMPORTE ?? row.importe ?? 0);
-      const fecha = formatFirebirdDate(row.FECHA_DOC ?? row.fecha);
+      const fecha = formatFirebirdDate(getRowValue(row, 'FECHA_DOC', 'FECHA', 'fecha'));
       entry.remisiones.push({
         id: remId,
         fecha,
@@ -1536,7 +1555,7 @@ async function getUniverseSummary(empresa, rawFilter) {
       const linkedByRem = docAntKey && remKeysFromData.has(docAntKey) && (tipDocAnt === 'R' || !tipDocAnt);
       const linkedById =
         factKey && (factDocIdKeysFromPo.has(factKey) || factDocIdKeysFromRem.has(factKey));
-      const fechaOk = isDateWithinFilter(row.FECHA_DOC ?? row.fecha);
+      const fechaOk = isDateWithinFilter(getRowValue(row, 'FECHA_DOC', 'FECHA', 'fecha'));
       return fechaOk && (linkedByPo || linkedByRem || linkedById);
     });
 
@@ -1576,7 +1595,7 @@ async function getUniverseSummary(empresa, rawFilter) {
       const entry = ensureUniversePo(targetPo);
       if (!entry) return;
       const monto = Number(row.IMPORTE ?? row.importe ?? 0);
-      const fecha = formatFirebirdDate(row.FECHA_DOC ?? row.fecha);
+      const fecha = formatFirebirdDate(getRowValue(row, 'FECHA_DOC', 'FECHA', 'fecha'));
       entry.facturas.push({
         id: factId,
         fecha,
