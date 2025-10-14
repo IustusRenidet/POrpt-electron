@@ -400,17 +400,20 @@ function drawUniverseFilterInfo(doc, summary, branding) {
   doc.moveDown(0.8);
 }
 
-function drawUniverseTotalsTable(doc, summary, branding) {
+function drawTotalsTable(doc, summary, branding) {
   const totals = summary.totals || {};
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const rowHeight = 32;
+  const remainderLabel = summary.universe?.isUniverse
+    ? 'Remanente total del universo'
+    : 'Remanente total de la selección';
   const rows = [
     { label: 'Total autorizado de POs', value: formatCurrency(totals.total), color: branding.accentColor },
     { label: 'Total remisiones', value: formatCurrency(totals.totalRem), color: branding.remColor },
     { label: 'Total facturas', value: formatCurrency(totals.totalFac), color: branding.facColor },
     { label: 'Total consumido (Rem + Fac)', value: formatCurrency(totals.totalConsumo), color: '#1f2937' },
-    { label: 'Remanente total del universo', value: formatCurrency(totals.restante), color: branding.restanteColor }
+    { label: remainderLabel, value: formatCurrency(totals.restante), color: branding.restanteColor }
   ];
 
   const totalHeight = rowHeight * rows.length;
@@ -1203,7 +1206,7 @@ function drawGroupSection(doc, group, branding, options = {}) {
     if (!addedPage) {
       const separatorY = doc.y;
       doc
-        .lineWidth(1.5)
+        .lineWidth(2.5)
         .strokeColor('#000000')
         .moveTo(startX, separatorY)
         .lineTo(startX + width, separatorY)
@@ -1354,9 +1357,10 @@ async function generate(summary, branding = {}, customization = {}) {
         }
         
         // 4. Alertas generales
-        if (globalAlerts.length) {
-          drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-        }
+        drawAlertList(doc, globalAlerts, {
+          title: 'Alertas del reporte',
+          showPlaceholder: true
+        });
         
         // 5. Gráfica global con stats (barra de consumo combinado)
         const shouldDrawResumenContent = options.includeSummary || options.includeDetail || options.includeUniverse;
@@ -1364,19 +1368,17 @@ async function generate(summary, branding = {}, customization = {}) {
           drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
         }
         
+        // Tabla de totales generales (autorizado, remisiones, etc.)
+        drawTotalsTable(doc, summary, style);
+
         // 6. Tabla general (resumen de POs)
         drawPoSummaryTable(doc, summary, style);
-        
-        // Tabla de totales del universo (si aplica)
-        if (options.includeUniverse) {
-          drawUniverseTotalsTable(doc, summary, style);
-        }
-        
+
         // 7. Detalle de las PO
         if (options.includeDetail) {
           drawUniverseGroupDetails(doc, summary, style);
         }
-        
+
         // 8. Observaciones
         if (options.includeObservations) {
           drawUniverseObservations(doc, summary);
@@ -1392,23 +1394,27 @@ async function generate(summary, branding = {}, customization = {}) {
         }
         
         // 4. Alertas generales
-        if (globalAlerts.length) {
-          drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-        }
-        
+        drawAlertList(doc, globalAlerts, {
+          title: 'Alertas del reporte',
+          showPlaceholder: true
+        });
+
         // 5. Gráfica global con stats (barra de consumo combinado)
         if (options.includeCharts) {
           drawChartsSection(doc, summary, style);
         }
-        
+
+        // Tabla de totales generales (autorizado, remisiones, etc.)
+        drawTotalsTable(doc, summary, style);
+
         // 6. Tabla general (resumen de POs)
         drawPoSummaryTable(doc, summary, style);
-        
+
         // 7. Detalle de las PO
         if (options.includeDetail) {
           drawSelectionGroupDetails(doc, summary, style);
         }
-        
+
         // Movimientos adicionales (remisiones y facturas)
         if (options.includeMovements) {
           drawMovements(doc, summary, style);
