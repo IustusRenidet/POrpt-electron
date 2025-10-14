@@ -1038,10 +1038,27 @@ function buildPoGroupDetails(summary) {
     const isBase = providedBase ? providedBase === id : getBasePoId(id) === baseId;
     const rawDate =
       item.fecha ?? item.FECHA_DOC ?? item.fecha_doc ?? item.fechaDoc ?? item.fechaDocumento ?? '';
+    const remisiones = Array.isArray(item?.remisiones) ? item.remisiones : [];
+    const facturas = Array.isArray(item?.facturas) ? item.facturas : [];
+    const remClaves = remisiones
+      .map(rem => (typeof rem?.id === 'string' ? rem.id.trim() : ''))
+      .filter(Boolean);
+    const facClaves = facturas
+      .map(fac => (typeof fac?.id === 'string' ? fac.id.trim() : ''))
+      .filter(Boolean);
+    const claveParts = [];
+    if (remClaves.length) {
+      claveParts.push(`REM: ${remClaves.join(', ')}`);
+    }
+    if (facClaves.length) {
+      claveParts.push(`FAC: ${facClaves.join(', ')}`);
+    }
+    const claveFallback = item.docSig || item.doc_sig || item.tipDoc || item.tip_doc || '';
+    const claveLabel = claveParts.length ? claveParts.join(' | ') : claveFallback;
     group.items.push({
       id,
       fecha: formatDateLabel(rawDate),
-      clave: item.docSig || item.doc_sig || item.tipDoc || item.tip_doc || '',
+      clave: claveLabel,
       totals,
       percentages,
       isBase,
