@@ -1295,91 +1295,83 @@ async function generate(summary, branding = {}, customization = {}) {
       drawLetterhead(doc, style);
       drawHeader(doc, summary, style);
 
+      // Preparación de alertas globales para ambas ramas
+      const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
+      const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
+
       // Rama especializada cuando el reporte corresponde a un universo.
       if (summary.universe?.isUniverse) {
-        // Información de filtros aplicada al universo.
+        // 1. Header (ya dibujado arriba)
+        // 2. Filtros aplicados al universo
         drawUniverseFilterInfo(doc, summary, style);
-        // Reutilizamos alertas globales, con fallback desde alertasTexto si es necesario.
-        const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
-        const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
-        let alertsDisplayed = false;
-
-        // Resumen ejecutivo del universo, incluyendo alertas si aplica.
+        
+        // 3. Autorizado y consumido, disponible (summary box)
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
-          if (globalAlerts.length) {
-            drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-            alertsDisplayed = true;
-          }
         }
-
-        // Detalle de grupos del universo, mostrando primero las alertas si aún no se mostraron.
-        if (options.includeDetail) {
-          if (!alertsDisplayed && globalAlerts.length) {
-            drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-            alertsDisplayed = true;
-          }
-          drawUniverseGroupDetails(doc, summary, style);
-        }
-
-        // Si quedaban alertas sin desplegar, las mostramos aquí.
-        if (!alertsDisplayed && globalAlerts.length) {
+        
+        // 4. Alertas generales
+        if (globalAlerts.length) {
           drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-          alertsDisplayed = true;
         }
-
-        // Secciones adicionales dependientes de la configuración seleccionada.
+        
+        // 5. Gráfica global con stats (barra de consumo combinado)
         const shouldDrawResumenContent = options.includeSummary || options.includeDetail || options.includeUniverse;
         if (shouldDrawResumenContent) {
           drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
         }
+        
+        // 6. Tabla general (resumen de POs)
         drawPoSummaryTable(doc, summary, style);
+        
+        // Tabla de totales del universo (si aplica)
         if (options.includeUniverse) {
           drawUniverseTotalsTable(doc, summary, style);
         }
-
+        
+        // 7. Detalle de las PO
+        if (options.includeDetail) {
+          drawUniverseGroupDetails(doc, summary, style);
+        }
+        
+        // 8. Observaciones
         if (options.includeObservations) {
           drawUniverseObservations(doc, summary);
         }
       } else {
         // Rama para reportes de selección de pedidos individuales (no universo).
-        const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
-        const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
-        let alertsDisplayed = false;
-
-        // Sección de resumen general de la selección.
+        // 1. Header (ya dibujado arriba)
+        // 2. Filtros (no aplica para selección individual)
+        
+        // 3. Autorizado y consumido, disponible (summary box)
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
-          if (globalAlerts.length) {
-            drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-            alertsDisplayed = true;
-          }
         }
-
-        // Detalle por grupo seleccionado, priorizando alertas aún no mostradas.
-        if (options.includeDetail) {
-          if (!alertsDisplayed && globalAlerts.length) {
-            drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-            alertsDisplayed = true;
-          }
-          drawSelectionGroupDetails(doc, summary, style);
-        }
-
-        // Mostrar alertas pendientes antes de continuar con el resto de secciones.
-        if (!alertsDisplayed && globalAlerts.length) {
+        
+        // 4. Alertas generales
+        if (globalAlerts.length) {
           drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
-          alertsDisplayed = true;
         }
-
-        // Gráficos, tablas y movimientos adicionales de la selección.
+        
+        // 5. Gráfica global con stats (barra de consumo combinado)
         if (options.includeCharts) {
           drawChartsSection(doc, summary, style);
         }
+        
+        // 6. Tabla general (resumen de POs)
         drawPoSummaryTable(doc, summary, style);
+        
+        // 7. Detalle de las PO
+        if (options.includeDetail) {
+          drawSelectionGroupDetails(doc, summary, style);
+        }
+        
+        // Movimientos adicionales (remisiones y facturas)
         if (options.includeMovements) {
           drawMovements(doc, summary, style);
         }
-
+        
+        // 8. Observaciones
         if (options.includeObservations) {
           drawObservations(doc, summary);
         }
