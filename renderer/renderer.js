@@ -3172,16 +3172,15 @@ function updateUserCompanyPickerOptions() {
   placeholder.value = '';
   placeholder.textContent = 'Selecciona una empresa';
   picker.appendChild(placeholder);
-  state.empresas.forEach(empresa => {
-    const option = document.createElement('option');
-    option.value = empresa;
-    option.textContent = empresa;
-    if (selected.has(empresa)) {
-      option.disabled = true;
-    }
-    picker.appendChild(option);
-  });
-  const hasCurrent = Array.from(picker.options).some(option => option.value === currentValue && !option.disabled);
+  state.empresas
+    .filter(empresa => !selected.has(empresa))
+    .forEach(empresa => {
+      const option = document.createElement('option');
+      option.value = empresa;
+      option.textContent = empresa;
+      picker.appendChild(option);
+    });
+  const hasCurrent = Array.from(picker.options).some(option => option.value === currentValue);
   picker.value = hasCurrent ? currentValue : '';
 }
 

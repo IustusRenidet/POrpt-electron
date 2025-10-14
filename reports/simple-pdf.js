@@ -1389,7 +1389,9 @@ async function generate(summary, branding = {}, customization = {}) {
         drawTotalsTable(doc, summary, style);
 
         // 6. Tabla general (resumen de POs)
-        drawPoSummaryTable(doc, summary, style);
+        if (options.includeSummary) {
+          drawPoSummaryTable(doc, summary, style);
+        }
 
         // 7. Detalle de las PO
         if (options.includeDetail) {
@@ -1425,7 +1427,9 @@ async function generate(summary, branding = {}, customization = {}) {
         drawTotalsTable(doc, summary, style);
 
         // 6. Tabla general (resumen de POs)
-        drawPoSummaryTable(doc, summary, style);
+        if (options.includeSummary) {
+          drawPoSummaryTable(doc, summary, style);
+        }
 
         // 7. Detalle de las PO
         if (options.includeDetail) {
