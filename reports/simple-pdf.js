@@ -1275,26 +1275,36 @@ function drawFooter(doc, branding) {
 }
 
 async function generate(summary, branding = {}, customization = {}) {
+  // Aseguramos que la dependencia PDFKit esté disponible antes de continuar.
   ensurePdfkitAvailable();
+  // Normalizamos la configuración de marca y personalización para homogenizar el uso posterior.
   const style = normalizeBranding(branding);
   const options = normalizeCustomization(customization);
 
+  // Generamos el PDF de forma asíncrona, acumulando los datos emitidos por PDFKit.
   return await new Promise((resolve, reject) => {
     try {
+      // Instanciamos el documento con tamaño carta y márgenes predefinidos.
       const doc = new PDFDocument({ size: 'LETTER', margin: 40 });
       const chunks = [];
       doc.on('data', chunk => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
+      // Colocamos la papelería y la cabecera con los datos generales.
       drawLetterhead(doc, style);
       drawHeader(doc, summary, style);
+
+      // Rama especializada cuando el reporte corresponde a un universo.
       if (summary.universe?.isUniverse) {
+        // Información de filtros aplicada al universo.
         drawUniverseFilterInfo(doc, summary, style);
+        // Reutilizamos alertas globales, con fallback desde alertasTexto si es necesario.
         const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
         const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
         let alertsDisplayed = false;
 
+        // Resumen ejecutivo del universo, incluyendo alertas si aplica.
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
           if (globalAlerts.length) {
@@ -1303,6 +1313,7 @@ async function generate(summary, branding = {}, customization = {}) {
           }
         }
 
+        // Detalle de grupos del universo, mostrando primero las alertas si aún no se mostraron.
         if (options.includeDetail) {
           if (!alertsDisplayed && globalAlerts.length) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
@@ -1311,11 +1322,13 @@ async function generate(summary, branding = {}, customization = {}) {
           drawUniverseGroupDetails(doc, summary, style);
         }
 
+        // Si quedaban alertas sin desplegar, las mostramos aquí.
         if (!alertsDisplayed && globalAlerts.length) {
           drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
           alertsDisplayed = true;
         }
 
+        // Secciones adicionales dependientes de la configuración seleccionada.
         const shouldDrawResumenContent = options.includeSummary || options.includeDetail || options.includeUniverse;
         if (shouldDrawResumenContent) {
           drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
@@ -1329,10 +1342,12 @@ async function generate(summary, branding = {}, customization = {}) {
           drawUniverseObservations(doc, summary);
         }
       } else {
+        // Rama para reportes de selección de pedidos individuales (no universo).
         const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
         const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
         let alertsDisplayed = false;
 
+        // Sección de resumen general de la selección.
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
           if (globalAlerts.length) {
@@ -1341,6 +1356,7 @@ async function generate(summary, branding = {}, customization = {}) {
           }
         }
 
+        // Detalle por grupo seleccionado, priorizando alertas aún no mostradas.
         if (options.includeDetail) {
           if (!alertsDisplayed && globalAlerts.length) {
             drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
@@ -1349,11 +1365,13 @@ async function generate(summary, branding = {}, customization = {}) {
           drawSelectionGroupDetails(doc, summary, style);
         }
 
+        // Mostrar alertas pendientes antes de continuar con el resto de secciones.
         if (!alertsDisplayed && globalAlerts.length) {
           drawAlertList(doc, globalAlerts, { title: 'Alertas del reporte' });
           alertsDisplayed = true;
         }
 
+        // Gráficos, tablas y movimientos adicionales de la selección.
         if (options.includeCharts) {
           drawChartsSection(doc, summary, style);
         }
@@ -1366,6 +1384,8 @@ async function generate(summary, branding = {}, customization = {}) {
           drawObservations(doc, summary);
         }
       }
+
+      // Cerramos con el pie de página institucional y finalizamos el flujo del documento.
       drawFooter(doc, style);
       doc.end();
     } catch (err) {
