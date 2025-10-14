@@ -483,7 +483,7 @@ function drawPoSummaryTable(doc, summary, branding) {
   const hasGroups = groups.length > 0;
   const startX = doc.page.margins.left;
   const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const headerHeight = 26;
+  const headerHeight = 24;
   const rowPadding = 12;
   const columns = [
     { key: 'po', label: 'PO', width: tableWidth * 0.28, align: 'left' },
@@ -492,9 +492,12 @@ function drawPoSummaryTable(doc, summary, branding) {
     { key: 'total', label: 'Total autorizado', width: tableWidth * 0.18, align: 'right' },
     { key: 'consumo', label: 'Consumido / Disponible', width: tableWidth * 0.22, align: 'right' }
   ];
+  const minimumRowHeight = rowPadding + 14;
+  const minimumSectionContent = headerHeight + minimumRowHeight + 8;
 
-  const drawHeader = () => {
-    ensureSpace(doc, headerHeight + 8);
+  const drawHeader = nextRowHeight => {
+    const requiredRowHeight = Math.max(minimumRowHeight, Number(nextRowHeight) || 0);
+    ensureSpace(doc, headerHeight + requiredRowHeight + 6);
     const y = doc.y;
     doc.save();
     doc.lineWidth(1);
@@ -520,6 +523,8 @@ function drawPoSummaryTable(doc, summary, branding) {
     }, rowPadding);
   };
 
+  ensureSpace(doc, minimumSectionContent);
+
   doc
     .font('Helvetica-Bold')
     .fontSize(14)
@@ -535,7 +540,7 @@ function drawPoSummaryTable(doc, summary, branding) {
   });
 
   if (hasGroups) {
-    drawHeader();
+    let headerDrawn = false;
     groups.forEach(group => {
       group.items.forEach(item => {
         const totals = item.totals || {};
@@ -559,8 +564,13 @@ function drawPoSummaryTable(doc, summary, branding) {
           `${formatCurrency(consumido)} / ${formatCurrency(disponible)}`
         ];
         const rowHeight = measureRowHeight(rowValues);
+        if (!headerDrawn) {
+          drawHeader(rowHeight);
+          headerDrawn = true;
+        }
         if (ensureSpace(doc, rowHeight + 4)) {
-          drawHeader();
+          drawHeader(rowHeight);
+          headerDrawn = true;
         }
         const y = doc.y;
         const background = isExtension ? '#ffffff' : '#f8fafc';
@@ -1122,6 +1132,7 @@ function drawGroupTable(doc, group, options = {}) {
   ];
   const headerHeight = 24;
   const rowPadding = 12;
+  const minimumRowHeight = rowPadding + 12;
   const measureRowHeight = values => {
     const measuringFont = doc.font('Helvetica').fontSize(10);
     return values.reduce((height, value, index) => {
@@ -1132,8 +1143,9 @@ function drawGroupTable(doc, group, options = {}) {
       return Math.max(height, cellHeight + rowPadding);
     }, rowPadding);
   };
-  const drawHeader = () => {
-    ensureSpace(doc, headerHeight + 6);
+  const drawHeader = nextRowHeight => {
+    const requiredRowHeight = Math.max(minimumRowHeight, Number(nextRowHeight) || 0);
+    ensureSpace(doc, headerHeight + requiredRowHeight + 6);
     const y = doc.y;
     doc.save();
     doc.lineWidth(1);
@@ -1147,7 +1159,7 @@ function drawGroupTable(doc, group, options = {}) {
     doc.restore();
     doc.y = y + headerHeight;
   };
-  drawHeader();
+  let headerDrawn = false;
   group.items.forEach(item => {
     const percentages = item.percentages || {};
     const totals = item.totals || {};
@@ -1168,8 +1180,13 @@ function drawGroupTable(doc, group, options = {}) {
       disponibleLabel
     ];
     const rowHeight = measureRowHeight(rowValues);
+    if (!headerDrawn) {
+      drawHeader(rowHeight);
+      headerDrawn = true;
+    }
     if (ensureSpace(doc, rowHeight + 6)) {
-      drawHeader();
+      drawHeader(rowHeight);
+      headerDrawn = true;
     }
     const y = doc.y;
     const background = fullyConsumed ? '#fef3c7' : item.isBase ? '#f8fafc' : '#ffffff';
