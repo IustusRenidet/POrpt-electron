@@ -446,7 +446,10 @@ function drawUniverseObservations(doc, summary) {
   if (summary.totals && summary.totals.total === 0) {
     notes.push('No se encontraron POs activas con el filtro aplicado.');
   }
-  renderObservationBox(doc, Array.from(new Set(notes)));
+  renderObservationBox(doc, Array.from(new Set(notes)), {
+    alwaysShow: true,
+    placeholderText: 'Sin observaciones registradas.'
+  });
 }
 
 function drawUniverseGroupDetails(doc, summary, branding) {
@@ -474,10 +477,7 @@ function drawUniverseGroupDetails(doc, summary, branding) {
 
 function drawPoSummaryTable(doc, summary, branding) {
   const groups = buildPoGroupDetails(summary);
-  if (!groups.length) {
-    return false;
-  }
-
+  const hasGroups = groups.length > 0;
   const startX = doc.page.margins.left;
   const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const headerHeight = 26;
@@ -531,7 +531,7 @@ function drawPoSummaryTable(doc, summary, branding) {
     subtotalLookup.set(item.id, Number(item.subtotal || 0));
   });
 
-  if (groups.length) {
+  if (hasGroups) {
     drawHeader();
     groups.forEach(group => {
       group.items.forEach(item => {
@@ -575,6 +575,15 @@ function drawPoSummaryTable(doc, summary, branding) {
         doc.y = y + rowHeight;
       });
     });
+  } else {
+    ensureSpace(doc, 40);
+    doc
+      .font('Helvetica')
+      .fontSize(11)
+      .fillColor('#4b5563')
+      .text('No se encontraron POs para mostrar en la tabla general.', startX, doc.y, {
+        width: tableWidth
+      });
   }
 
   doc.moveDown(0.4);
@@ -824,11 +833,30 @@ function drawLegendRows(doc, entries, startX, startY, maxWidth) {
 
 function drawAlertList(doc, alerts, options = {}) {
   const entries = normalizeAlertEntries(alerts, options.fallback || []);
-  if (!entries.length) {
-    return;
-  }
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const title = options.title || 'Alertas';
+  const placeholderText = options.placeholderText || 'Sin alertas registradas.';
+  const showPlaceholder = options.showPlaceholder === true;
+  if (!entries.length) {
+    if (!showPlaceholder) {
+      return;
+    }
+    ensureSpace(doc, 40);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(12)
+      .fillColor('#b91c1c')
+      .text(title, startX, doc.y, { width });
+    doc.moveDown(0.2);
+    doc
+      .font('Helvetica')
+      .fontSize(11)
+      .fillColor('#4b5563')
+      .text(placeholderText, startX, doc.y, { width });
+    doc.moveDown(0.4);
+    return;
+  }
   const prepared = entries.map(entry => entry.replace(/\s+/gu, ' ').trim()).filter(Boolean);
   if (!prepared.length) {
     return;
@@ -851,7 +879,7 @@ function drawAlertList(doc, alerts, options = {}) {
     .font('Helvetica-Bold')
     .fontSize(12)
     .fillColor('#b91c1c')
-    .text(options.title || 'Alertas', startX, doc.y, { width });
+    .text(title, startX, doc.y, { width });
   doc.moveDown(0.2);
   parsedEntries.forEach(entry => {
     const entryTop = doc.y;
@@ -1174,7 +1202,12 @@ function drawGroupSection(doc, group, branding, options = {}) {
     const addedPage = ensureSpace(doc, 12);
     if (!addedPage) {
       const separatorY = doc.y;
-      doc.lineWidth(0.5).strokeColor('#e2e8f0').moveTo(startX, separatorY).lineTo(startX + width, separatorY).stroke();
+      doc
+        .lineWidth(1.5)
+        .strokeColor('#000000')
+        .moveTo(startX, separatorY)
+        .lineTo(startX + width, separatorY)
+        .stroke();
       doc.moveDown(0.6);
     } else {
       doc.moveDown(0.3);
@@ -1190,10 +1223,17 @@ function renderObservationBox(doc, notes, options = {}) {
         .map(note => (typeof note === 'string' ? note.trim() : ''))
         .filter(Boolean)
     : [];
-  if (!sanitized.length) {
+  const hasNotes = sanitized.length > 0;
+  const alwaysShow = options.alwaysShow === true;
+  if (!hasNotes && !alwaysShow) {
     return;
   }
-  const bullets = sanitized.map(note => (note.startsWith('•') ? note : `• ${note}`));
+  const placeholderText = options.placeholderText || 'Sin observaciones registradas.';
+  const notesToRender = hasNotes ? sanitized : [placeholderText];
+  const bullets = notesToRender.map(note => {
+    const trimmed = note.trim();
+    return trimmed.startsWith('•') ? trimmed : `• ${trimmed}`;
+  });
   doc.font('Helvetica').fontSize(12);
   const textWidth = width - 24;
   const contentHeight = bullets.reduce((sum, note) => sum + doc.heightOfString(note, { width: textWidth }), 0);
@@ -1262,7 +1302,10 @@ function drawObservations(doc, summary) {
   if ((summary.totals?.restante ?? 0) <= 0) {
     notes.push('El presupuesto autorizado se encuentra completamente consumido.');
   }
-  renderObservationBox(doc, Array.from(new Set(notes)));
+  renderObservationBox(doc, Array.from(new Set(notes)), {
+    alwaysShow: true,
+    placeholderText: 'Sin observaciones registradas.'
+  });
 }
 
 function drawFooter(doc, branding) {
