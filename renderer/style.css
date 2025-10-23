@@ -4,8 +4,26 @@ body.bg-gradient {
   color: #0f172a;
 }
 
-.toast-container {
+.alert-banner {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
   z-index: 1080;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: min(420px, 92vw);
+  pointer-events: none;
+}
+
+.alert-banner .alert {
+  margin-bottom: 0;
+  pointer-events: auto;
+  box-shadow: 0 12px 30px -12px rgba(15, 23, 42, 0.4);
+}
+
+.alert-banner .alert .btn-close {
+  filter: none;
 }
 
 .card.shadow-sm {
@@ -84,6 +102,96 @@ pre {
 canvas {
   max-width: 100%;
 }
+
+.summary-cards {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 1.25rem;
+  overflow-x: auto;
+  padding: 0.25rem 0 0.5rem;
+}
+
+.summary-cards::-webkit-scrollbar {
+  height: 6px;
+}
+
+.summary-cards::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.3);
+  border-radius: 999px;
+}
+
+.summary-card {
+  background: #ffffff;
+  border-radius: 1rem;
+  border: 2px solid transparent;
+  padding: 1.25rem 1.5rem;
+  min-width: clamp(220px, 28vw, 320px);
+  flex: 1 1 240px;
+  box-shadow: 0 18px 38px -24px rgba(15, 23, 42, 0.45);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.summary-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 48px -22px rgba(15, 23, 42, 0.5);
+}
+
+.summary-card-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+}
+
+.summary-card-value {
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+}
+
+.summary-card-subtext {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin-bottom: 0;
+}
+
+.summary-card-total {
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+.summary-card-total .summary-card-title {
+  color: #2563eb;
+}
+
+.summary-card-total .summary-card-value {
+  color: #1e3a8a;
+}
+
+.summary-card-consumo {
+  border-color: rgba(14, 165, 233, 0.35);
+}
+
+.summary-card-consumo .summary-card-title {
+  color: #0ea5e9;
+}
+
+.summary-card-consumo .summary-card-value {
+  color: #0369a1;
+}
+
+.summary-card-disponible {
+  border-color: rgba(22, 163, 74, 0.35);
+}
+
+.summary-card-disponible .summary-card-title {
+  color: #16a34a;
+}
+
+.summary-card-disponible .summary-card-value {
+  color: #166534;
+}
+
 .chart-card .card-body {
   display: flex;
   flex-direction: column;
@@ -243,6 +351,27 @@ body.dashboard-panel-expanded .dashboard-main {
 
 .dashboard-panel .table-section-card {
   margin-bottom: 0;
+}
+
+#dashboard-detail .table-section-card {
+  border: 2px solid rgba(37, 99, 235, 0.25);
+  box-shadow: 0 18px 44px -26px rgba(37, 99, 235, 0.45);
+}
+
+#dashboard-detail .table-section-card .card-header {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+  border-bottom: none;
+}
+
+#dashboard-detail .table-section-card .card-header h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+#dashboard-detail .table-section-card .card-body {
+  border-top: 1px solid rgba(37, 99, 235, 0.12);
 }
 
 .chart-metrics {

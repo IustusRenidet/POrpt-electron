@@ -351,15 +351,6 @@ function drawHeader(doc, summary, branding) {
   doc.moveDown(0.4);
   const empresaLabel =
     branding.companyName || summary.companyName || summary.empresaLabel || summary.empresa || '';
-  const selectedIds = Array.isArray(summary.selectedIds) ? summary.selectedIds.filter(Boolean) : [];
-  let seleccion = summary.selectedId || summary.baseId || '-';
-  if (summary.universe?.isUniverse) {
-    seleccion = '';
-  } else if (selectedIds.length > 1) {
-    seleccion = `${selectedIds.length} bases (${selectedIds.join(', ')})`;
-  } else if (selectedIds.length === 1) {
-    seleccion = selectedIds[0];
-  }
   doc
     .font('Helvetica-Bold')
     .fontSize(12)
@@ -373,12 +364,6 @@ function drawHeader(doc, summary, branding) {
       .fontSize(12)
       .fillColor(branding.accentColor || '#1f2937')
       .text(titleText, { align: 'center' });
-  } else {
-    doc
-      .font('Helvetica')
-      .fontSize(12)
-      .fillColor(branding.accentColor || '#1f2937')
-      .text(`Selección: ${seleccion}`, { align: 'center' });
   }
   doc.moveDown(0.8);
 }
@@ -1375,92 +1360,50 @@ async function generate(summary, branding = {}, customization = {}) {
       drawLetterhead(doc, style);
       drawHeader(doc, summary, style);
 
-      // Preparación de alertas globales para ambas ramas
-      const alertFallback = typeof summary.alertasTexto === 'string' ? summary.alertasTexto.split(/\n+/u) : [];
-      const globalAlerts = normalizeAlertEntries(summary.alerts || [], alertFallback);
-
       // Rama especializada cuando el reporte corresponde a un universo.
       if (summary.universe?.isUniverse) {
         // 1. Header (ya dibujado arriba)
         // 2. Filtros aplicados al universo
         drawUniverseFilterInfo(doc, summary, style);
-        
+
         // 3. Autorizado y consumido, disponible (summary box)
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
         }
-        
-        // 4. Alertas generales
-        drawAlertList(doc, globalAlerts, {
-          title: 'Alertas del reporte',
-          showPlaceholder: true
-        });
-        
+
         // 5. Gráfica global con stats (barra de consumo combinado)
         const shouldDrawResumenContent = options.includeSummary || options.includeDetail || options.includeUniverse;
         if (shouldDrawResumenContent) {
           drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total del universo' });
         }
-        
+
         // Tabla de totales generales (autorizado, remisiones, etc.)
         drawTotalsTable(doc, summary, style);
 
-        // 6. Tabla general (resumen de POs)
-        if (options.includeSummary) {
+        if (Array.isArray(summary.items) && summary.items.length > 0) {
           drawPoSummaryTable(doc, summary, style);
-        }
-
-        // 7. Detalle de las PO
-        if (options.includeDetail) {
-          drawUniverseGroupDetails(doc, summary, style);
-        }
-
-        // 8. Observaciones
-        if (options.includeObservations) {
-          drawUniverseObservations(doc, summary);
         }
       } else {
         // Rama para reportes de selección de pedidos individuales (no universo).
         // 1. Header (ya dibujado arriba)
         // 2. Filtros (no aplica para selección individual)
-        
+
         // 3. Autorizado y consumido, disponible (summary box)
         if (options.includeSummary) {
           drawSummaryBox(doc, summary, style);
         }
-        
-        // 4. Alertas generales
-        drawAlertList(doc, globalAlerts, {
-          title: 'Alertas del reporte',
-          showPlaceholder: true
-        });
 
-        // 5. Gráfica global con stats (barra de consumo combinado)
-        if (options.includeCharts) {
-          drawChartsSection(doc, summary, style);
+        // 4. Gráfica global con stats (barra de consumo combinado)
+        const shouldDrawResumenContent = options.includeSummary || options.includeDetail || options.includeCharts || options.includeUniverse;
+        if (shouldDrawResumenContent) {
+          drawCombinedConsumptionBar(doc, summary.totals || {}, style, { title: 'Consumo total de la selección' });
         }
 
         // Tabla de totales generales (autorizado, remisiones, etc.)
         drawTotalsTable(doc, summary, style);
 
-        // 6. Tabla general (resumen de POs)
-        if (options.includeSummary) {
+        if (Array.isArray(summary.items) && summary.items.length > 0) {
           drawPoSummaryTable(doc, summary, style);
-        }
-
-        // 7. Detalle de las PO
-        if (options.includeDetail) {
-          drawSelectionGroupDetails(doc, summary, style);
-        }
-
-        // Movimientos adicionales (remisiones y facturas)
-        if (options.includeMovements) {
-          drawMovements(doc, summary, style);
-        }
-        
-        // 8. Observaciones
-        if (options.includeObservations) {
-          drawObservations(doc, summary);
         }
       }
 
