@@ -55,7 +55,8 @@ const state = {
       mode: 'global',
       startDate: '',
       endDate: '',
-      search: ''
+      search: '',
+      alertsOnly: false
     },
     loading: false
   },
@@ -76,69 +77,79 @@ const ALERT_TYPE_CLASS = {
   info: 'info'
 };
 
-const TOAST_SETTINGS = {
+const ALERT_SETTINGS = {
   cooldownMs: 15000,
-  maxVisible: 3
+  maxVisible: 4,
+  autoHideMs: 7000
 };
 
-const toastRegistry = new Map();
+const alertRegistry = new Map();
 
 function mapAlertType(type) {
   return ALERT_TYPE_CLASS[type] || 'info';
 }
 
-function pruneToastHistory(message, timestamp) {
+function pruneAlertHistory(message, timestamp) {
   setTimeout(() => {
-    const stored = toastRegistry.get(message);
+    const stored = alertRegistry.get(message);
     if (stored && stored === timestamp) {
-      toastRegistry.delete(message);
+      alertRegistry.delete(message);
     }
-  }, TOAST_SETTINGS.cooldownMs);
+  }, ALERT_SETTINGS.cooldownMs);
 }
 
-function showAlert(message, type = 'info', delay = 6000) {
-  const container = document.getElementById('alerts');
-  if (!container) return;
-
-  const normalizedMessage = typeof message === 'string' ? message.trim() : String(message ?? '');
-  const now = Date.now();
-  const lastShown = toastRegistry.get(normalizedMessage);
-  if (lastShown && now - lastShown < TOAST_SETTINGS.cooldownMs) {
+function showAlert(message, type = 'info', delay = ALERT_SETTINGS.autoHideMs) {
+  const container = document.getElementById('alertBanner');
+  if (!container) {
+    const logger = type === 'danger' ? console.error : type === 'warning' ? console.warn : console.log;
+    logger(message);
     return;
   }
 
-  const existingToasts = Array.from(container.querySelectorAll('.toast'));
-  if (existingToasts.length >= TOAST_SETTINGS.maxVisible) {
-    const removable = existingToasts[0];
-    const instance = bootstrap.Toast.getInstance(removable);
-    if (instance) {
-      instance.hide();
-    }
-    removable.remove();
+  const normalizedMessage = typeof message === 'string' ? message.trim() : String(message ?? '');
+  const now = Date.now();
+  const lastShown = alertRegistry.get(normalizedMessage);
+  if (lastShown && now - lastShown < ALERT_SETTINGS.cooldownMs) {
+    return;
+  }
+
+  while (container.children.length >= ALERT_SETTINGS.maxVisible) {
+    container.removeChild(container.firstElementChild);
   }
 
   const wrapper = document.createElement('div');
-  wrapper.className = `toast align-items-center text-bg-${mapAlertType(type)} border-0 shadow`;
+  wrapper.className = `alert alert-${mapAlertType(type)} alert-dismissible fade show shadow`;
   wrapper.setAttribute('role', 'alert');
-  wrapper.setAttribute('aria-live', 'assertive');
-  wrapper.setAttribute('aria-atomic', 'true');
   wrapper.dataset.message = normalizedMessage;
+  const safeMessage = escapeHtml(normalizedMessage).replace(/\n/g, '<br>');
   wrapper.innerHTML = `
-    <div class="d-flex">
-      <div class="toast-body fw-medium">${message}</div>
-      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Cerrar"></button>
+    <div class="d-flex align-items-start gap-2">
+      <div class="fw-medium flex-grow-1">${safeMessage}</div>
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
     </div>
   `;
   container.appendChild(wrapper);
+  window.bootstrap?.Alert?.getOrCreateInstance(wrapper);
 
-  toastRegistry.set(normalizedMessage, now);
-  pruneToastHistory(normalizedMessage, now);
+  alertRegistry.set(normalizedMessage, now);
+  pruneAlertHistory(normalizedMessage, now);
 
-  const toast = new bootstrap.Toast(wrapper, { delay });
-  toast.show();
-  wrapper.addEventListener('hidden.bs.toast', () => {
+  wrapper.addEventListener('closed.bs.alert', () => {
     wrapper.remove();
   });
+
+  const autoHide = typeof delay === 'number' ? delay : ALERT_SETTINGS.autoHideMs;
+  if (autoHide > 0) {
+    setTimeout(() => {
+      if (!wrapper.isConnected) return;
+      const instance = window.bootstrap?.Alert?.getOrCreateInstance(wrapper);
+      if (instance) {
+        instance.close();
+      } else {
+        wrapper.remove();
+      }
+    }, autoHide);
+  }
 }
 
 function saveSession(key, value) {
@@ -779,6 +790,26 @@ function computePercentagesFromTotals(totals = {}) {
   const fac = roundTo((totalFac / total) * 100);
   const rest = roundTo((restante / total) * 100);
   return { rem, fac, rest };
+}
+
+function computeGlobalPercentages(totals = {}, baseAmount = 0) {
+  const base = normalizeNumber(baseAmount);
+  const fallbackTotal = normalizeNumber(totals.total);
+  const scale = base > 0 ? base : fallbackTotal > 0 ? fallbackTotal : 1;
+  const totalRem = Math.max(0, normalizeNumber(totals.totalRem));
+  const totalFac = Math.max(0, normalizeNumber(totals.totalFac));
+  const consumo = totals.totalConsumo != null
+    ? Math.max(0, normalizeNumber(totals.totalConsumo))
+    : roundTo(totalRem + totalFac);
+  const restanteCalculado = totals.restante != null
+    ? normalizeNumber(totals.restante)
+    : roundTo((totals.total || 0) - consumo);
+  const restante = Math.max(restanteCalculado, 0);
+  const rem = roundTo((totalRem / scale) * 100);
+  const fac = roundTo((totalFac / scale) * 100);
+  const consumoPerc = roundTo((consumo / scale) * 100);
+  const rest = roundTo((restante / scale) * 100);
+  return { rem, fac, consumo: consumoPerc, rest };
 }
 
 function getTotalsWithDefaults(totals) {
@@ -1816,7 +1847,12 @@ async function selectEmpresa(value) {
   state.overview.selection = new Map();
   state.overview.itemIndex = new Map();
   state.overview.filters.search = '';
+  state.overview.filters.alertsOnly = false;
   updateOverviewSearchInput('');
+  const alertsToggle = document.getElementById('overviewAlertsOnly');
+  if (alertsToggle) {
+    alertsToggle.checked = false;
+  }
   renderUniverseEmpresaSelect();
   hideDashboardPanel();
   destroyCharts();
@@ -1927,9 +1963,13 @@ function resetOverviewState(options = {}) {
   state.overview.itemIndex = new Map();
   state.overview.loading = false;
   if (!keepFilters) {
-    state.overview.filters = { mode: 'global', startDate: '', endDate: '', search: '' };
+    state.overview.filters = { mode: 'global', startDate: '', endDate: '', search: '', alertsOnly: false };
     updateOverviewSearchInput('');
     updateOverviewModeControls();
+    const alertsToggle = document.getElementById('overviewAlertsOnly');
+    if (alertsToggle) {
+      alertsToggle.checked = false;
+    }
   }
   renderOverviewTable();
   renderOverviewSummary();
@@ -2027,6 +2067,9 @@ async function loadPoOverview(options = {}) {
     }
     overview.loading = false;
     applyOverviewFilters();
+    if (!options.skipAutoApply) {
+      await handleOverviewApplySelection();
+    }
   } catch (error) {
     overview.loading = false;
     console.error('Error cargando resumen general de POs:', error);
@@ -2083,12 +2126,27 @@ function setOverviewItemSelected(item, selected) {
 function applyOverviewFilters() {
   const items = Array.isArray(state.overview.items) ? state.overview.items : [];
   const term = (state.overview.filters.search || '').trim().toLowerCase();
-  const filtered = !term
-    ? [...items]
-    : items.filter(item => {
-        const fields = [item.id, item.baseId, item.remisionesTexto, item.facturasTexto];
-        return fields.some(value => typeof value === 'string' && value.toLowerCase().includes(term));
-      });
+  const alertsOnly = state.overview.filters.alertsOnly === true;
+  const filtered = items.filter(item => {
+    const fields = [item.id, item.baseId, item.remisionesTexto, item.facturasTexto];
+    const matchesSearch = !term
+      || fields.some(value => typeof value === 'string' && value.toLowerCase().includes(term));
+    if (!matchesSearch) {
+      return false;
+    }
+    if (!alertsOnly) {
+      return true;
+    }
+    const totals = getTotalsWithDefaults(item.totals);
+    const total = normalizeNumber(totals.total || item.total);
+    const totalRem = normalizeNumber(totals.totalRem);
+    const totalFac = normalizeNumber(totals.totalFac);
+    const consumido = totals.totalConsumo != null
+      ? normalizeNumber(totals.totalConsumo)
+      : roundTo(totalRem + totalFac);
+    const alertLevel = getOverviewAlertInfo(consumido, total).level;
+    return alertLevel === 'warning' || alertLevel === 'critical';
+  });
   state.overview.filteredItems = filtered;
   renderOverviewTable();
   renderOverviewSummary();
@@ -2500,6 +2558,14 @@ function initializeOverviewTab() {
     state.overview.filters.search = event.target.value || '';
     applyOverviewFilters();
   });
+  const alertsToggle = document.getElementById('overviewAlertsOnly');
+  if (alertsToggle) {
+    alertsToggle.checked = state.overview.filters.alertsOnly === true;
+    alertsToggle.addEventListener('change', event => {
+      state.overview.filters.alertsOnly = event.target.checked;
+      applyOverviewFilters();
+    });
+  }
   document.getElementById('overviewRefreshBtn')?.addEventListener('click', () => loadPoOverview({ preserveSelection: false }));
   document.getElementById('overviewApplySelectionBtn')?.addEventListener('click', handleOverviewApplySelection);
   document.getElementById('overviewReportBtn')?.addEventListener('click', handleOverviewGenerateReport);
@@ -2540,35 +2606,24 @@ function renderSummaryCards(summary) {
   const selectionLabel = selectionCount === 1
     ? '1 PO base (extensiones según tu selección)'
     : `${selectionCount} POs base combinadas`;
+  const companyLabel = escapeHtml(summary.empresaLabel || summary.empresa || 'Empresa');
   container.innerHTML = `
-    <div class="col-md-4">
-      <div class="card shadow-sm h-100 border-primary border-2">
-        <div class="card-body">
-          <h5 class="card-title text-primary">${selectionCount > 1 ? 'Total combinado' : 'Total PO (Grupo)'}</h5>
-          <p class="display-6 fw-bold">$${formatCurrency(totals.total)}</p>
-          <p class="text-muted mb-0">${selectionLabel}.</p>
-          <span class="badge text-bg-light text-dark mt-2">${summary.empresaLabel || summary.empresa || 'Empresa'}</span>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-4">
-      <div class="card shadow-sm h-100 border-info border-2">
-        <div class="card-body">
-          <h5 class="card-title text-info">Consumo acumulado</h5>
-          <p class="display-6 fw-bold">$${formatCurrency(totals.totalConsumo)}</p>
-          <p class="text-muted mb-0">${formatPercentageLabel(percentages.rem)} Remisiones · ${formatPercentageLabel(percentages.fac)} Facturas</p>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-4">
-      <div class="card shadow-sm h-100 border-success border-2">
-        <div class="card-body">
-          <h5 class="card-title text-success">Disponible</h5>
-          <p class="display-6 fw-bold">$${formatCurrency(totals.restante)}</p>
-          <p class="text-muted mb-0">${formatPercentageLabel(percentages.rest)} restante del presupuesto autorizado.</p>
-        </div>
-      </div>
-    </div>
+    <article class="summary-card summary-card-total">
+      <span class="summary-card-title">${selectionCount > 1 ? 'Total combinado' : 'Total PO (Grupo)'}</span>
+      <p class="summary-card-value">$${formatCurrency(totals.total)}</p>
+      <p class="summary-card-subtext">${escapeHtml(selectionLabel)}.</p>
+      <span class="badge rounded-pill text-bg-light text-dark fw-semibold mt-3">${companyLabel}</span>
+    </article>
+    <article class="summary-card summary-card-consumo">
+      <span class="summary-card-title">Consumo acumulado</span>
+      <p class="summary-card-value">$${formatCurrency(totals.totalConsumo)}</p>
+      <p class="summary-card-subtext">${formatPercentageLabel(percentages.rem)} Remisiones · ${formatPercentageLabel(percentages.fac)} Facturas</p>
+    </article>
+    <article class="summary-card summary-card-disponible">
+      <span class="summary-card-title">Disponible</span>
+      <p class="summary-card-value">$${formatCurrency(totals.restante)}</p>
+      <p class="summary-card-subtext">${formatPercentageLabel(percentages.rest)} restante del presupuesto autorizado.</p>
+    </article>
   `;
 }
 
@@ -2796,6 +2851,10 @@ function renderCharts(summary) {
     totalConsumo: roundTo(totalRem + totalFac)
   };
   const aggregatedPercentages = computePercentagesFromTotals(aggregatedTotals);
+  const combinedScaleBase = aggregatedTotals.total > 0
+    ? aggregatedTotals.total
+    : Math.max(roundTo(aggregatedTotals.totalRem + aggregatedTotals.totalFac), 0);
+  const percentageBase = combinedScaleBase > 0 ? combinedScaleBase : 1;
 
   const chartEntries = groups.map(group => {
     const variantCount = group.ids.length;
@@ -2811,6 +2870,7 @@ function renderCharts(summary) {
       extensionIds,
       totals: group.totals,
       percentages: group.percentages,
+      globalPercentages: computeGlobalPercentages(group.totals, percentageBase),
       items: Array.isArray(group.items) ? group.items : []
     };
   });
@@ -2903,7 +2963,8 @@ function renderCharts(summary) {
   const ctxStack = document.getElementById('chartJunto');
   const dynamicHeight = computeResponsiveChartHeight(chartEntries.length);
   const stackMaxPercentage = chartEntries.reduce((max, entry) => {
-    const totalPercentage = entry.percentages.rem + entry.percentages.fac + entry.percentages.rest;
+    const global = entry.globalPercentages || { rem: 0, fac: 0, rest: 0 };
+    const totalPercentage = global.rem + global.fac + global.rest;
     return Math.max(max, totalPercentage);
   }, 0);
   const stackAxisMax = Math.max(100, Math.ceil(stackMaxPercentage / 10) * 10);
@@ -2922,9 +2983,12 @@ function renderCharts(summary) {
     }
     meta.canvas.height = dynamicHeight;
     meta.canvas.style.height = `${dynamicHeight}px`;
+    const values = chartEntries.map(entry => entry.globalPercentages?.[meta.percKey] ?? 0);
+    const maxValue = values.length ? Math.max(...values) : 0;
+    const axisMax = Math.max(100, Math.ceil(maxValue / 10) * 10 || 100);
     const dataset = {
-      label: `${meta.label} ($)`,
-      data: chartEntries.map(entry => entry.totals[meta.amountKey]),
+      label: `${meta.label} (%)`,
+      data: values,
       backgroundColor: meta.color,
       borderRadius: 10,
       maxBarThickness: 32
@@ -2947,7 +3011,8 @@ function renderCharts(summary) {
               },
               label(context) {
                 const entry = chartEntries[context.dataIndex];
-                return `${meta.label}: $${formatCurrency(entry.totals[meta.amountKey])} (${formatPercentageLabel(entry.percentages[meta.percKey])})`;
+                const percentage = entry.globalPercentages?.[meta.percKey] ?? 0;
+                return `${meta.label}: $${formatCurrency(entry.totals[meta.amountKey])} (${formatPercentageLabel(percentage)})`;
               }
             }
           }
@@ -2955,10 +3020,11 @@ function renderCharts(summary) {
         scales: {
           x: {
             beginAtZero: true,
+            max: axisMax,
             grid: { color: 'rgba(148, 163, 184, 0.25)', borderDash: [4, 4] },
             ticks: {
               color: '#475569',
-              callback: value => AXIS_CURRENCY_FORMATTER.format(value)
+              callback: value => `${formatPercentageValue(value)}%`
             }
           },
           y: {
@@ -2990,7 +3056,7 @@ function renderCharts(summary) {
         labels,
         datasets: stackMeta.map(meta => ({
           label: `${meta.label} %`,
-          data: chartEntries.map(entry => entry.percentages[meta.percKey]),
+          data: chartEntries.map(entry => entry.globalPercentages?.[meta.percKey] ?? 0),
           backgroundColor: meta.color,
           borderRadius: 8,
           stack: 'total'
@@ -3015,7 +3081,8 @@ function renderCharts(summary) {
               label(context) {
                 const meta = stackMeta[context.datasetIndex];
                 const entry = chartEntries[context.dataIndex];
-                return `${meta.label}: $${formatCurrency(entry.totals[meta.amountKey])} (${formatPercentageLabel(entry.percentages[meta.percKey])})`;
+                const percentage = entry.globalPercentages?.[meta.percKey] ?? 0;
+                return `${meta.label}: $${formatCurrency(entry.totals[meta.amountKey])} (${formatPercentageLabel(percentage)})`;
               }
             }
           }
