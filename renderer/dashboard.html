@@ -11,7 +11,7 @@
 </head>
 <body class="bg-light">
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
-    <div class="container">
+    <div class="container-fluid px-3 px-lg-5">
       <a class="navbar-brand fw-bold" href="#">POrpt</a>
       <div class="d-flex flex-wrap gap-2">
         <a id="adminLink" class="btn btn-outline-light" href="admin.html">Administrar usuarios</a>
@@ -31,7 +31,7 @@
     </div>
   </nav>
 
-  <main class="container my-4">
+  <main class="container-fluid my-4 px-3 px-lg-5">
     <div id="dashboardMain" class="dashboard-main">
       <section class="mb-4">
       <h2 class="fw-semibold">Dashboard de consumo de POs</h2>
@@ -145,6 +145,7 @@
                             <input class="form-check-input" type="checkbox" id="overviewSelectAll">
                           </th>
                           <th scope="col">PO</th>
+                          <th scope="col" class="text-center">Alerta</th>
                           <th scope="col">Fecha</th>
                           <th scope="col" class="text-end">Total</th>
                           <th scope="col" class="text-end">Remisiones</th>
@@ -155,6 +156,17 @@
                       </thead>
                       <tbody id="overviewTableBody"></tbody>
                     </table>
+                  </div>
+                  <div class="table-alert-legend d-flex flex-wrap align-items-center gap-3 px-3 py-2 border-top small text-muted">
+                    <strong class="me-1">Simbología:</strong>
+                    <span class="legend-item d-inline-flex align-items-center gap-2">
+                      <span class="legend-swatch legend-critical" aria-hidden="true"></span>
+                      <span>Consumo 100%</span>
+                    </span>
+                    <span class="legend-item d-inline-flex align-items-center gap-2">
+                      <span class="legend-swatch legend-warning" aria-hidden="true"></span>
+                      <span>Consumo ≥ 90%</span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -534,7 +546,17 @@
         <h2 class="h5 mb-1">Dashboard de consumo</h2>
         <p class="small text-muted mb-0">Explora el resumen, las gráficas o el detalle según necesites.</p>
       </div>
-      <button id="dashboardCloseBtn" type="button" class="btn-close" aria-label="Cerrar dashboard"></button>
+      <div class="d-flex align-items-center gap-2">
+        <button
+          id="dashboardExpandBtn"
+          type="button"
+          class="btn btn-outline-secondary btn-sm"
+          data-expand-label="Expandir"
+          data-collapse-label="Minimizar"
+          aria-expanded="false"
+        >Expandir</button>
+        <button id="dashboardCloseBtn" type="button" class="btn-close" aria-label="Cerrar dashboard"></button>
+      </div>
     </div>
     <ul class="nav nav-pills nav-fill dashboard-panel-tabs" id="dashboardPanelTabs" role="tablist">
       <li class="nav-item" role="presentation">
