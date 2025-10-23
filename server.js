@@ -1729,6 +1729,22 @@ async function getUniverseSummary(empresa, rawFilter) {
   });
 }
 
+app.get('/po-overview/:empresa', async (req, res) => {
+  const empresa = req.params.empresa;
+  if (!empresa.match(/^Empresa\d+$/)) {
+    return res.status(400).json({ success: false, message: 'Nombre de empresa inválido' });
+  }
+  const { mode, startDate, endDate, date } = req.query;
+  const filter = { mode, startDate, endDate, date };
+  try {
+    const summary = await getUniverseSummary(empresa, filter);
+    res.json({ success: true, summary });
+  } catch (err) {
+    const status = err.message && err.message.includes('Proporciona') ? 400 : 500;
+    res.status(status).json({ success: false, message: 'Error consultando el resumen de POs: ' + err.message });
+  }
+});
+
 app.get('/pos/:empresa', async (req, res) => {
   const empresa = req.params.empresa;
   if (!empresa.match(/^Empresa\d+$/)) {

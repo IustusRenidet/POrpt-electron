@@ -218,6 +218,21 @@ canvas {
   vertical-align: top;
 }
 
+.overview-row-unchecked {
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.overview-row-unchecked:hover {
+  opacity: 0.8;
+}
+
+#overviewSummaryBadges .badge {
+  font-size: 0.85rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+}
+
 .table-modern tbody td:nth-child(3),
 .table-modern tbody td:nth-child(4),
 .table-modern tbody td:nth-child(5),
