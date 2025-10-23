@@ -49,6 +49,10 @@ const state = {
       search: ''
     },
     loading: false
+  },
+  dashboardPanel: {
+    isOpen: false,
+    userCollapsed: false
   }
 };
 
@@ -204,6 +208,96 @@ function destroyCharts() {
     }
   });
   state.charts.clear();
+}
+
+function syncDashboardToggleState() {
+  const toggleBtn = document.getElementById('dashboardToggleBtn');
+  const panel = document.getElementById('dashboardContent');
+  if (!toggleBtn || !panel) {
+    return;
+  }
+  const available = !panel.classList.contains('d-none');
+  const open = available && panel.classList.contains('dashboard-panel-open');
+  toggleBtn.disabled = !available;
+  toggleBtn.setAttribute('aria-disabled', (!available).toString());
+  toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  const openLabel = toggleBtn.getAttribute('data-open-label') || 'Abrir dashboard';
+  const closeLabel = toggleBtn.getAttribute('data-close-label') || 'Ocultar dashboard';
+  toggleBtn.textContent = open ? closeLabel : openLabel;
+}
+
+function setDashboardPanelOpen(open, options = {}) {
+  const panel = document.getElementById('dashboardContent');
+  if (!panel || panel.classList.contains('d-none')) {
+    state.dashboardPanel.isOpen = false;
+    syncDashboardToggleState();
+    return;
+  }
+  const { userAction = false } = options;
+  panel.classList.toggle('dashboard-panel-open', open);
+  panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+  document.body.classList.toggle('dashboard-panel-open', open);
+  state.dashboardPanel.isOpen = open;
+  if (userAction) {
+    state.dashboardPanel.userCollapsed = !open;
+  } else if (open) {
+    state.dashboardPanel.userCollapsed = false;
+  }
+  syncDashboardToggleState();
+}
+
+function showDashboardPanel(options = {}) {
+  const panel = document.getElementById('dashboardContent');
+  if (!panel) return;
+  panel.classList.remove('d-none');
+  const { autoOpen = false } = options;
+  const shouldOpen = autoOpen
+    ? !state.dashboardPanel.userCollapsed
+    : state.dashboardPanel.isOpen && !state.dashboardPanel.userCollapsed;
+  setDashboardPanelOpen(shouldOpen, { userAction: false });
+}
+
+function hideDashboardPanel() {
+  const panel = document.getElementById('dashboardContent');
+  if (!panel) return;
+  panel.classList.add('d-none');
+  panel.classList.remove('dashboard-panel-open');
+  panel.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('dashboard-panel-open');
+  state.dashboardPanel.isOpen = false;
+  state.dashboardPanel.userCollapsed = false;
+  syncDashboardToggleState();
+}
+
+function initializeDashboardPanelControls() {
+  const toggleBtn = document.getElementById('dashboardToggleBtn');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      const panel = document.getElementById('dashboardContent');
+      if (!panel || panel.classList.contains('d-none')) {
+        return;
+      }
+      const willOpen = !panel.classList.contains('dashboard-panel-open');
+      setDashboardPanelOpen(willOpen, { userAction: true });
+    });
+  }
+  const closeBtn = document.getElementById('dashboardCloseBtn');
+  closeBtn?.addEventListener('click', () => {
+    setDashboardPanelOpen(false, { userAction: true });
+  });
+  const tabs = document.getElementById('dashboardPanelTabs');
+  tabs?.addEventListener('shown.bs.tab', () => {
+    state.charts.forEach(chart => {
+      if (chart && typeof chart.resize === 'function') {
+        try {
+          chart.resize();
+        } catch (error) {
+          console.warn('No se pudo reajustar la gráfica:', error);
+        }
+      }
+    });
+  });
+  syncDashboardToggleState();
 }
 
 function normalizeNumber(value) {
@@ -1532,7 +1626,7 @@ function renderSelectedPoChips() {
     empty.className = 'text-muted small mb-0';
     empty.textContent = 'No hay POs seleccionadas.';
     container.appendChild(empty);
-    document.getElementById('dashboardContent')?.classList.add('d-none');
+    hideDashboardPanel();
     renderReportSelectionOverview();
     if (help) {
       help.textContent = 'Agrega las extensiones de un PO manualmente o elige la sugerencia';
@@ -1601,7 +1695,7 @@ function removePoFromSelection(baseId) {
     document.getElementById('summaryCards')?.replaceChildren();
     document.getElementById('poTable')?.replaceChildren();
     document.getElementById('extensionsContainer')?.replaceChildren();
-    document.getElementById('dashboardContent')?.classList.add('d-none');
+    hideDashboardPanel();
   } else {
     updateSummary();
   }
@@ -1618,7 +1712,7 @@ function clearSelectedPos() {
   document.getElementById('summaryCards')?.replaceChildren();
   document.getElementById('poTable')?.replaceChildren();
   document.getElementById('extensionsContainer')?.replaceChildren();
-  document.getElementById('dashboardContent')?.classList.add('d-none');
+  hideDashboardPanel();
   resetSearchableSelect(document.getElementById('poSearch'));
   renderReportSelectionOverview();
   showAlert('Selección de POs limpiada.', 'info');
@@ -1643,7 +1737,7 @@ async function selectEmpresa(value) {
   state.overview.filters.search = '';
   updateOverviewSearchInput('');
   renderUniverseEmpresaSelect();
-  document.getElementById('dashboardContent').classList.add('d-none');
+  hideDashboardPanel();
   destroyCharts();
   renderSelectedPoChips();
   updateUniverseControls();
@@ -2229,7 +2323,7 @@ function initializeOverviewTab() {
       renderReportSelectionOverview();
       updateUniverseControls();
       destroyCharts();
-      document.getElementById('dashboardContent')?.classList.add('d-none');
+      hideDashboardPanel();
       resetSearchableSelect(document.getElementById('poSearch'));
       return;
     }
@@ -2362,6 +2456,31 @@ function renderTable(summary) {
           restante
         };
         const percentages = computePercentagesFromTotals(normalizedTotals);
+        const consumptionPercentage = clampPercentage(percentages.rem + percentages.fac);
+        let alertClass = 'po-alert-safe';
+        if (consumptionPercentage >= 100) {
+          alertClass = 'po-alert-critical';
+        } else if (consumptionPercentage >= 90) {
+          alertClass = 'po-alert-warning';
+        }
+        const rawAlertsText = typeof item.alertasTexto === 'string' ? item.alertasTexto : '';
+        const alertLines = rawAlertsText
+          ? rawAlertsText.split(/\n+/u).map(line => line.trim()).filter(Boolean)
+          : [];
+        const meaningfulAlerts = alertLines.filter(line => !/^sin alertas/i.test(line));
+        const primaryAlertLine = meaningfulAlerts[0] || '';
+        const normalizedPrimaryAlert = primaryAlertLine.replace(/^\[[^\]]*\]\s*/u, '').trim();
+        const alertMessage = normalizedPrimaryAlert
+          || (alertClass === 'po-alert-critical'
+            ? 'Consumo al 100%'
+            : alertClass === 'po-alert-warning'
+              ? `Consumo ${formatPercentageLabel(consumptionPercentage)}`
+              : 'Sin alertas relevantes');
+        const detailParts = [`Consumo ${formatPercentageLabel(consumptionPercentage)}`];
+        if (meaningfulAlerts.length > 1) {
+          detailParts.unshift(`${meaningfulAlerts.length} alertas registradas`);
+        }
+        const alertDetail = detailParts.join(' · ');
         return `
         <tr data-po="${escapeHtml(item.id || '')}">
           <td class="fw-semibold">${escapeHtml(item.id || '')}</td>
@@ -2382,6 +2501,10 @@ function renderTable(summary) {
             <span class="table-amount">$${formatCurrency(normalizedTotals.restante)}</span>
             <span class="table-meta">${formatPercentageLabel(percentages.rest)}</span>
           </td>
+          <td class="po-alert-cell ${alertClass}">
+            <span>${escapeHtml(alertMessage)}</span>
+            <span class="po-alert-detail">${escapeHtml(alertDetail)}</span>
+          </td>
           <td class="text-center">
             <button class="btn btn-outline-primary btn-sm" data-po="${escapeHtml(item.id || '')}" data-action="show-modal">Detalle</button>
           </td>
@@ -2391,7 +2514,7 @@ function renderTable(summary) {
       .join('');
     const emptyState = `
         <tr>
-          <td class="text-center text-muted py-4" colspan="7">No hay POs seleccionadas.</td>
+          <td class="text-center text-muted py-4" colspan="8">No hay POs seleccionadas.</td>
         </tr>
       `;
     table.innerHTML = `
@@ -2414,6 +2537,10 @@ function renderTable(summary) {
           <th scope="col">
             <span class="table-heading-title">Disponible</span>
             <span class="table-heading-sub">Saldo restante</span>
+          </th>
+          <th scope="col">
+            <span class="table-heading-title">Alerta</span>
+            <span class="table-heading-sub">Estado de consumo</span>
           </th>
           <th scope="col" class="text-center">Acción</th>
         </tr>
@@ -3284,7 +3411,7 @@ async function updateSummary(options = {}) {
     if (!silent) {
       showAlert('Dashboard actualizado con la selección de POs.', 'success');
     }
-    document.getElementById('dashboardContent')?.classList.remove('d-none');
+    showDashboardPanel({ autoOpen: true });
     renderReportSelectionOverview();
   } catch (error) {
     console.error('Error actualizando resumen:', error);
@@ -4439,6 +4566,7 @@ function setupLoginPage() {
 
 async function setupDashboard() {
   await ensureEmpresasCatalog();
+  initializeDashboardPanelControls();
   const empresaSelect = document.getElementById('empresaSearch');
   initializeSearchableSelect(empresaSelect, { placeholder: 'Selecciona una empresa' });
   const poSelect = document.getElementById('poSearch');
@@ -4493,7 +4621,7 @@ async function setupDashboard() {
       state.overview.filters.search = '';
       updateOverviewSearchInput('');
       resetOverviewState({ keepFilters: true });
-      document.getElementById('dashboardContent')?.classList.add('d-none');
+      hideDashboardPanel();
       return;
     }
     selectEmpresa(value);
