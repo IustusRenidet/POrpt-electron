@@ -28,16 +28,127 @@
         <div class="card-body pb-0">
           <ul class="nav nav-pills nav-fill nav-wizard" id="dashboardWizard" role="tablist">
             <li class="nav-item" role="presentation">
-              <button class="nav-link active" id="tab-global" data-bs-toggle="tab" data-bs-target="#panel-global" type="button" role="tab" aria-controls="panel-global" aria-selected="true">1. Filtros globales</button>
+              <button
+                class="nav-link active"
+                id="tab-overview"
+                data-bs-toggle="tab"
+                data-bs-target="#panel-overview"
+                type="button"
+                role="tab"
+                aria-controls="panel-overview"
+                aria-selected="true"
+              >1. Principal</button>
             </li>
             <li class="nav-item" role="presentation">
-              <button class="nav-link" id="tab-personal" data-bs-toggle="tab" data-bs-target="#panel-personal" type="button" role="tab" aria-controls="panel-personal" aria-selected="false">2. Selección personalizada</button>
+              <button
+                class="nav-link"
+                id="tab-global"
+                data-bs-toggle="tab"
+                data-bs-target="#panel-global"
+                type="button"
+                role="tab"
+                aria-controls="panel-global"
+                aria-selected="false"
+              >2. Filtros globales</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button
+                class="nav-link"
+                id="tab-personal"
+                data-bs-toggle="tab"
+                data-bs-target="#panel-personal"
+                type="button"
+                role="tab"
+                aria-controls="panel-personal"
+                aria-selected="false"
+              >3. Selección personalizada</button>
             </li>
           </ul>
         </div>
         <div class="card-body">
           <div class="tab-content" id="dashboardWizardContent">
-            <div class="tab-pane fade show active" id="panel-global" role="tabpanel" aria-labelledby="tab-global">
+            <div class="tab-pane fade show active" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+              <div class="card shadow-sm border-0 mb-4">
+                <div class="card-body">
+                  <div class="row g-3 align-items-end">
+                    <div class="col-lg-4 col-md-6">
+                      <label for="overviewEmpresaSelect" class="form-label">Empresa</label>
+                      <select id="overviewEmpresaSelect" class="form-select">
+                        <option value="">Selecciona una empresa</option>
+                      </select>
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                      <label for="overviewFilterMode" class="form-label">Filtro por fechas</label>
+                      <select id="overviewFilterMode" class="form-select">
+                        <option value="global">Todas las fechas</option>
+                        <option value="range">Rango</option>
+                        <option value="single">Un día</option>
+                      </select>
+                    </div>
+                    <div class="col-lg-2 col-md-6 d-none" id="overviewStartDateGroup">
+                      <label for="overviewStartDate" id="overviewStartDateLabel" class="form-label">Fecha inicial</label>
+                      <input type="date" id="overviewStartDate" class="form-control">
+                    </div>
+                    <div class="col-lg-2 col-md-6 d-none" id="overviewEndDateGroup">
+                      <label for="overviewEndDate" class="form-label">Fecha final</label>
+                      <input type="date" id="overviewEndDate" class="form-control">
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                      <label for="overviewSearch" class="form-label">Buscar en la tabla</label>
+                      <input
+                        type="search"
+                        id="overviewSearch"
+                        class="form-control"
+                        placeholder="Filtra por PO, remisión o factura"
+                      >
+                    </div>
+                    <div class="col-12 d-flex justify-content-end gap-2">
+                      <button id="overviewRefreshBtn" class="btn btn-outline-secondary" type="button">Actualizar tabla</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="card shadow-sm border-0 mb-3">
+                <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+                  <div>
+                    <h3 class="h6 mb-1">Resumen de la tabla</h3>
+                    <p id="overviewSummaryLabel" class="mb-0 small text-muted">Selecciona una empresa para ver sus POs.</p>
+                  </div>
+                  <div id="overviewSummaryBadges" class="d-flex flex-wrap gap-2"></div>
+                </div>
+              </div>
+              <div class="card shadow-sm border-0">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                  <h3 class="h6 mb-0">Pedidos disponibles</h3>
+                  <div class="d-flex flex-wrap gap-2">
+                    <button id="overviewApplySelectionBtn" class="btn btn-outline-primary btn-sm" type="button">Aplicar al dashboard</button>
+                    <button id="overviewReportBtn" class="btn btn-primary btn-sm" type="button">Generar reporte</button>
+                  </div>
+                </div>
+                <div class="card-body p-0">
+                  <div class="table-responsive">
+                    <table class="table table-hover align-middle table-modern mb-0" id="overviewTable">
+                      <thead class="table-light">
+                        <tr>
+                          <th scope="col" class="text-center" style="width: 48px;">
+                            <input class="form-check-input" type="checkbox" id="overviewSelectAll">
+                          </th>
+                          <th scope="col">PO</th>
+                          <th scope="col">Fecha</th>
+                          <th scope="col" class="text-end">Total</th>
+                          <th scope="col" class="text-end">Remisiones</th>
+                          <th scope="col" class="text-end">Facturas</th>
+                          <th scope="col" class="text-end">Consumido</th>
+                          <th scope="col" class="text-end">Disponible</th>
+                        </tr>
+                      </thead>
+                      <tbody id="overviewTableBody"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="tab-pane fade" id="panel-global" role="tabpanel" aria-labelledby="tab-global">
               <div class="card border-success-subtle shadow-sm" id="universeControls">
                 <div class="card-body">
                   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">

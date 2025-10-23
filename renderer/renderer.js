@@ -36,7 +36,20 @@ const state = {
   universeFormat: readSession('porpt-universe-format', 'pdf'),
   universeCustomName: readSession('porpt-universe-report-name', ''),
   isGeneratingReport: false,
-  userCompanySelection: new Set()
+  userCompanySelection: new Set(),
+  overview: {
+    items: [],
+    filteredItems: [],
+    selection: new Map(),
+    itemIndex: new Map(),
+    filters: {
+      mode: 'global',
+      startDate: '',
+      endDate: '',
+      search: ''
+    },
+    loading: false
+  }
 };
 
 const searchableSelectStates = new WeakMap();
@@ -921,6 +934,7 @@ function renderEmpresaOptions() {
   }
   applySearchableSelectFilter(select, selectState?.text || '');
   refreshTomSelectOptions(select);
+  renderOverviewEmpresaOptions();
 }
 
 function renderUniverseEmpresaSelect() {
@@ -1623,12 +1637,18 @@ async function selectEmpresa(value) {
   const poSelect = document.getElementById('poSearch');
   resetSearchableSelect(poSelect);
   setSearchableSelectValue(document.getElementById('empresaSearch'), value);
+  setOverviewEmpresaSelectValue(value);
+  state.overview.selection = new Map();
+  state.overview.itemIndex = new Map();
+  state.overview.filters.search = '';
+  updateOverviewSearchInput('');
   renderUniverseEmpresaSelect();
   document.getElementById('dashboardContent').classList.add('d-none');
   destroyCharts();
   renderSelectedPoChips();
   updateUniverseControls();
   await loadPOs();
+  await loadPoOverview();
 }
 
 async function loadPOs() {
@@ -1656,6 +1676,584 @@ async function loadPOs() {
     showAlert(error.message || 'Error consultando POs', 'danger');
     renderPoOptions();
   }
+}
+
+function renderOverviewEmpresaOptions() {
+  const select = document.getElementById('overviewEmpresaSelect');
+  if (!select) return;
+  const currentValue = state.selectedEmpresa || select.value || '';
+  select.innerHTML = '<option value="">Selecciona una empresa</option>';
+  state.empresas.forEach(empresa => {
+    const option = document.createElement('option');
+    option.value = empresa;
+    option.textContent = empresa;
+    select.appendChild(option);
+  });
+  if (currentValue && state.empresas.includes(currentValue)) {
+    select.value = currentValue;
+  }
+}
+
+function setOverviewEmpresaSelectValue(value) {
+  const select = document.getElementById('overviewEmpresaSelect');
+  if (!select) return;
+  if (value && state.empresas.includes(value)) {
+    select.value = value;
+  } else {
+    select.value = '';
+  }
+}
+
+function updateOverviewSearchInput(value) {
+  const input = document.getElementById('overviewSearch');
+  if (!input) return;
+  if (input.value !== value) {
+    input.value = value;
+  }
+}
+
+function updateOverviewModeVisibility() {
+  const mode = state.overview.filters.mode || 'global';
+  const startGroup = document.getElementById('overviewStartDateGroup');
+  const endGroup = document.getElementById('overviewEndDateGroup');
+  const startLabel = document.getElementById('overviewStartDateLabel');
+  if (startGroup) {
+    startGroup.classList.toggle('d-none', mode === 'global');
+  }
+  if (endGroup) {
+    endGroup.classList.toggle('d-none', mode !== 'range');
+  }
+  if (startLabel) {
+    startLabel.textContent = mode === 'single' ? 'Fecha específica' : 'Fecha inicial';
+  }
+}
+
+function updateOverviewModeControls() {
+  const modeSelect = document.getElementById('overviewFilterMode');
+  if (modeSelect) {
+    modeSelect.value = state.overview.filters.mode || 'global';
+  }
+  const startInput = document.getElementById('overviewStartDate');
+  if (startInput) {
+    startInput.value = state.overview.filters.startDate || '';
+  }
+  const endInput = document.getElementById('overviewEndDate');
+  if (endInput) {
+    endInput.value = state.overview.filters.endDate || '';
+  }
+  updateOverviewModeVisibility();
+}
+
+function resetOverviewState(options = {}) {
+  const keepFilters = options.keepFilters === true;
+  state.overview.items = [];
+  state.overview.filteredItems = [];
+  state.overview.selection = new Map();
+  state.overview.itemIndex = new Map();
+  state.overview.loading = false;
+  if (!keepFilters) {
+    state.overview.filters = { mode: 'global', startDate: '', endDate: '', search: '' };
+    updateOverviewSearchInput('');
+    updateOverviewModeControls();
+  }
+  renderOverviewTable();
+  renderOverviewSummary();
+  updateOverviewSelectAllState();
+}
+
+async function loadPoOverview(options = {}) {
+  if (!state.selectedEmpresa) {
+    resetOverviewState({ keepFilters: true });
+    return;
+  }
+  const overview = state.overview;
+  const mode = overview.filters.mode || 'global';
+  if (mode === 'range') {
+    if (!overview.filters.startDate || !overview.filters.endDate) {
+      showAlert('Selecciona las fechas de inicio y fin para aplicar el rango.', 'warning');
+      return;
+    }
+    if (overview.filters.startDate > overview.filters.endDate) {
+      showAlert('La fecha inicial no puede ser posterior a la fecha final.', 'warning');
+      return;
+    }
+  }
+  if (mode === 'single' && !overview.filters.startDate) {
+    showAlert('Selecciona la fecha para aplicar el filtro unitario.', 'warning');
+    return;
+  }
+
+  overview.loading = true;
+  renderOverviewTable();
+  renderOverviewSummary();
+
+  try {
+    const params = new URLSearchParams();
+    params.set('mode', mode);
+    if (mode === 'range') {
+      params.set('startDate', overview.filters.startDate);
+      params.set('endDate', overview.filters.endDate);
+    } else if (mode === 'single') {
+      params.set('date', overview.filters.startDate);
+    }
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await fetch(`/po-overview/${state.selectedEmpresa}${query}`);
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || 'No fue posible obtener el listado de POs');
+    }
+    const items = Array.isArray(data.summary?.items) ? data.summary.items : [];
+    const normalizedItems = items.map(item => {
+      const id = typeof item.id === 'string' ? item.id.trim() : '';
+      const baseIdRaw = typeof item.baseId === 'string' ? item.baseId.trim() : '';
+      const baseId = baseIdRaw || id;
+      const totals = getTotalsWithDefaults(item.totals);
+      return {
+        ...item,
+        id,
+        baseId,
+        fecha: item.fecha || '',
+        remisiones: Array.isArray(item.remisiones) ? item.remisiones : [],
+        facturas: Array.isArray(item.facturas) ? item.facturas : [],
+        remisionesTexto: item.remisionesTexto || '',
+        facturasTexto: item.facturasTexto || '',
+        totals
+      };
+    });
+    overview.items = normalizedItems;
+    overview.itemIndex = new Map(normalizedItems.map(item => [item.id, item]));
+    if (options.preserveSelection) {
+      const preserved = new Map();
+      normalizedItems.forEach(item => {
+        const baseId = item.baseId;
+        const variantId = item.id;
+        if (!baseId || !variantId) return;
+        const existing = state.overview.selection.get(baseId);
+        if (existing && existing.has(variantId)) {
+          if (!preserved.has(baseId)) {
+            preserved.set(baseId, new Set());
+          }
+          preserved.get(baseId).add(variantId);
+        }
+      });
+      overview.selection = preserved;
+    } else {
+      const defaultSelection = new Map();
+      normalizedItems.forEach(item => {
+        const baseId = item.baseId;
+        const variantId = item.id;
+        if (!baseId || !variantId) return;
+        if (!defaultSelection.has(baseId)) {
+          defaultSelection.set(baseId, new Set());
+        }
+        defaultSelection.get(baseId).add(variantId);
+      });
+      overview.selection = defaultSelection;
+    }
+    overview.loading = false;
+    applyOverviewFilters();
+  } catch (error) {
+    overview.loading = false;
+    console.error('Error cargando resumen general de POs:', error);
+    showAlert(error.message || 'Error consultando la tabla principal de POs', 'danger');
+    overview.items = [];
+    overview.filteredItems = [];
+    overview.selection = new Map();
+    overview.itemIndex = new Map();
+    renderOverviewTable();
+    renderOverviewSummary();
+  }
+}
+
+function isOverviewItemSelected(item) {
+  if (!item) return false;
+  const baseId = typeof item.baseId === 'string' ? item.baseId.trim() : '';
+  const variantId = typeof item.id === 'string' ? item.id.trim() : '';
+  if (!baseId || !variantId) return false;
+  const variants = state.overview.selection.get(baseId);
+  return variants ? variants.has(variantId) : false;
+}
+
+function setOverviewItemSelected(item, selected) {
+  if (!item) return false;
+  const baseId = typeof item.baseId === 'string' ? item.baseId.trim() : '';
+  const variantId = typeof item.id === 'string' ? item.id.trim() : '';
+  if (!baseId || !variantId) return false;
+  let variants = state.overview.selection.get(baseId);
+  if (!variants) {
+    if (!selected) {
+      return false;
+    }
+    variants = new Set();
+    state.overview.selection.set(baseId, variants);
+  }
+  const hasVariant = variants.has(variantId);
+  if (selected) {
+    if (hasVariant) {
+      return false;
+    }
+    variants.add(variantId);
+    return true;
+  }
+  if (hasVariant) {
+    variants.delete(variantId);
+    if (variants.size === 0) {
+      state.overview.selection.delete(baseId);
+    }
+    return true;
+  }
+  return false;
+}
+
+function applyOverviewFilters() {
+  const items = Array.isArray(state.overview.items) ? state.overview.items : [];
+  const term = (state.overview.filters.search || '').trim().toLowerCase();
+  const filtered = !term
+    ? [...items]
+    : items.filter(item => {
+        const fields = [item.id, item.baseId, item.remisionesTexto, item.facturasTexto];
+        return fields.some(value => typeof value === 'string' && value.toLowerCase().includes(term));
+      });
+  state.overview.filteredItems = filtered;
+  renderOverviewTable();
+  renderOverviewSummary();
+}
+
+function renderOverviewTable() {
+  const tbody = document.getElementById('overviewTableBody');
+  if (!tbody) return;
+  const columns = 8;
+  if (!state.selectedEmpresa) {
+    tbody.innerHTML = `<tr><td colspan="${columns}" class="text-center py-4 text-muted">Selecciona una empresa para consultar sus POs.</td></tr>`;
+    updateOverviewSelectAllState();
+    return;
+  }
+  if (state.overview.loading) {
+    tbody.innerHTML = `<tr><td colspan="${columns}" class="text-center py-4 text-muted">Cargando POs...</td></tr>`;
+    updateOverviewSelectAllState();
+    return;
+  }
+  const filtered = Array.isArray(state.overview.filteredItems) ? state.overview.filteredItems : [];
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="${columns}" class="text-center py-4 text-muted">No se encontraron POs con los filtros aplicados.</td></tr>`;
+    updateOverviewSelectAllState();
+    return;
+  }
+  const rows = filtered
+    .map(item => {
+      const totals = getTotalsWithDefaults(item.totals);
+      const total = normalizeNumber(totals.total || item.total);
+      const totalRem = normalizeNumber(totals.totalRem);
+      const totalFac = normalizeNumber(totals.totalFac);
+      const consumido = totals.totalConsumo != null ? normalizeNumber(totals.totalConsumo) : roundTo(totalRem + totalFac);
+      const restante = totals.restante != null ? normalizeNumber(totals.restante) : Math.max(total - consumido, 0);
+      const remCount = Array.isArray(item.remisiones) ? item.remisiones.length : 0;
+      const facCount = Array.isArray(item.facturas) ? item.facturas.length : 0;
+      const selected = isOverviewItemSelected(item);
+      const isExtension = item.baseId && item.baseId !== item.id;
+      const baseLabel = isExtension ? `Base ${escapeHtml(item.baseId)}` : 'PO base';
+      const remTooltip = escapeHtml(item.remisionesTexto || '');
+      const facTooltip = escapeHtml(item.facturasTexto || '');
+      return `
+        <tr data-po-id="${escapeHtml(item.id)}" data-base-id="${escapeHtml(item.baseId)}" class="${selected ? '' : 'overview-row-unchecked'}">
+          <td class="text-center">
+            <input class="form-check-input" type="checkbox" data-po-checkbox aria-label="Seleccionar ${escapeHtml(item.id)}" ${selected ? 'checked' : ''}>
+          </td>
+          <td>
+            <div class="fw-semibold">${escapeHtml(item.id)}</div>
+            <div class="small text-muted">${baseLabel}</div>
+          </td>
+          <td>${escapeHtml(item.fecha || '-')}</td>
+          <td class="text-end">$${formatCurrency(total)}</td>
+          <td class="text-end" title="${remTooltip}">
+            <div class="fw-semibold">$${formatCurrency(totalRem)}</div>
+            <div class="small text-muted">${remCount || 0} ${remCount === 1 ? 'doc.' : 'docs.'}</div>
+          </td>
+          <td class="text-end" title="${facTooltip}">
+            <div class="fw-semibold">$${formatCurrency(totalFac)}</div>
+            <div class="small text-muted">${facCount || 0} ${facCount === 1 ? 'doc.' : 'docs.'}</div>
+          </td>
+          <td class="text-end">$${formatCurrency(consumido)}</td>
+          <td class="text-end">$${formatCurrency(restante)}</td>
+        </tr>
+      `;
+    })
+    .join('');
+  tbody.innerHTML = rows;
+  updateOverviewSelectAllState();
+}
+
+function renderOverviewSummary() {
+  const label = document.getElementById('overviewSummaryLabel');
+  const badges = document.getElementById('overviewSummaryBadges');
+  if (!label || !badges) return;
+  if (!state.selectedEmpresa) {
+    label.textContent = 'Selecciona una empresa para ver sus POs.';
+    badges.innerHTML = '';
+    return;
+  }
+  if (state.overview.loading) {
+    label.textContent = 'Actualizando tabla...';
+    badges.innerHTML = '';
+    return;
+  }
+  const filtered = Array.isArray(state.overview.filteredItems) ? state.overview.filteredItems : [];
+  if (!filtered.length) {
+    label.textContent = 'No se encontraron POs con los filtros aplicados.';
+    badges.innerHTML = '';
+    return;
+  }
+  let selectedCount = 0;
+  let total = 0;
+  let totalRem = 0;
+  let totalFac = 0;
+  filtered.forEach(item => {
+    if (!isOverviewItemSelected(item)) {
+      return;
+    }
+    selectedCount += 1;
+    const totals = getTotalsWithDefaults(item.totals);
+    const itemTotal = normalizeNumber(totals.total || item.total);
+    const itemRem = normalizeNumber(totals.totalRem);
+    const itemFac = normalizeNumber(totals.totalFac);
+    total += itemTotal;
+    totalRem += itemRem;
+    totalFac += itemFac;
+  });
+  label.textContent = `${selectedCount} de ${filtered.length} POs visibles seleccionadas`;
+  if (selectedCount === 0) {
+    badges.innerHTML = '';
+    return;
+  }
+  const consumido = roundTo(totalRem + totalFac);
+  const disponible = Math.max(roundTo(total - consumido), 0);
+  badges.innerHTML = `
+    <span class="badge text-bg-primary-subtle text-primary-emphasis">Total $${formatCurrency(total)}</span>
+    <span class="badge text-bg-warning-subtle text-warning-emphasis">Consumido $${formatCurrency(consumido)}</span>
+    <span class="badge text-bg-success-subtle text-success-emphasis">Disponible $${formatCurrency(disponible)}</span>
+  `;
+}
+
+function updateOverviewSelectAllState() {
+  const selectAll = document.getElementById('overviewSelectAll');
+  if (!selectAll) return;
+  const filtered = Array.isArray(state.overview.filteredItems) ? state.overview.filteredItems : [];
+  if (!state.selectedEmpresa || state.overview.loading || filtered.length === 0) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+    selectAll.disabled = true;
+    return;
+  }
+  let selectedRows = 0;
+  filtered.forEach(item => {
+    if (isOverviewItemSelected(item)) {
+      selectedRows += 1;
+    }
+  });
+  selectAll.disabled = false;
+  if (selectedRows === 0) {
+    selectAll.checked = false;
+    selectAll.indeterminate = false;
+  } else if (selectedRows === filtered.length) {
+    selectAll.checked = true;
+    selectAll.indeterminate = false;
+  } else {
+    selectAll.checked = false;
+    selectAll.indeterminate = true;
+  }
+}
+
+function getOverviewSelectionEntries() {
+  const filtered = Array.isArray(state.overview.filteredItems) ? state.overview.filteredItems : [];
+  const entries = new Map();
+  filtered.forEach(item => {
+    if (!isOverviewItemSelected(item)) {
+      return;
+    }
+    const baseId = typeof item.baseId === 'string' ? item.baseId.trim() : '';
+    const variantId = typeof item.id === 'string' ? item.id.trim() : '';
+    if (!baseId || !variantId) {
+      return;
+    }
+    if (!entries.has(baseId)) {
+      entries.set(baseId, new Set());
+    }
+    entries.get(baseId).add(variantId);
+  });
+  return Array.from(entries.entries())
+    .map(([baseId, variants]) => ({ baseId, variants: Array.from(variants) }))
+    .sort((a, b) => a.baseId.localeCompare(b.baseId));
+}
+
+function syncOverviewSelectionToState() {
+  if (!state.selectedEmpresa) {
+    showAlert('Selecciona una empresa válida antes de continuar.', 'warning');
+    return false;
+  }
+  const entries = getOverviewSelectionEntries();
+  if (entries.length === 0) {
+    showAlert('Selecciona al menos una PO visible en la tabla principal.', 'warning');
+    return false;
+  }
+  state.selectedPoIds = entries.map(entry => entry.baseId);
+  state.selectedPoDetails = new Map();
+  state.manualExtensions.clear();
+  entries.forEach(entry => {
+    state.selectedPoDetails.set(entry.baseId, { baseId: entry.baseId, variants: new Set(entry.variants) });
+  });
+  renderSelectedPoChips();
+  renderPoOptions();
+  renderReportSelectionOverview();
+  updatePoFoundList();
+  return true;
+}
+
+function handleOverviewSelectAllChange(event) {
+  const checkbox = event.target;
+  if (!checkbox) return;
+  const filtered = Array.isArray(state.overview.filteredItems) ? state.overview.filteredItems : [];
+  filtered.forEach(item => {
+    setOverviewItemSelected(item, checkbox.checked);
+  });
+  const tbody = document.getElementById('overviewTableBody');
+  if (tbody) {
+    tbody.querySelectorAll('tr[data-po-id]').forEach(row => {
+      const poId = row.getAttribute('data-po-id');
+      const item = state.overview.itemIndex.get(poId || '');
+      const selected = item ? isOverviewItemSelected(item) : false;
+      const input = row.querySelector('input[data-po-checkbox]');
+      if (input) {
+        input.checked = selected;
+      }
+      row.classList.toggle('overview-row-unchecked', !selected);
+    });
+  }
+  renderOverviewSummary();
+  updateOverviewSelectAllState();
+}
+
+function handleOverviewTableChange(event) {
+  const checkbox = event.target.closest('input[data-po-checkbox]');
+  if (!checkbox) return;
+  const row = checkbox.closest('tr[data-po-id]');
+  if (!row) return;
+  const poId = row.getAttribute('data-po-id');
+  const item = state.overview.itemIndex.get(poId || '');
+  if (!item) {
+    checkbox.checked = false;
+    return;
+  }
+  setOverviewItemSelected(item, checkbox.checked);
+  row.classList.toggle('overview-row-unchecked', !checkbox.checked);
+  renderOverviewSummary();
+  updateOverviewSelectAllState();
+}
+
+function handleOverviewModeChange(mode) {
+  const normalized = typeof mode === 'string' ? mode.trim().toLowerCase() : 'global';
+  state.overview.filters.mode = ['range', 'single'].includes(normalized) ? normalized : 'global';
+  if (state.overview.filters.mode === 'global') {
+    state.overview.filters.startDate = '';
+    state.overview.filters.endDate = '';
+  }
+  if (state.overview.filters.mode !== 'range') {
+    state.overview.filters.endDate = '';
+  }
+  updateOverviewModeControls();
+  if (state.overview.filters.mode === 'global') {
+    if (state.selectedEmpresa) {
+      loadPoOverview();
+    }
+    return;
+  }
+  handleOverviewDateChange();
+}
+
+function handleOverviewDateChange() {
+  if (!state.selectedEmpresa) return;
+  const mode = state.overview.filters.mode || 'global';
+  if (mode === 'range') {
+    if (!state.overview.filters.startDate || !state.overview.filters.endDate) {
+      return;
+    }
+    if (state.overview.filters.startDate > state.overview.filters.endDate) {
+      showAlert('La fecha inicial no puede ser posterior a la fecha final.', 'warning');
+      return;
+    }
+    loadPoOverview({ preserveSelection: false });
+    return;
+  }
+  if (mode === 'single') {
+    if (!state.overview.filters.startDate) {
+      return;
+    }
+    loadPoOverview({ preserveSelection: false });
+    return;
+  }
+  loadPoOverview({ preserveSelection: false });
+}
+
+async function handleOverviewApplySelection() {
+  if (!syncOverviewSelectionToState()) {
+    return;
+  }
+  await updateSummary();
+}
+
+async function handleOverviewGenerateReport() {
+  if (!syncOverviewSelectionToState()) {
+    return;
+  }
+  await openReportPreview();
+}
+
+function initializeOverviewTab() {
+  renderOverviewEmpresaOptions();
+  updateOverviewModeControls();
+  updateOverviewSearchInput(state.overview.filters.search || '');
+  renderOverviewTable();
+  renderOverviewSummary();
+  const empresaSelect = document.getElementById('overviewEmpresaSelect');
+  empresaSelect?.addEventListener('change', event => {
+    const value = event.target.value;
+    if (!value) {
+      setSearchableSelectValue(document.getElementById('empresaSearch'), '');
+      state.selectedEmpresa = '';
+      state.pos = [];
+      state.selectedPoIds = [];
+      state.selectedPoDetails.clear();
+      state.manualExtensions.clear();
+      resetOverviewState({ keepFilters: true });
+      renderSelectedPoChips();
+      renderPoOptions();
+      renderReportSelectionOverview();
+      updateUniverseControls();
+      destroyCharts();
+      document.getElementById('dashboardContent')?.classList.add('d-none');
+      resetSearchableSelect(document.getElementById('poSearch'));
+      return;
+    }
+    selectEmpresa(value);
+  });
+  document.getElementById('overviewFilterMode')?.addEventListener('change', event => handleOverviewModeChange(event.target.value));
+  document.getElementById('overviewStartDate')?.addEventListener('change', event => {
+    state.overview.filters.startDate = event.target.value;
+    handleOverviewDateChange();
+  });
+  document.getElementById('overviewEndDate')?.addEventListener('change', event => {
+    state.overview.filters.endDate = event.target.value;
+    handleOverviewDateChange();
+  });
+  document.getElementById('overviewSearch')?.addEventListener('input', event => {
+    state.overview.filters.search = event.target.value || '';
+    applyOverviewFilters();
+  });
+  document.getElementById('overviewRefreshBtn')?.addEventListener('click', () => loadPoOverview({ preserveSelection: false }));
+  document.getElementById('overviewApplySelectionBtn')?.addEventListener('click', handleOverviewApplySelection);
+  document.getElementById('overviewReportBtn')?.addEventListener('click', handleOverviewGenerateReport);
+  document.getElementById('overviewSelectAll')?.addEventListener('change', handleOverviewSelectAllChange);
+  document.getElementById('overviewTableBody')?.addEventListener('change', handleOverviewTableChange);
+  updateOverviewSelectAllState();
 }
 
 async function selectPo(poId) {
@@ -3849,6 +4447,7 @@ async function setupDashboard() {
   renderPoOptions();
   renderUniverseEmpresaSelect();
   renderSelectedPoChips();
+  initializeOverviewTab();
   empresaSelect?.addEventListener('change', event => {
     const value = event.target.value;
     if (!value) {
@@ -3882,6 +4481,7 @@ async function setupDashboard() {
       state.pos = [];
       state.selectedPoIds = [];
       state.selectedPoDetails.clear();
+      state.manualExtensions.clear();
       destroyCharts();
       renderSelectedPoChips();
       updateUniverseControls();
@@ -3889,6 +4489,10 @@ async function setupDashboard() {
       resetSearchableSelect(document.getElementById('poSearch'));
       renderPoOptions();
       renderUniverseEmpresaSelect();
+      setOverviewEmpresaSelectValue('');
+      state.overview.filters.search = '';
+      updateOverviewSearchInput('');
+      resetOverviewState({ keepFilters: true });
       document.getElementById('dashboardContent')?.classList.add('d-none');
       return;
     }
