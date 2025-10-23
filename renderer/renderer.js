@@ -1,3 +1,26 @@
+const DEFAULT_CUSTOMIZATION = Object.freeze({
+  includeSummary: true,
+  includeDetail: true,
+  includeCharts: true,
+  includeMovements: true,
+  includeObservations: false,
+  includeUniverse: true,
+  csv: {
+    includePoResumen: true,
+    includeRemisiones: true,
+    includeFacturas: true,
+    includeTotales: true,
+    includeUniverseInfo: true
+  }
+});
+
+function createDefaultCustomization() {
+  return {
+    ...DEFAULT_CUSTOMIZATION,
+    csv: { ...DEFAULT_CUSTOMIZATION.csv }
+  };
+}
+
 const state = {
   empresas: [],
   pos: [],
@@ -13,21 +36,7 @@ const state = {
   selectedEngine: '',
   reportFormatsCatalog: [],
   selectedFormat: 'pdf',
-  customization: {
-    includeSummary: true,
-    includeDetail: true,
-    includeCharts: true,
-    includeMovements: true,
-    includeObservations: true,
-    includeUniverse: true,
-    csv: {
-      includePoResumen: true,
-      includeRemisiones: true,
-      includeFacturas: true,
-      includeTotales: true,
-      includeUniverseInfo: true
-    }
-  },
+  customization: createDefaultCustomization(),
   customReportName: readSession('porpt-custom-report-name', ''),
   editingUserId: null,
   universeFilterMode: 'global',
@@ -52,7 +61,8 @@ const state = {
   },
   dashboardPanel: {
     isOpen: false,
-    userCollapsed: false
+    userCollapsed: false,
+    isExpanded: false
   }
 };
 
@@ -224,12 +234,32 @@ function syncDashboardToggleState() {
   const openLabel = toggleBtn.getAttribute('data-open-label') || 'Abrir dashboard';
   const closeLabel = toggleBtn.getAttribute('data-close-label') || 'Ocultar dashboard';
   toggleBtn.textContent = open ? closeLabel : openLabel;
+  syncDashboardExpandButton();
+}
+
+function syncDashboardExpandButton() {
+  const expandBtn = document.getElementById('dashboardExpandBtn');
+  const panel = document.getElementById('dashboardContent');
+  if (!expandBtn || !panel) {
+    return;
+  }
+  const available = !panel.classList.contains('d-none');
+  const expanded = available && panel.classList.contains('dashboard-panel-expanded');
+  expandBtn.disabled = !available;
+  expandBtn.setAttribute('aria-disabled', (!available).toString());
+  expandBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  expandBtn.setAttribute('aria-pressed', expanded ? 'true' : 'false');
+  const expandLabel = expandBtn.getAttribute('data-expand-label') || 'Expandir';
+  const collapseLabel = expandBtn.getAttribute('data-collapse-label') || 'Minimizar';
+  expandBtn.textContent = expanded ? collapseLabel : expandLabel;
+  expandBtn.title = expanded ? 'Minimizar panel' : 'Expandir panel';
 }
 
 function setDashboardPanelOpen(open, options = {}) {
   const panel = document.getElementById('dashboardContent');
   if (!panel || panel.classList.contains('d-none')) {
     state.dashboardPanel.isOpen = false;
+    state.dashboardPanel.isExpanded = false;
     syncDashboardToggleState();
     return;
   }
@@ -243,7 +273,41 @@ function setDashboardPanelOpen(open, options = {}) {
   } else if (open) {
     state.dashboardPanel.userCollapsed = false;
   }
+  if (!open) {
+    panel.classList.remove('dashboard-panel-expanded');
+    document.body.classList.remove('dashboard-panel-expanded');
+    state.dashboardPanel.isExpanded = false;
+  } else if (state.dashboardPanel.isExpanded) {
+    panel.classList.add('dashboard-panel-expanded');
+    document.body.classList.add('dashboard-panel-expanded');
+  }
   syncDashboardToggleState();
+}
+
+function setDashboardPanelExpanded(expanded) {
+  const panel = document.getElementById('dashboardContent');
+  if (!panel || panel.classList.contains('d-none')) {
+    state.dashboardPanel.isExpanded = false;
+    document.body.classList.remove('dashboard-panel-expanded');
+    syncDashboardToggleState();
+    return;
+  }
+  const shouldExpand = Boolean(expanded);
+  panel.classList.toggle('dashboard-panel-expanded', shouldExpand);
+  document.body.classList.toggle('dashboard-panel-expanded', shouldExpand);
+  state.dashboardPanel.isExpanded = shouldExpand;
+  syncDashboardToggleState();
+  if (shouldExpand) {
+    state.charts.forEach(chart => {
+      if (chart && typeof chart.resize === 'function') {
+        try {
+          chart.resize();
+        } catch (error) {
+          console.warn('No se pudo reajustar la gráfica al expandir el dashboard:', error);
+        }
+      }
+    });
+  }
 }
 
 function showDashboardPanel(options = {}) {
@@ -262,10 +326,13 @@ function hideDashboardPanel() {
   if (!panel) return;
   panel.classList.add('d-none');
   panel.classList.remove('dashboard-panel-open');
+  panel.classList.remove('dashboard-panel-expanded');
   panel.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('dashboard-panel-open');
+  document.body.classList.remove('dashboard-panel-expanded');
   state.dashboardPanel.isOpen = false;
   state.dashboardPanel.userCollapsed = false;
+  state.dashboardPanel.isExpanded = false;
   syncDashboardToggleState();
 }
 
@@ -279,6 +346,20 @@ function initializeDashboardPanelControls() {
       }
       const willOpen = !panel.classList.contains('dashboard-panel-open');
       setDashboardPanelOpen(willOpen, { userAction: true });
+    });
+  }
+  const expandBtn = document.getElementById('dashboardExpandBtn');
+  if (expandBtn) {
+    expandBtn.addEventListener('click', () => {
+      const panel = document.getElementById('dashboardContent');
+      if (!panel || panel.classList.contains('d-none')) {
+        return;
+      }
+      if (!panel.classList.contains('dashboard-panel-open')) {
+        setDashboardPanelOpen(true, { userAction: true });
+      }
+      const willExpand = !panel.classList.contains('dashboard-panel-expanded');
+      setDashboardPanelExpanded(willExpand);
     });
   }
   const closeBtn = document.getElementById('dashboardCloseBtn');
@@ -2013,10 +2094,65 @@ function applyOverviewFilters() {
   renderOverviewSummary();
 }
 
+function getOverviewAlertInfo(consumido, total) {
+  const totalAmount = normalizeNumber(total);
+  const consumedAmount = normalizeNumber(consumido);
+  if (totalAmount <= 0) {
+    return {
+      level: 'unknown',
+      icon: '—',
+      label: 'Sin dato',
+      description: 'No hay monto autorizado para calcular el consumo de la PO.',
+      subtext: 'Sin presupuesto registrado',
+      badgeClass: 'po-alert-chip-muted',
+      rowClass: '',
+      ariaLabel: 'Sin datos de consumo disponibles.'
+    };
+  }
+  const rawPercentage = (consumedAmount / totalAmount) * 100;
+  const limitedPercentage = Math.max(0, Math.min(rawPercentage, 999.99));
+  const formattedPercentage = formatPercentageLabel(limitedPercentage);
+  const consumptionPhrase = `Consumo ${formattedPercentage}`;
+  if (rawPercentage >= 100) {
+    return {
+      level: 'critical',
+      icon: '⛔',
+      label: 'Crítica',
+      description: `${consumptionPhrase} del presupuesto autorizado.`,
+      subtext: consumptionPhrase,
+      badgeClass: 'po-alert-chip-critical',
+      rowClass: 'overview-alert-critical',
+      ariaLabel: `Alerta crítica: ${consumptionPhrase} del presupuesto autorizado.`
+    };
+  }
+  if (rawPercentage >= 90) {
+    return {
+      level: 'warning',
+      icon: '⚠️',
+      label: 'Atención',
+      description: `${consumptionPhrase} del presupuesto autorizado.`,
+      subtext: consumptionPhrase,
+      badgeClass: 'po-alert-chip-warning',
+      rowClass: 'overview-alert-warning',
+      ariaLabel: `Alerta preventiva: ${consumptionPhrase} del presupuesto autorizado.`
+    };
+  }
+  return {
+    level: 'safe',
+    icon: '✓',
+    label: 'En rango',
+    description: `${consumptionPhrase} del presupuesto autorizado.`,
+    subtext: consumptionPhrase,
+    badgeClass: 'po-alert-chip-safe',
+    rowClass: '',
+    ariaLabel: `Consumo dentro de rango: ${consumptionPhrase} del presupuesto autorizado.`
+  };
+}
+
 function renderOverviewTable() {
   const tbody = document.getElementById('overviewTableBody');
   if (!tbody) return;
-  const columns = 8;
+  const columns = 9;
   if (!state.selectedEmpresa) {
     tbody.innerHTML = `<tr><td colspan="${columns}" class="text-center py-4 text-muted">Selecciona una empresa para consultar sus POs.</td></tr>`;
     updateOverviewSelectAllState();
@@ -2048,14 +2184,36 @@ function renderOverviewTable() {
       const baseLabel = isExtension ? `Base ${escapeHtml(item.baseId)}` : 'PO base';
       const remTooltip = escapeHtml(item.remisionesTexto || '');
       const facTooltip = escapeHtml(item.facturasTexto || '');
+      const alertInfo = getOverviewAlertInfo(consumido, total);
+      const rowClasses = [selected ? '' : 'overview-row-unchecked', alertInfo.rowClass || '']
+        .filter(Boolean)
+        .join(' ');
+      const alertChip = `
+        <span
+          class="po-alert-chip ${alertInfo.badgeClass}"
+          role="img"
+          aria-label="${escapeHtml(alertInfo.ariaLabel)}"
+          title="${escapeHtml(alertInfo.description)}"
+        >
+          <span class="po-alert-icon" aria-hidden="true">${escapeHtml(alertInfo.icon)}</span>
+          <span class="po-alert-chip-label">${escapeHtml(alertInfo.label)}</span>
+        </span>
+      `;
+      const alertSubtext = alertInfo.subtext
+        ? `<div class="po-alert-chip-subtext text-muted">${escapeHtml(alertInfo.subtext)}</div>`
+        : '';
       return `
-        <tr data-po-id="${escapeHtml(item.id)}" data-base-id="${escapeHtml(item.baseId)}" class="${selected ? '' : 'overview-row-unchecked'}">
+        <tr data-po-id="${escapeHtml(item.id)}" data-base-id="${escapeHtml(item.baseId)}" class="${rowClasses}">
           <td class="text-center">
             <input class="form-check-input" type="checkbox" data-po-checkbox aria-label="Seleccionar ${escapeHtml(item.id)}" ${selected ? 'checked' : ''}>
           </td>
           <td>
             <div class="fw-semibold">${escapeHtml(item.id)}</div>
             <div class="small text-muted">${baseLabel}</div>
+          </td>
+          <td class="text-center">
+            ${alertChip}
+            ${alertSubtext}
           </td>
           <td>${escapeHtml(item.fecha || '-')}</td>
           <td class="text-end">$${formatCurrency(total)}</td>
@@ -3058,21 +3216,38 @@ function renderAlerts(alerts) {
   alerts.forEach(alert => showAlert(alert.message, alert.type || 'info', 8000));
 }
 
+function resolveCustomizationFlag(value, defaultValue) {
+  if (value === undefined || value === null) {
+    return defaultValue;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'false') {
+      return false;
+    }
+    if (normalized === 'true') {
+      return true;
+    }
+  }
+  return Boolean(value);
+}
+
 function normalizeCustomizationState(customization = {}) {
   const csv = customization.csv || {};
+  const defaults = DEFAULT_CUSTOMIZATION;
   return {
-    includeSummary: customization.includeSummary !== false,
-    includeDetail: customization.includeDetail !== false,
-    includeCharts: customization.includeCharts !== false,
-    includeMovements: customization.includeMovements !== false,
-    includeObservations: customization.includeObservations !== false,
-    includeUniverse: customization.includeUniverse !== false,
+    includeSummary: resolveCustomizationFlag(customization.includeSummary, defaults.includeSummary),
+    includeDetail: resolveCustomizationFlag(customization.includeDetail, defaults.includeDetail),
+    includeCharts: resolveCustomizationFlag(customization.includeCharts, defaults.includeCharts),
+    includeMovements: resolveCustomizationFlag(customization.includeMovements, defaults.includeMovements),
+    includeObservations: resolveCustomizationFlag(customization.includeObservations, defaults.includeObservations),
+    includeUniverse: resolveCustomizationFlag(customization.includeUniverse, defaults.includeUniverse),
     csv: {
-      includePoResumen: csv.includePoResumen !== false,
-      includeRemisiones: csv.includeRemisiones !== false,
-      includeFacturas: csv.includeFacturas !== false,
-      includeTotales: csv.includeTotales !== false,
-      includeUniverseInfo: csv.includeUniverseInfo !== false
+      includePoResumen: resolveCustomizationFlag(csv.includePoResumen, defaults.csv.includePoResumen),
+      includeRemisiones: resolveCustomizationFlag(csv.includeRemisiones, defaults.csv.includeRemisiones),
+      includeFacturas: resolveCustomizationFlag(csv.includeFacturas, defaults.csv.includeFacturas),
+      includeTotales: resolveCustomizationFlag(csv.includeTotales, defaults.csv.includeTotales),
+      includeUniverseInfo: resolveCustomizationFlag(csv.includeUniverseInfo, defaults.csv.includeUniverseInfo)
     }
   };
 }
