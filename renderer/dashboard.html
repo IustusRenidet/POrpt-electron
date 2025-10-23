@@ -16,13 +16,24 @@
       <div class="d-flex flex-wrap gap-2">
         <a id="adminLink" class="btn btn-outline-light" href="admin.html">Administrar usuarios</a>
         <a id="reportSettingsLink" class="btn btn-outline-light" href="report-settings.html">Configuración de reportes</a>
+        <button
+          id="dashboardToggleBtn"
+          class="btn btn-info"
+          type="button"
+          data-open-label="Abrir dashboard"
+          data-close-label="Ocultar dashboard"
+          disabled
+          aria-expanded="false"
+          aria-controls="dashboardContent"
+        >Dashboard</button>
         <button class="btn btn-warning" onclick="logout()">Salir</button>
       </div>
     </div>
   </nav>
 
   <main class="container my-4">
-    <section class="mb-4">
+    <div id="dashboardMain" class="dashboard-main">
+      <section class="mb-4">
       <h2 class="fw-semibold">Dashboard de consumo de POs</h2>
       <div class="card shadow-sm border-0">
         <div class="card-body pb-0">
@@ -513,11 +524,69 @@
         </div>
       </div>
 
-      <div id="dashboardContent" class="d-none mt-4">
+      </section>
+    </div>
+  </main>
+
+  <aside id="dashboardContent" class="dashboard-panel d-none" aria-hidden="true">
+    <div class="dashboard-panel-header d-flex align-items-start justify-content-between gap-2">
+      <div>
+        <h2 class="h5 mb-1">Dashboard de consumo</h2>
+        <p class="small text-muted mb-0">Explora el resumen, las gráficas o el detalle según necesites.</p>
+      </div>
+      <button id="dashboardCloseBtn" type="button" class="btn-close" aria-label="Cerrar dashboard"></button>
+    </div>
+    <ul class="nav nav-pills nav-fill dashboard-panel-tabs" id="dashboardPanelTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link active"
+          id="dashboard-tab-summary"
+          data-bs-toggle="tab"
+          data-bs-target="#dashboard-summary"
+          type="button"
+          role="tab"
+          aria-controls="dashboard-summary"
+          aria-selected="true"
+        >Resumen</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link"
+          id="dashboard-tab-charts"
+          data-bs-toggle="tab"
+          data-bs-target="#dashboard-charts"
+          type="button"
+          role="tab"
+          aria-controls="dashboard-charts"
+          aria-selected="false"
+        >Gráficas</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button
+          class="nav-link"
+          id="dashboard-tab-detail"
+          data-bs-toggle="tab"
+          data-bs-target="#dashboard-detail"
+          type="button"
+          role="tab"
+          aria-controls="dashboard-detail"
+          aria-selected="false"
+        >Detalle</button>
+      </li>
+    </ul>
+    <div class="tab-content dashboard-panel-body" id="dashboardPanelContent">
+      <div class="tab-pane fade show active" id="dashboard-summary" role="tabpanel" aria-labelledby="dashboard-tab-summary">
         <div id="summaryCards" class="row g-3 mb-4"></div>
-        <div class="row g-3 mb-4">
-          <div class="col-md-4">
-            <div class="card shadow-sm h-100 chart-card">
+        <div class="dashboard-panel-section">
+          <h3 class="h6 mb-1">Extensiones y consumo consolidado</h3>
+          <p class="small text-muted mb-3">Los datos combinan la PO base con las extensiones seleccionadas para mostrar el resultado del subgrupo.</p>
+          <div id="extensionsContainer" class="extensions-grid"></div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="dashboard-charts" role="tabpanel" aria-labelledby="dashboard-tab-charts">
+        <div class="row g-3">
+          <div class="col-12">
+            <div class="card shadow-sm chart-card">
               <div class="card-header bg-primary text-white">Remisiones por PO</div>
               <div class="card-body">
                 <div class="chart-wrapper">
@@ -527,8 +596,8 @@
               </div>
             </div>
           </div>
-          <div class="col-md-4">
-            <div class="card shadow-sm h-100 chart-card">
+          <div class="col-12">
+            <div class="card shadow-sm chart-card">
               <div class="card-header bg-warning text-dark">Facturas por PO</div>
               <div class="card-body">
                 <div class="chart-wrapper">
@@ -538,8 +607,8 @@
               </div>
             </div>
           </div>
-          <div class="col-md-4">
-            <div class="card shadow-sm h-100 chart-card">
+          <div class="col-12">
+            <div class="card shadow-sm chart-card">
               <div class="card-header bg-success text-white">Consumo vs Disponible (%)</div>
               <div class="card-body">
                 <div class="chart-wrapper">
@@ -550,11 +619,8 @@
             </div>
           </div>
         </div>
-
-        <h3 class="h5 mb-1">Extensiones y consumo consolidado</h3>
-        <p class="small text-muted mb-3">Los datos combinan la PO base con las extensiones seleccionadas para mostrar el resultado del subgrupo.</p>
-        <div id="extensionsContainer" class="extensions-grid mb-4"></div>
-
+      </div>
+      <div class="tab-pane fade" id="dashboard-detail" role="tabpanel" aria-labelledby="dashboard-tab-detail">
         <div class="card shadow-sm table-section-card">
           <div class="card-header">
             <h3 id="poTableTitle" class="h6 mb-0">Detalle de POs seleccionadas</h3>
@@ -570,8 +636,8 @@
           </div>
         </div>
       </div>
-    </section>
-  </main>
+    </div>
+  </aside>
 
   <div class="modal fade" id="reportPreviewModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
