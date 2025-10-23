@@ -4,6 +4,54 @@ body.bg-gradient {
   color: #0f172a;
 }
 
+.info-icon-button {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.info-icon-button:hover,
+.info-icon-button:focus-visible {
+  background: rgba(59, 130, 246, 0.85);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.info-icon-button:focus {
+  box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.35);
+}
+
+.info-popover {
+  --bs-popover-max-width: 280px;
+  --bs-popover-bg: #0f172a;
+  --bs-popover-border-color: rgba(59, 130, 246, 0.35);
+  --bs-popover-body-color: #e2e8f0;
+  --bs-popover-header-bg: rgba(59, 130, 246, 0.15);
+  --bs-popover-header-color: #bfdbfe;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.35);
+}
+
+.info-popover .popover-header {
+  font-weight: 600;
+}
+
+.info-popover .popover-body p {
+  font-size: 0.85rem;
+}
+
 .toast-container {
   z-index: 1080;
 }

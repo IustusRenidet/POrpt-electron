@@ -12,9 +12,23 @@
     <div class="row justify-content-center">
       <div class="col-md-6 col-lg-5">
         <div class="card shadow-lg border-0">
-          <div class="card-header text-center bg-dark text-white">
+          <div class="card-header bg-dark text-white position-relative text-center">
             <h3 class="mb-0">POrpt</h3>
             <p class="mb-0 small text-white-50">Panel de reportes y consumo de pedidos</p>
+            <button
+              type="button"
+              class="info-icon-button"
+              data-bs-toggle="popover"
+              data-bs-trigger="hover focus"
+              data-bs-placement="left"
+              data-bs-custom-class="info-popover"
+              data-bs-title="¿Necesitas ayuda?"
+              data-bs-html="true"
+              data-bs-content="<p class='mb-2'>El usuario administrador puede crear, editar y eliminar usuarios.</p><p class='mb-0'>Después de iniciar sesión selecciona empresa y PO para ver el dashboard interactivo.</p>"
+              aria-label="Mostrar indicaciones de inicio de sesión"
+            >
+              <span aria-hidden="true">ℹ</span>
+            </button>
           </div>
           <div class="card-body">
             <form id="loginForm" class="needs-validation" novalidate>
