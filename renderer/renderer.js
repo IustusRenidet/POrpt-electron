@@ -84,6 +84,7 @@ const ALERT_SETTINGS = {
 };
 
 const alertRegistry = new Map();
+const ALERT_UI_ENABLED = false;
 
 function mapAlertType(type) {
   return ALERT_TYPE_CLASS[type] || 'info';
@@ -99,14 +100,20 @@ function pruneAlertHistory(message, timestamp) {
 }
 
 function showAlert(message, type = 'info', delay = ALERT_SETTINGS.autoHideMs) {
-  const container = document.getElementById('alertBanner');
-  if (!container) {
+  const normalizedMessage = typeof message === 'string' ? message.trim() : String(message ?? '');
+  if (!ALERT_UI_ENABLED) {
     const logger = type === 'danger' ? console.error : type === 'warning' ? console.warn : console.log;
-    logger(message);
+    logger(normalizedMessage);
     return;
   }
 
-  const normalizedMessage = typeof message === 'string' ? message.trim() : String(message ?? '');
+  const container = document.getElementById('alertBanner');
+  if (!container) {
+    const logger = type === 'danger' ? console.error : type === 'warning' ? console.warn : console.log;
+    logger(normalizedMessage);
+    return;
+  }
+
   const now = Date.now();
   const lastShown = alertRegistry.get(normalizedMessage);
   if (lastShown && now - lastShown < ALERT_SETTINGS.cooldownMs) {
@@ -248,6 +255,14 @@ function syncDashboardToggleState() {
   syncDashboardExpandButton();
 }
 
+function resetDashboardPanelScroll() {
+  const panelBody = document.getElementById('dashboardPanelContent');
+  if (!panelBody) {
+    return;
+  }
+  panelBody.scrollTop = 0;
+}
+
 function syncDashboardExpandButton() {
   const expandBtn = document.getElementById('dashboardExpandBtn');
   const panel = document.getElementById('dashboardContent');
@@ -325,11 +340,14 @@ function showDashboardPanel(options = {}) {
   const panel = document.getElementById('dashboardContent');
   if (!panel) return;
   panel.classList.remove('d-none');
+  resetDashboardPanelScroll();
   const { autoOpen = false } = options;
   const shouldOpen = autoOpen
     ? !state.dashboardPanel.userCollapsed
     : state.dashboardPanel.isOpen && !state.dashboardPanel.userCollapsed;
-  setDashboardPanelOpen(shouldOpen, { userAction: false });
+  requestAnimationFrame(() => {
+    setDashboardPanelOpen(shouldOpen, { userAction: false });
+  });
 }
 
 function hideDashboardPanel() {
@@ -379,6 +397,7 @@ function initializeDashboardPanelControls() {
   });
   const tabs = document.getElementById('dashboardPanelTabs');
   tabs?.addEventListener('shown.bs.tab', () => {
+    resetDashboardPanelScroll();
     state.charts.forEach(chart => {
       if (chart && typeof chart.resize === 'function') {
         try {
@@ -2671,10 +2690,13 @@ function renderTable(summary) {
         const percentages = computePercentagesFromTotals(normalizedTotals);
         const consumptionPercentage = clampPercentage(percentages.rem + percentages.fac);
         let alertClass = 'po-alert-safe';
+        let rowAlertClass = 'po-row-safe';
         if (consumptionPercentage >= 100) {
           alertClass = 'po-alert-critical';
+          rowAlertClass = 'po-row-critical';
         } else if (consumptionPercentage >= 90) {
           alertClass = 'po-alert-warning';
+          rowAlertClass = 'po-row-warning';
         }
         const rawAlertsText = typeof item.alertasTexto === 'string' ? item.alertasTexto : '';
         const alertLines = rawAlertsText
@@ -2695,7 +2717,7 @@ function renderTable(summary) {
         }
         const alertDetail = detailParts.join(' · ');
         return `
-        <tr data-po="${escapeHtml(item.id || '')}">
+        <tr data-po="${escapeHtml(item.id || '')}" class="po-alert-row ${rowAlertClass}">
           <td class="fw-semibold">${escapeHtml(item.id || '')}</td>
           <td>${escapeHtml(item.fecha || '-')}</td>
           <td>
