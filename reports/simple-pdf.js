@@ -829,6 +829,52 @@ function drawLegendRows(doc, entries, startX, startY, maxWidth) {
   return currentY;
 }
 
+function normalizeAlertTypeLabel(value) {
+  if (value === undefined || value === null) {
+    return 'INFO';
+  }
+  return value
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .trim()
+    .toUpperCase() || 'INFO';
+}
+
+const ALERT_VISUAL_PRESETS = {
+  CRITICA: { icon: '⛔', background: '#fee2e2', text: '#991b1b', accent: '#ef4444' },
+  CRITICO: { icon: '⛔', background: '#fee2e2', text: '#991b1b', accent: '#ef4444' },
+  CRITICAL: { icon: '⛔', background: '#fee2e2', text: '#991b1b', accent: '#ef4444' },
+  ALERTA: { icon: '⚠️', background: '#fef3c7', text: '#92400e', accent: '#f59e0b' },
+  WARNING: { icon: '⚠️', background: '#fef3c7', text: '#92400e', accent: '#f59e0b' },
+  PRECAUCION: { icon: '⚠️', background: '#fef3c7', text: '#92400e', accent: '#f59e0b' },
+  INFO: { icon: 'ℹ️', background: '#e0f2fe', text: '#0c4a6e', accent: '#3b82f6' },
+  INFORMACION: { icon: 'ℹ️', background: '#e0f2fe', text: '#0c4a6e', accent: '#3b82f6' },
+  SUCCESS: { icon: '✅', background: '#dcfce7', text: '#166534', accent: '#22c55e' },
+  EXITO: { icon: '✅', background: '#dcfce7', text: '#166534', accent: '#22c55e' },
+  OK: { icon: '✅', background: '#dcfce7', text: '#166534', accent: '#22c55e' },
+  DEFAULT: { icon: '•', background: '#f3f4f6', text: '#1f2937', accent: '#9ca3af', accentWidth: 0 }
+};
+
+function getAlertVisualStyle(type) {
+  const normalizedType = normalizeAlertTypeLabel(type);
+  const preset = ALERT_VISUAL_PRESETS[normalizedType] || ALERT_VISUAL_PRESETS.DEFAULT;
+  const padding = Number.isFinite(preset.padding) ? preset.padding : 8;
+  const gapAfter = Number.isFinite(preset.gapAfter) ? preset.gapAfter : 6;
+  const accentWidth = Number.isFinite(preset.accentWidth)
+    ? preset.accentWidth
+    : preset.accent
+      ? 4
+      : 0;
+  return {
+    ...preset,
+    type: normalizedType,
+    padding,
+    gapAfter,
+    accentWidth
+  };
+}
+
 function drawAlertList(doc, alerts, options = {}) {
   const entries = normalizeAlertEntries(alerts, options.fallback || []);
   const startX = doc.page.margins.left;
@@ -862,15 +908,26 @@ function drawAlertList(doc, alerts, options = {}) {
   const measuringFont = doc.font('Helvetica').fontSize(11);
   const parsedEntries = prepared.map(entry => {
     const match = entry.match(/^\[([^\]]+)\]\s*(.*)$/u);
-    const type = match ? match[1].toUpperCase() : 'INFO';
-    const message = match ? match[2] : entry;
-    const label = match ? `[${type}] ${message}` : entry;
-    const padX = type === 'ALERTA' ? 6 : 0;
-    const effectiveWidth = Math.max(0, width - padX * 2);
-    const height = measuringFont.heightOfString(label, { width: effectiveWidth });
-    return { type, label, padX, width: effectiveWidth, height };
+    const rawType = match ? match[1] : 'INFO';
+    const message = (match ? match[2] : entry).trim();
+    const style = getAlertVisualStyle(rawType);
+    const prefix = match ? `[${style.type}] ` : '';
+    const icon = style.icon || '•';
+    const displayLabel = `${icon} ${prefix}${message}`.trim();
+    const availableWidth = Math.max(0, width - style.accentWidth - style.padding * 2);
+    const textHeight = measuringFont.heightOfString(displayLabel, { width: availableWidth });
+    return {
+      type: style.type,
+      displayLabel,
+      textHeight,
+      availableWidth,
+      style
+    };
   });
-  const contentHeight = parsedEntries.reduce((sum, entry) => sum + entry.height + 6, 0);
+  const contentHeight = parsedEntries.reduce((sum, entry, index) => {
+    const gap = index === parsedEntries.length - 1 ? 0 : entry.style.gapAfter;
+    return sum + entry.textHeight + entry.style.padding * 2 + gap;
+  }, 0);
   const requiredHeight = contentHeight + 28;
   ensureSpace(doc, requiredHeight);
   doc
@@ -879,20 +936,32 @@ function drawAlertList(doc, alerts, options = {}) {
     .fillColor('#b91c1c')
     .text(title, startX, doc.y, { width });
   doc.moveDown(0.2);
-  parsedEntries.forEach(entry => {
-    const entryTop = doc.y;
-    if (entry.type === 'ALERTA') {
-      const backgroundHeight = entry.height + 6;
-      doc.save().fillColor('#fef3c7').rect(startX, entryTop - 2, width, backgroundHeight).fill().restore();
+  parsedEntries.forEach((entry, index) => {
+    const { style } = entry;
+    const blockTop = doc.y;
+    const blockHeight = entry.textHeight + style.padding * 2;
+    if (style.background) {
+      doc.save().fillColor(style.background).rect(startX, blockTop, width, blockHeight).fill().restore();
     }
+    if (style.accent && style.accentWidth > 0) {
+      doc
+        .save()
+        .fillColor(style.accent)
+        .rect(startX, blockTop, style.accentWidth, blockHeight)
+        .fill()
+        .restore();
+    }
+    const textX = startX + style.accentWidth + style.padding;
+    const textY = blockTop + style.padding;
     doc
       .font('Helvetica')
       .fontSize(11)
-      .fillColor(entry.type === 'ALERTA' ? '#92400e' : '#b91c1c')
-      .text(entry.label, startX + entry.padX, entryTop, { width: entry.width });
-    const drawnHeight = doc.y - entryTop;
-    const finalHeight = Math.max(drawnHeight, entry.height);
-    doc.y = entryTop + finalHeight + 4;
+      .fillColor(style.text || '#b91c1c')
+      .text(entry.displayLabel, textX, textY, { width: entry.availableWidth });
+    const drawnHeight = doc.y - textY;
+    const contentBlockHeight = Math.max(drawnHeight, entry.textHeight);
+    const gap = index === parsedEntries.length - 1 ? 0 : style.gapAfter;
+    doc.y = blockTop + style.padding + contentBlockHeight + style.padding + gap;
   });
   doc.moveDown(0.4);
 }
@@ -1361,7 +1430,8 @@ async function generate(summary, branding = {}, customization = {}) {
       drawHeader(doc, summary, style);
 
       // Rama especializada cuando el reporte corresponde a un universo.
-      if (summary.universe?.isUniverse) {
+      const isUniverseReport = summary.universe?.isUniverse;
+      if (isUniverseReport) {
         // 1. Header (ya dibujado arriba)
         // 2. Filtros aplicados al universo
         drawUniverseFilterInfo(doc, summary, style);
@@ -1382,6 +1452,20 @@ async function generate(summary, branding = {}, customization = {}) {
 
         if (Array.isArray(summary.items) && summary.items.length > 0) {
           drawPoSummaryTable(doc, summary, style);
+        }
+
+        drawAlertList(doc, summary.alerts || [], {
+          title: 'Alertas del universo',
+          fallback: summary.alertasTexto || '',
+          showPlaceholder: true
+        });
+
+        if (options.includeObservations) {
+          drawUniverseObservations(doc, summary);
+        }
+
+        if (options.includeDetail) {
+          drawUniverseGroupDetails(doc, summary, style);
         }
       } else {
         // Rama para reportes de selección de pedidos individuales (no universo).
@@ -1404,6 +1488,24 @@ async function generate(summary, branding = {}, customization = {}) {
 
         if (Array.isArray(summary.items) && summary.items.length > 0) {
           drawPoSummaryTable(doc, summary, style);
+        }
+
+        drawAlertList(doc, summary.alerts || [], {
+          title: 'Alertas del reporte',
+          fallback: summary.alertasTexto || '',
+          showPlaceholder: true
+        });
+
+        if (options.includeObservations) {
+          drawObservations(doc, summary);
+        }
+
+        if (options.includeDetail) {
+          drawSelectionGroupDetails(doc, summary, style);
+        }
+
+        if (options.includeMovements) {
+          drawMovements(doc, summary, style);
         }
       }
 

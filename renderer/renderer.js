@@ -1,6 +1,6 @@
 const DEFAULT_CUSTOMIZATION = Object.freeze({
   includeSummary: true,
-  includeDetail: true,
+  includeDetail: false,
   includeCharts: true,
   includeMovements: true,
   includeObservations: false,
@@ -2086,7 +2086,10 @@ async function loadPoOverview(options = {}) {
     }
     overview.loading = false;
     applyOverviewFilters();
-    if (!options.skipAutoApply) {
+    const overviewPanel = document.getElementById('panel-overview');
+    const panelIsActive = overviewPanel?.classList.contains('active');
+    const shouldAutoApply = !options.skipAutoApply && (options.forceAutoApply || panelIsActive);
+    if (shouldAutoApply) {
       await handleOverviewApplySelection();
     }
   } catch (error) {
