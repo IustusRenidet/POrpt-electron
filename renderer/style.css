@@ -680,46 +680,54 @@ body.dashboard-panel-expanded .dashboard-main {
   color: #b91c1c;
 }
 
-.po-alert-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: 0.3rem 0.65rem;
-  border-radius: 999px;
+
+.overview-alert-cell {
+  border-radius: 0.85rem;
+  padding: 0.65rem 0.75rem;
   font-weight: 600;
-  font-size: 0.82rem;
-  line-height: 1.1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  border: 1px solid transparent;
+  min-height: 64px;
 }
 
-.po-alert-chip .po-alert-icon {
-  font-size: 0.95rem;
-  line-height: 1;
+.overview-alert-cell-safe {
+  background: #ecfdf5;
+  border-color: rgba(16, 185, 129, 0.25);
+  color: #047857;
 }
 
-.po-alert-chip-safe {
-  background-color: #e2e8f0;
-  color: #0f172a;
+.overview-alert-cell-warning {
+  background: #fef3c7;
+  border-color: rgba(217, 119, 6, 0.32);
+  color: #7c2d12;
 }
 
-.po-alert-chip-warning {
-  background-color: #fef3c7;
-  color: #92400e;
+.overview-alert-cell-critical {
+  background: #fee2e2;
+  border-color: rgba(220, 38, 38, 0.32);
+  color: #7f1d1d;
 }
 
-.po-alert-chip-critical {
-  background-color: #fee2e2;
-  color: #b91c1c;
-}
-
-.po-alert-chip-muted {
-  background-color: #f1f5f9;
+.overview-alert-cell-muted {
+  background: #f1f5f9;
+  border-color: rgba(148, 163, 184, 0.35);
   color: #475569;
 }
 
-.po-alert-chip-subtext {
-  font-size: 0.78rem;
-  margin-top: 0.15rem;
+.overview-alert-label {
+  font-size: 0.82rem;
+  line-height: 1.15;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.overview-alert-subtext {
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.85;
 }
 
 .table-modern tbody tr.overview-alert-warning,

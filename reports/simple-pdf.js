@@ -124,9 +124,13 @@ function roundTo(value, decimals = 2) {
   return Math.round(number * factor) / factor;
 }
 
-function clampPercentage(value) {
+function clampPercentage(value, max = 999.99) {
   const normalized = roundTo(value);
-  const clamped = Math.min(100, Math.max(0, normalized));
+  if (!Number.isFinite(normalized)) {
+    return 0;
+  }
+  const upperBound = Math.max(0, Number(max) || 0);
+  const clamped = Math.min(upperBound > 0 ? upperBound : 0, Math.max(0, normalized));
   return roundTo(clamped);
 }
 
@@ -327,24 +331,28 @@ function computePercentages(totals = {}) {
   const restanteFallback = total - consumo;
   const restanteAmountRaw = totals.restante != null ? Number(totals.restante) : restanteFallback;
   const restanteAmount = Number.isFinite(restanteAmountRaw) ? Math.max(0, restanteAmountRaw) : 0;
-  const base = Math.max(total, consumo);
-  if (base <= 0) {
-    return { rem: 0, fac: 0, rest: 0, base: 0, overage: 0 };
+  if (total <= 0) {
+    return { rem: 0, fac: 0, rest: 0, base: 0, overage: consumo };
   }
-  const rem = clampPercentage((totalRem / base) * 100);
-  const fac = clampPercentage((totalFac / base) * 100);
-  let rest = clampPercentage((restanteAmount / base) * 100);
-  if (roundTo(rem + fac + rest) !== 100) {
-    rest = clampPercentage(100 - (rem + fac));
-  }
+  const rem = clampPercentage((totalRem / total) * 100);
+  const fac = clampPercentage((totalFac / total) * 100);
+  const rest = clampPercentage((restanteAmount / total) * 100, 100);
   const overage = Math.max(0, consumo - total);
   return {
     rem,
     fac,
     rest,
-    base,
+    base: total,
     overage
   };
+}
+
+function computeSegmentScale(percentages = {}) {
+  const rem = Math.max(0, Number(percentages.rem) || 0);
+  const fac = Math.max(0, Number(percentages.fac) || 0);
+  const rest = Math.max(0, Number(percentages.rest) || 0);
+  const sum = rem + fac + rest;
+  return Math.max(sum, 100);
 }
 
 function ensureSpace(doc, requiredHeight = 0, options = {}) {
@@ -892,143 +900,6 @@ function drawLegendRows(doc, entries, startX, startY, maxWidth) {
   return currentY;
 }
 
-function normalizeAlertTypeLabel(value) {
-  if (value === undefined || value === null) {
-    return 'INFO';
-  }
-  return value
-    .toString()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/gu, '')
-    .trim()
-    .toUpperCase() || 'INFO';
-}
-
-const ALERT_VISUAL_PRESETS = {
-  CRITICA: { icon: '⛔', background: '#fee2e2', text: '#991b1b', accent: '#ef4444' },
-  CRITICO: { icon: '⛔', background: '#fee2e2', text: '#991b1b', accent: '#ef4444' },
-  CRITICAL: { icon: '⛔', background: '#fee2e2', text: '#991b1b', accent: '#ef4444' },
-  ALERTA: { icon: '⚠️', background: '#fef3c7', text: '#92400e', accent: '#f59e0b' },
-  WARNING: { icon: '⚠️', background: '#fef3c7', text: '#92400e', accent: '#f59e0b' },
-  PRECAUCION: { icon: '⚠️', background: '#fef3c7', text: '#92400e', accent: '#f59e0b' },
-  INFO: { icon: 'ℹ️', background: '#e0f2fe', text: '#0c4a6e', accent: '#3b82f6' },
-  INFORMACION: { icon: 'ℹ️', background: '#e0f2fe', text: '#0c4a6e', accent: '#3b82f6' },
-  SUCCESS: { icon: '✅', background: '#dcfce7', text: '#166534', accent: '#22c55e' },
-  EXITO: { icon: '✅', background: '#dcfce7', text: '#166534', accent: '#22c55e' },
-  OK: { icon: '✅', background: '#dcfce7', text: '#166534', accent: '#22c55e' },
-  DEFAULT: { icon: '•', background: '#f3f4f6', text: '#1f2937', accent: '#9ca3af', accentWidth: 0 }
-};
-
-function getAlertVisualStyle(type) {
-  const normalizedType = normalizeAlertTypeLabel(type);
-  const preset = ALERT_VISUAL_PRESETS[normalizedType] || ALERT_VISUAL_PRESETS.DEFAULT;
-  const padding = Number.isFinite(preset.padding) ? preset.padding : 8;
-  const gapAfter = Number.isFinite(preset.gapAfter) ? preset.gapAfter : 6;
-  const accentWidth = Number.isFinite(preset.accentWidth)
-    ? preset.accentWidth
-    : preset.accent
-      ? 4
-      : 0;
-  return {
-    ...preset,
-    type: normalizedType,
-    padding,
-    gapAfter,
-    accentWidth
-  };
-}
-
-function drawAlertList(doc, alerts, options = {}) {
-  const entries = normalizeAlertEntries(alerts, options.fallback || []);
-  const startX = doc.page.margins.left;
-  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const title = options.title || 'Alertas';
-  const placeholderText = options.placeholderText || 'Sin alertas registradas.';
-  const showPlaceholder = options.showPlaceholder === true;
-  if (!entries.length) {
-    if (!showPlaceholder) {
-      return;
-    }
-    ensureSpace(doc, 40);
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(12)
-      .fillColor('#b91c1c')
-      .text(title, startX, doc.y, { width });
-    doc.moveDown(0.2);
-    doc
-      .font('Helvetica')
-      .fontSize(11)
-      .fillColor('#4b5563')
-      .text(placeholderText, startX, doc.y, { width });
-    doc.moveDown(0.4);
-    return;
-  }
-  const prepared = entries.map(entry => entry.replace(/\s+/gu, ' ').trim()).filter(Boolean);
-  if (!prepared.length) {
-    return;
-  }
-  const measuringFont = doc.font('Helvetica').fontSize(11);
-  const parsedEntries = prepared.map(entry => {
-    const match = entry.match(/^\[([^\]]+)\]\s*(.*)$/u);
-    const rawType = match ? match[1] : 'INFO';
-    const message = (match ? match[2] : entry).trim();
-    const style = getAlertVisualStyle(rawType);
-    const prefix = match ? `[${style.type}] ` : '';
-    const icon = style.icon || '•';
-    const displayLabel = `${icon} ${prefix}${message}`.trim();
-    const availableWidth = Math.max(0, width - style.accentWidth - style.padding * 2);
-    const textHeight = measuringFont.heightOfString(displayLabel, { width: availableWidth });
-    return {
-      type: style.type,
-      displayLabel,
-      textHeight,
-      availableWidth,
-      style
-    };
-  });
-  const contentHeight = parsedEntries.reduce((sum, entry, index) => {
-    const gap = index === parsedEntries.length - 1 ? 0 : entry.style.gapAfter;
-    return sum + entry.textHeight + entry.style.padding * 2 + gap;
-  }, 0);
-  const requiredHeight = contentHeight + 28;
-  ensureSpace(doc, requiredHeight);
-  doc
-    .font('Helvetica-Bold')
-    .fontSize(12)
-    .fillColor('#b91c1c')
-    .text(title, startX, doc.y, { width });
-  doc.moveDown(0.2);
-  parsedEntries.forEach((entry, index) => {
-    const { style } = entry;
-    const blockTop = doc.y;
-    const blockHeight = entry.textHeight + style.padding * 2;
-    if (style.background) {
-      doc.save().fillColor(style.background).rect(startX, blockTop, width, blockHeight).fill().restore();
-    }
-    if (style.accent && style.accentWidth > 0) {
-      doc
-        .save()
-        .fillColor(style.accent)
-        .rect(startX, blockTop, style.accentWidth, blockHeight)
-        .fill()
-        .restore();
-    }
-    const textX = startX + style.accentWidth + style.padding;
-    const textY = blockTop + style.padding;
-    doc
-      .font('Helvetica')
-      .fontSize(11)
-      .fillColor(style.text || '#b91c1c')
-      .text(entry.displayLabel, textX, textY, { width: entry.availableWidth });
-    const drawnHeight = doc.y - textY;
-    const contentBlockHeight = Math.max(drawnHeight, entry.textHeight);
-    const gap = index === parsedEntries.length - 1 ? 0 : style.gapAfter;
-    doc.y = blockTop + style.padding + contentBlockHeight + style.padding + gap;
-  });
-  doc.moveDown(0.4);
-}
-
 function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
   const bounds = getContentBounds(doc);
   const availableWidth = Math.max(0, bounds.width);
@@ -1056,9 +927,11 @@ function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
     { value: percentages.fac, color: branding.facColor },
     { value: percentages.rest, color: branding.restanteColor }
   ];
+  const scale = computeSegmentScale(percentages);
   let currentX = startX;
   segments.forEach(segment => {
-    const segmentWidth = (width * segment.value) / 100;
+    const safeValue = Math.max(0, Number(segment.value) || 0);
+    const segmentWidth = scale > 0 ? (width * safeValue) / scale : 0;
     if (segmentWidth <= 0) return;
     doc.save().rect(currentX, barTop, segmentWidth, barHeight).fillOpacity(0.9).fill(segment.color).restore();
     currentX += segmentWidth;
@@ -1095,8 +968,10 @@ function drawSmallConsumptionBar(doc, totals, branding, options = {}) {
     { value: percentages.fac, color: branding.facColor },
     { value: percentages.rest, color: branding.restanteColor }
   ];
+  const scale = computeSegmentScale(percentages);
   segments.forEach(segment => {
-    const segmentWidth = (width * segment.value) / 100;
+    const safeValue = Math.max(0, Number(segment.value) || 0);
+    const segmentWidth = scale > 0 ? (width * safeValue) / scale : 0;
     if (segmentWidth <= 0) return;
     doc.save().rect(cursorX, barTop, segmentWidth, barHeight).fillOpacity(0.95).fill(segment.color).restore();
     cursorX += segmentWidth;
@@ -1349,10 +1224,6 @@ function drawGroupSection(doc, group, branding, options = {}) {
   doc.moveDown(0.2);
   drawSmallConsumptionBar(doc, group.totals, branding, { startX, width });
   drawGroupTable(doc, group, { startX, width });
-  const alertEntries = normalizeAlertEntries(group.alerts || []);
-  if (alertEntries.length) {
-    drawAlertList(doc, alertEntries, { title: 'Alertas del grupo' });
-  }
   if (!options.isLast) {
     const addedPage = ensureSpace(doc, 12);
     if (!addedPage) {
@@ -1518,12 +1389,6 @@ async function generate(summary, branding = {}, customization = {}) {
           drawPoSummaryTable(doc, summary, style);
         }
 
-        drawAlertList(doc, summary.alerts || [], {
-          title: 'Alertas del universo',
-          fallback: summary.alertasTexto || '',
-          showPlaceholder: true
-        });
-
         if (options.includeObservations) {
           drawUniverseObservations(doc, summary);
         }
@@ -1553,12 +1418,6 @@ async function generate(summary, branding = {}, customization = {}) {
         if (Array.isArray(summary.items) && summary.items.length > 0) {
           drawPoSummaryTable(doc, summary, style);
         }
-
-        drawAlertList(doc, summary.alerts || [], {
-          title: 'Alertas del reporte',
-          fallback: summary.alertasTexto || '',
-          showPlaceholder: true
-        });
 
         if (options.includeObservations) {
           drawObservations(doc, summary);

@@ -449,7 +449,7 @@ function calculateTotals(total, totalRem, totalFac) {
   const restante = Math.max(total - consumo, 0);
   const porcRem = total > 0 ? (totalRem / total) * 100 : 0;
   const porcFac = total > 0 ? (totalFac / total) * 100 : 0;
-  const porcRest = Math.max(100 - (porcRem + porcFac), 0);
+  const porcRest = total > 0 ? (restante / total) * 100 : 0;
   return {
     total,
     totalRem,

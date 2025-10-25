@@ -71,7 +71,8 @@ const state = {
     isOpen: false,
     userCollapsed: false,
     isExpanded: false
-  }
+  },
+  dashboardActiveTab: 'overview'
 };
 
 const searchableSelectStates = new WeakMap();
@@ -430,9 +431,14 @@ function roundTo(value, decimals = 2) {
   return Math.round(normalizeNumber(value) * factor) / factor;
 }
 
-function clampPercentage(value, decimals = 2) {
+function clampPercentage(value, decimals = 2, max = 999.99) {
   const normalized = roundTo(value, decimals);
-  return Math.min(100, Math.max(0, normalized));
+  if (!Number.isFinite(normalized)) {
+    return 0;
+  }
+  const upperBound = Math.max(0, Number(max) || 0);
+  const limit = upperBound > 0 ? upperBound : 0;
+  return Math.min(limit, Math.max(0, normalized));
 }
 
 function computeResponsiveChartHeight(itemCount) {
@@ -1840,6 +1846,7 @@ function renderSelectedPoChips() {
 
 function addPoToSelection(poId) {
   if (!poId) return;
+  setDashboardActiveTab('personal');
   const found = state.pos.find(po => po.id === poId);
   if (!found) {
     showAlert('Selecciona una PO válida de la lista desplegable.', 'warning');
@@ -1867,6 +1874,7 @@ function addPoToSelection(poId) {
 }
 
 function removePoFromSelection(baseId) {
+  setDashboardActiveTab('personal');
   const index = state.selectedPoIds.indexOf(baseId);
   if (index === -1) return;
   state.selectedPoIds.splice(index, 1);
@@ -1887,6 +1895,7 @@ function removePoFromSelection(baseId) {
 
 function clearSelectedPos() {
   if (!state.selectedPoIds.length) return;
+  setDashboardActiveTab('personal');
   state.selectedPoIds = [];
   state.selectedPoDetails.clear();
   state.manualExtensions.clear();
@@ -2159,7 +2168,7 @@ async function loadPoOverview(options = {}) {
     const overviewPanel = document.getElementById('panel-overview');
     const panelIsActive = overviewPanel?.classList.contains('active');
     const shouldAutoApply = !options.skipAutoApply && (options.forceAutoApply || panelIsActive);
-    if (shouldAutoApply) {
+    if (shouldAutoApply && state.dashboardActiveTab !== 'overview') {
       await handleOverviewApplySelection();
     }
   } catch (error) {
@@ -2245,6 +2254,24 @@ function applyOverviewFilters() {
   state.overview.filteredItems = filtered;
   renderOverviewTable();
   renderOverviewSummary();
+  maybeRefreshDashboardFromOverview();
+}
+
+function maybeRefreshDashboardFromOverview(options = {}) {
+  if (state.dashboardActiveTab !== 'overview') {
+    return;
+  }
+  if (!state.selectedEmpresa) {
+    return;
+  }
+  const synced = syncOverviewSelectionToState({ silent: true, allowEmpty: true });
+  if (!synced) {
+    return;
+  }
+  if (state.selectedPoIds.length === 0) {
+    return;
+  }
+  updateSummary({ silent: true, ...options });
 }
 
 function getOverviewAlertInfo(consumido, total) {
@@ -2253,12 +2280,11 @@ function getOverviewAlertInfo(consumido, total) {
   if (totalAmount <= 0) {
     return {
       level: 'unknown',
-      icon: '—',
       label: 'Sin dato',
       description: 'No hay monto autorizado para calcular el consumo de la PO.',
       subtext: 'Sin presupuesto registrado',
-      badgeClass: 'po-alert-chip-muted',
       rowClass: '',
+      cellClass: 'overview-alert-cell-muted',
       ariaLabel: 'Sin datos de consumo disponibles.'
     };
   }
@@ -2273,35 +2299,32 @@ function getOverviewAlertInfo(consumido, total) {
   if (normalizedPercentage >= 100) {
     return {
       level: 'critical',
-      icon: '⛔',
       label: 'Crítica',
       description: `${consumptionPhrase} del presupuesto autorizado.`,
       subtext: consumptionPhrase,
-      badgeClass: 'po-alert-chip-critical',
       rowClass: 'overview-alert-critical',
+      cellClass: 'overview-alert-cell-critical',
       ariaLabel: `Alerta crítica: ${consumptionPhrase} del presupuesto autorizado.`
     };
   }
   if (normalizedPercentage >= 90) {
     return {
       level: 'warning',
-      icon: '⚠️',
       label: 'Atención',
       description: `${consumptionPhrase} del presupuesto autorizado.`,
       subtext: consumptionPhrase,
-      badgeClass: 'po-alert-chip-warning',
       rowClass: 'overview-alert-warning',
+      cellClass: 'overview-alert-cell-warning',
       ariaLabel: `Alerta preventiva: ${consumptionPhrase} del presupuesto autorizado.`
     };
   }
   return {
     level: 'safe',
-    icon: '✓',
     label: 'En rango',
     description: `${consumptionPhrase} del presupuesto autorizado.`,
     subtext: consumptionPhrase,
-    badgeClass: 'po-alert-chip-safe',
     rowClass: '',
+    cellClass: 'overview-alert-cell-safe',
     ariaLabel: `Consumo dentro de rango: ${consumptionPhrase} del presupuesto autorizado.`
   };
 }
@@ -2345,20 +2368,15 @@ function renderOverviewTable() {
       const rowClasses = [selected ? '' : 'overview-row-unchecked', alertInfo.rowClass || '']
         .filter(Boolean)
         .join(' ');
-      const alertChip = `
-        <span
-          class="po-alert-chip ${alertInfo.badgeClass}"
-          role="img"
-          aria-label="${escapeHtml(alertInfo.ariaLabel)}"
-          title="${escapeHtml(alertInfo.description)}"
-        >
-          <span class="po-alert-icon" aria-hidden="true">${escapeHtml(alertInfo.icon)}</span>
-          <span class="po-alert-chip-label">${escapeHtml(alertInfo.label)}</span>
-        </span>
-      `;
-      const alertSubtext = alertInfo.subtext
-        ? `<div class="po-alert-chip-subtext text-muted">${escapeHtml(alertInfo.subtext)}</div>`
+      const alertCellClasses = ['text-center', 'overview-alert-cell', alertInfo.cellClass || '']
+        .filter(Boolean)
+        .join(' ');
+      const alertLabel = `<div class="overview-alert-label">${escapeHtml(alertInfo.label)}</div>`;
+      const alertDetail = alertInfo.subtext
+        ? `<div class="overview-alert-subtext">${escapeHtml(alertInfo.subtext)}</div>`
         : '';
+      const alertDescription = escapeHtml(alertInfo.description || '');
+      const alertAria = escapeHtml(alertInfo.ariaLabel || alertInfo.description || alertInfo.label || '');
       return `
         <tr data-po-id="${escapeHtml(item.id)}" data-base-id="${escapeHtml(item.baseId)}" class="${rowClasses}">
           <td class="text-center">
@@ -2368,9 +2386,9 @@ function renderOverviewTable() {
             <div class="fw-semibold">${escapeHtml(item.id)}</div>
             <div class="small text-muted">${baseLabel}</div>
           </td>
-          <td class="text-center">
-            ${alertChip}
-            ${alertSubtext}
+          <td class="${alertCellClasses}" title="${alertDescription}" aria-label="${alertAria}">
+            ${alertLabel}
+            ${alertDetail}
           </td>
           <td>${escapeHtml(item.fecha || '-')}</td>
           <td class="text-end">$${formatCurrency(total)}</td>
@@ -2494,14 +2512,32 @@ function getOverviewSelectionEntries() {
     .sort((a, b) => a.baseId.localeCompare(b.baseId));
 }
 
-function syncOverviewSelectionToState() {
+function syncOverviewSelectionToState(options = {}) {
+  const silent = options.silent === true;
+  const allowEmpty = options.allowEmpty === true;
   if (!state.selectedEmpresa) {
-    showAlert('Selecciona una empresa válida antes de continuar.', 'warning');
+    if (!silent) {
+      showAlert('Selecciona una empresa válida antes de continuar.', 'warning');
+    }
     return false;
   }
   const entries = getOverviewSelectionEntries();
   if (entries.length === 0) {
-    showAlert('Selecciona al menos una PO visible en la tabla principal.', 'warning');
+    if (allowEmpty) {
+      if (state.selectedPoIds.length > 0) {
+        state.selectedPoIds = [];
+        state.selectedPoDetails = new Map();
+        state.manualExtensions.clear();
+        renderSelectedPoChips();
+        renderPoOptions();
+        renderReportSelectionOverview();
+        updatePoFoundList();
+      }
+      return true;
+    }
+    if (!silent) {
+      showAlert('Selecciona al menos una PO visible en la tabla principal.', 'warning');
+    }
     return false;
   }
   state.selectedPoIds = entries.map(entry => entry.baseId);
@@ -2606,6 +2642,7 @@ async function handleOverviewApplySelection() {
   if (!syncOverviewSelectionToState()) {
     return;
   }
+  setDashboardActiveTab('overview');
   await updateSummary();
 }
 
@@ -2613,6 +2650,7 @@ async function handleOverviewGenerateReport() {
   if (!syncOverviewSelectionToState()) {
     return;
   }
+  setDashboardActiveTab('overview');
   await openReportPreview();
 }
 
@@ -3046,7 +3084,7 @@ function renderCharts(summary) {
               className: 'text-muted',
               amount: topRemEntry.totals.totalRem,
               percentage: aggregatedTotals.totalRem > 0
-                ? clampPercentage((topRemEntry.totals.totalRem / aggregatedTotals.totalRem) * 100)
+                ? clampPercentage((topRemEntry.totals.totalRem / aggregatedTotals.totalRem) * 100, 2, 100)
                 : 0
             }
           : null
@@ -3067,7 +3105,7 @@ function renderCharts(summary) {
               className: 'text-muted',
               amount: topFacEntry.totals.totalFac,
               percentage: aggregatedTotals.totalFac > 0
-                ? clampPercentage((topFacEntry.totals.totalFac / aggregatedTotals.totalFac) * 100)
+                ? clampPercentage((topFacEntry.totals.totalFac / aggregatedTotals.totalFac) * 100, 2, 100)
                 : 0
             }
           : null
@@ -3713,6 +3751,22 @@ function showWizardTab(target) {
   tabInstance.show();
 }
 
+function setDashboardActiveTab(mode) {
+  let normalized = 'global';
+  if (mode === 'overview') {
+    normalized = 'overview';
+  } else if (mode === 'personal') {
+    normalized = 'personal';
+  }
+  if (state.dashboardActiveTab === normalized) {
+    return;
+  }
+  state.dashboardActiveTab = normalized;
+  if (normalized === 'overview') {
+    maybeRefreshDashboardFromOverview({ silent: true });
+  }
+}
+
 function setupWizardNavigation() {
   document.querySelectorAll('[data-wizard-action]').forEach(button => {
     if (!button || button.dataset.wizardBound === 'true') {
@@ -3734,6 +3788,34 @@ function setupWizardNavigation() {
       }
     });
   });
+}
+
+function initializeDashboardTabListeners() {
+  const wizard = document.getElementById('dashboardWizard');
+  if (!wizard) {
+    return;
+  }
+  wizard.querySelectorAll('[data-bs-toggle="tab"]').forEach(button => {
+    if (!button) return;
+    button.addEventListener('shown.bs.tab', event => {
+      const target = event.target?.getAttribute('data-bs-target') || '';
+      if (target === '#panel-overview') {
+        setDashboardActiveTab('overview');
+      } else if (target === '#panel-personal') {
+        setDashboardActiveTab('personal');
+      } else {
+        setDashboardActiveTab('global');
+      }
+    });
+  });
+  const activePanel = wizard.querySelector('.tab-pane.active');
+  if (activePanel?.id === 'panel-overview') {
+    setDashboardActiveTab('overview');
+  } else if (activePanel?.id === 'panel-personal') {
+    setDashboardActiveTab('personal');
+  } else {
+    setDashboardActiveTab('global');
+  }
 }
 
 function isSummarySynced() {
@@ -5080,6 +5162,7 @@ async function setupDashboard() {
   setupCustomizationControls();
   renderCustomizationSummary();
   setupWizardNavigation();
+  initializeDashboardTabListeners();
   updateReportOverviewMeta();
   renderReportSelectionOverview();
   showAlert('Selecciona empresa y PO para visualizar el tablero.', 'info', 9000);
