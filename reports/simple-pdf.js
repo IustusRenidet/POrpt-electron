@@ -229,6 +229,66 @@ function normalizeAlertEntries(alerts = [], fallback = []) {
   return Array.from(registry);
 }
 
+const ALERT_SUMMARY_LABELS = {
+  alerta: 'Alerta',
+  warning: 'Alerta',
+  critica: 'Crítica',
+  critical: 'Crítica',
+  danger: 'Crítica',
+  info: 'Info',
+  success: 'Éxito'
+};
+
+const ALERT_SUMMARY_ICONS = {
+  alerta: '⚠️',
+  warning: '⚠️',
+  critica: '⛔',
+  critical: '⛔',
+  danger: '⛔'
+};
+
+function formatAlertSeverityLabel(rawSeverity) {
+  const key = typeof rawSeverity === 'string' ? rawSeverity.trim().toLowerCase() : '';
+  if (!key) {
+    return '';
+  }
+  if (ALERT_SUMMARY_LABELS[key]) {
+    return ALERT_SUMMARY_LABELS[key];
+  }
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+function summarizeAlertEntries(alerts, fallback) {
+  const entries = normalizeAlertEntries(alerts, fallback);
+  if (!entries.length) {
+    return 'Sin alertas registradas';
+  }
+  const [first, ...rest] = entries;
+  const match = first.match(/^\[([^\]]+)\]\s*(.*)$/u);
+  const severityKey = match ? match[1].trim().toLowerCase() : '';
+  const message = match ? match[2].trim() : first.trim();
+  const severityLabel = formatAlertSeverityLabel(severityKey);
+  const icon = ALERT_SUMMARY_ICONS[severityKey] || '';
+  const parts = [];
+  if (icon) {
+    parts.push(icon);
+  }
+  if (severityLabel) {
+    parts.push(`${severityLabel}:`);
+  }
+  if (message) {
+    parts.push(message);
+  }
+  let summary = parts.join(' ').replace(/\s+/gu, ' ').trim();
+  if (!summary) {
+    summary = 'Alerta registrada';
+  }
+  if (rest.length > 0) {
+    summary += ` (+${rest.length} más)`;
+  }
+  return summary;
+}
+
 function getContentBounds(doc) {
   const left = doc.page.margins.left;
   const right = doc.page.width - doc.page.margins.right;
@@ -471,11 +531,12 @@ function drawPoSummaryTable(doc, summary, branding) {
   const headerHeight = 24;
   const rowPadding = 12;
   const columns = [
-    { key: 'po', label: 'PO', width: tableWidth * 0.28, align: 'left' },
-    { key: 'fecha', label: 'Fecha', width: tableWidth * 0.14, align: 'left' },
-    { key: 'subtotal', label: 'Subtotal', width: tableWidth * 0.18, align: 'right' },
-    { key: 'total', label: 'Total autorizado', width: tableWidth * 0.18, align: 'right' },
-    { key: 'consumo', label: 'Consumido / Disponible', width: tableWidth * 0.22, align: 'right' }
+    { key: 'po', label: 'PO', width: tableWidth * 0.24, align: 'left' },
+    { key: 'fecha', label: 'Fecha', width: tableWidth * 0.12, align: 'left' },
+    { key: 'subtotal', label: 'Subtotal', width: tableWidth * 0.14, align: 'right' },
+    { key: 'total', label: 'Total autorizado', width: tableWidth * 0.14, align: 'right' },
+    { key: 'consumo', label: 'Consumido / Disponible', width: tableWidth * 0.20, align: 'right' },
+    { key: 'alerts', label: 'Advertencias', width: tableWidth * 0.16, align: 'left' }
   ];
   const minimumRowHeight = rowPadding + 14;
   const minimumSectionContent = headerHeight + minimumRowHeight + 8;
@@ -538,6 +599,7 @@ function drawPoSummaryTable(doc, summary, branding) {
           ? totals.restante
           : roundTo(Math.max(totalAmount - consumido, 0));
         const isExtension = !item.isBase;
+        const alertSummary = summarizeAlertEntries(item.alerts || [], item.alertasTexto || '');
         const poLabel = isExtension
           ? `${item.id} · Ext. de ${group.baseId}`
           : `${item.id} (base)`;
@@ -546,7 +608,8 @@ function drawPoSummaryTable(doc, summary, branding) {
           item.fecha || '-',
           subtotalAmount > 0 ? formatCurrency(subtotalAmount) : '—',
           formatCurrency(totalAmount),
-          `${formatCurrency(consumido)} / ${formatCurrency(disponible)}`
+          `${formatCurrency(consumido)} / ${formatCurrency(disponible)}`,
+          alertSummary
         ];
         const rowHeight = measureRowHeight(rowValues);
         if (!headerDrawn) {
@@ -1126,7 +1189,8 @@ function buildPoGroupDetails(summary) {
       totals,
       percentages,
       isBase,
-      alerts: itemAlerts
+      alerts: itemAlerts,
+      alertasTexto: typeof item.alertasTexto === 'string' ? item.alertasTexto : ''
     });
   });
   return Array.from(groups.values())

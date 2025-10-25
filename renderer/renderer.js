@@ -21,6 +21,8 @@ function createDefaultCustomization() {
   };
 }
 
+const DASHBOARD_AUTO_REFRESH_MS = 60000;
+
 const state = {
   empresas: [],
   pos: [],
@@ -58,7 +60,12 @@ const state = {
       search: '',
       alertsOnly: false
     },
-    loading: false
+    loading: false,
+    lastUpdated: null,
+    autoRefresh: {
+      timerId: null,
+      intervalMs: DASHBOARD_AUTO_REFRESH_MS
+    }
   },
   dashboardPanel: {
     isOpen: false,
@@ -74,6 +81,8 @@ const ALERT_TYPE_CLASS = {
   danger: 'danger',
   warning: 'warning',
   alerta: 'warning',
+  critica: 'danger',
+  critical: 'danger',
   info: 'info'
 };
 
@@ -1854,7 +1863,11 @@ async function selectEmpresa(value) {
     showAlert('Selecciona una empresa válida de la lista.', 'warning');
     return;
   }
-  if (state.selectedEmpresa === value) return;
+  if (state.selectedEmpresa === value) {
+    scheduleOverviewAutoRefresh();
+    return;
+  }
+  clearOverviewAutoRefresh();
   state.selectedEmpresa = value;
   state.selectedPoIds = [];
   state.selectedPoDetails.clear();
@@ -1879,6 +1892,7 @@ async function selectEmpresa(value) {
   updateUniverseControls();
   await loadPOs();
   await loadPoOverview();
+  scheduleOverviewAutoRefresh();
 }
 
 async function loadPOs() {
@@ -1996,24 +2010,35 @@ function resetOverviewState(options = {}) {
 }
 
 async function loadPoOverview(options = {}) {
+  const overview = state.overview;
   if (!state.selectedEmpresa) {
     resetOverviewState({ keepFilters: true });
+    clearOverviewAutoRefresh();
     return;
   }
-  const overview = state.overview;
+  if (overview.loading && options.skipIfBusy) {
+    return;
+  }
+  const suppressAlerts = options.source === 'auto-refresh';
   const mode = overview.filters.mode || 'global';
   if (mode === 'range') {
     if (!overview.filters.startDate || !overview.filters.endDate) {
-      showAlert('Selecciona las fechas de inicio y fin para aplicar el rango.', 'warning');
+      if (!suppressAlerts) {
+        showAlert('Selecciona las fechas de inicio y fin para aplicar el rango.', 'warning');
+      }
       return;
     }
     if (overview.filters.startDate > overview.filters.endDate) {
-      showAlert('La fecha inicial no puede ser posterior a la fecha final.', 'warning');
+      if (!suppressAlerts) {
+        showAlert('La fecha inicial no puede ser posterior a la fecha final.', 'warning');
+      }
       return;
     }
   }
   if (mode === 'single' && !overview.filters.startDate) {
-    showAlert('Selecciona la fecha para aplicar el filtro unitario.', 'warning');
+    if (!suppressAlerts) {
+      showAlert('Selecciona la fecha para aplicar el filtro unitario.', 'warning');
+    }
     return;
   }
 
@@ -2085,6 +2110,7 @@ async function loadPoOverview(options = {}) {
       overview.selection = defaultSelection;
     }
     overview.loading = false;
+    overview.lastUpdated = new Date().toISOString();
     applyOverviewFilters();
     const overviewPanel = document.getElementById('panel-overview');
     const panelIsActive = overviewPanel?.classList.contains('active');
@@ -2094,8 +2120,11 @@ async function loadPoOverview(options = {}) {
     }
   } catch (error) {
     overview.loading = false;
+    overview.lastUpdated = new Date().toISOString();
     console.error('Error cargando resumen general de POs:', error);
-    showAlert(error.message || 'Error consultando la tabla principal de POs', 'danger');
+    if (!suppressAlerts) {
+      showAlert(error.message || 'Error consultando la tabla principal de POs', 'danger');
+    }
     overview.items = [];
     overview.filteredItems = [];
     overview.selection = new Map();
@@ -2189,11 +2218,15 @@ function getOverviewAlertInfo(consumido, total) {
       ariaLabel: 'Sin datos de consumo disponibles.'
     };
   }
+  const remainingAmount = Math.max(totalAmount - consumedAmount, 0);
+  const tolerance = Math.max(totalAmount * 0.0005, 0.01);
+  const fullyConsumed = remainingAmount <= tolerance;
   const rawPercentage = (consumedAmount / totalAmount) * 100;
-  const limitedPercentage = Math.max(0, Math.min(rawPercentage, 999.99));
+  const normalizedPercentage = fullyConsumed ? 100 : rawPercentage;
+  const limitedPercentage = Math.max(0, Math.min(normalizedPercentage, 999.99));
   const formattedPercentage = formatPercentageLabel(limitedPercentage);
   const consumptionPhrase = `Consumo ${formattedPercentage}`;
-  if (rawPercentage >= 100) {
+  if (normalizedPercentage >= 100) {
     return {
       level: 'critical',
       icon: '⛔',
@@ -2205,7 +2238,7 @@ function getOverviewAlertInfo(consumido, total) {
       ariaLabel: `Alerta crítica: ${consumptionPhrase} del presupuesto autorizado.`
     };
   }
-  if (rawPercentage >= 90) {
+  if (normalizedPercentage >= 90) {
     return {
       level: 'warning',
       icon: '⚠️',
@@ -2539,6 +2572,48 @@ async function handleOverviewGenerateReport() {
   await openReportPreview();
 }
 
+function getOverviewAutoRefreshState() {
+  if (!state.overview.autoRefresh) {
+    state.overview.autoRefresh = {
+      timerId: null,
+      intervalMs: DASHBOARD_AUTO_REFRESH_MS
+    };
+  }
+  return state.overview.autoRefresh;
+}
+
+function clearOverviewAutoRefresh() {
+  const autoRefresh = getOverviewAutoRefreshState();
+  if (autoRefresh.timerId) {
+    clearInterval(autoRefresh.timerId);
+    autoRefresh.timerId = null;
+  }
+}
+
+function scheduleOverviewAutoRefresh(options = {}) {
+  const autoRefresh = getOverviewAutoRefreshState();
+  const rawInterval = Number(options.intervalMs ?? autoRefresh.intervalMs ?? DASHBOARD_AUTO_REFRESH_MS);
+  const intervalMs = Number.isFinite(rawInterval) && rawInterval >= 15000 ? rawInterval : DASHBOARD_AUTO_REFRESH_MS;
+  autoRefresh.intervalMs = intervalMs;
+  clearOverviewAutoRefresh();
+  if (!state.selectedEmpresa) {
+    return;
+  }
+  autoRefresh.timerId = setInterval(() => {
+    if (!state.selectedEmpresa) {
+      clearOverviewAutoRefresh();
+      return;
+    }
+    loadPoOverview({
+      preserveSelection: true,
+      skipIfBusy: true,
+      source: 'auto-refresh'
+    }).catch(error => {
+      console.warn('No se pudo actualizar automáticamente el dashboard:', error);
+    });
+  }, intervalMs);
+}
+
 function initializeOverviewTab() {
   renderOverviewEmpresaOptions();
   updateOverviewModeControls();
@@ -2563,6 +2638,7 @@ function initializeOverviewTab() {
       destroyCharts();
       hideDashboardPanel();
       resetSearchableSelect(document.getElementById('poSearch'));
+      clearOverviewAutoRefresh();
       return;
     }
     selectEmpresa(value);
@@ -2594,6 +2670,9 @@ function initializeOverviewTab() {
   document.getElementById('overviewSelectAll')?.addEventListener('change', handleOverviewSelectAllChange);
   document.getElementById('overviewTableBody')?.addEventListener('change', handleOverviewTableChange);
   updateOverviewSelectAllState();
+  if (state.selectedEmpresa) {
+    scheduleOverviewAutoRefresh();
+  }
 }
 
 async function selectPo(poId) {
@@ -4818,6 +4897,7 @@ async function handleReportSettingsSubmit(event) {
 function logout() {
   sessionStorage.removeItem('porpt-empresas');
   sessionStorage.removeItem('porpt-is-admin');
+  clearOverviewAutoRefresh();
   window.location.href = 'index.html';
 }
 
@@ -4889,6 +4969,7 @@ async function setupDashboard() {
       updateOverviewSearchInput('');
       resetOverviewState({ keepFilters: true });
       hideDashboardPanel();
+      clearOverviewAutoRefresh();
       return;
     }
     selectEmpresa(value);
@@ -5009,6 +5090,7 @@ function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+window.addEventListener('beforeunload', clearOverviewAutoRefresh);
 
 window.login = login;
 window.loadUsers = loadUsers;
