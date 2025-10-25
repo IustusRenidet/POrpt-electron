@@ -462,6 +462,19 @@ function calculateTotals(total, totalRem, totalFac) {
   };
 }
 
+function isFullyConsumed(totals = {}) {
+  const total = Number(totals.total || 0);
+  if (!Number.isFinite(total) || total <= 0) {
+    return false;
+  }
+  const restante = Number(totals.restante ?? 0);
+  if (!Number.isFinite(restante)) {
+    return false;
+  }
+  const tolerance = Math.max(0.01, total * 0.0005);
+  return restante <= tolerance;
+}
+
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/u;
 
 function normalizeUniverseFilter(filter = {}) {
@@ -1127,9 +1140,9 @@ async function getPoSummary(empresa, poId, options = {}) {
       const alerts = [];
       if (totalOriginal > 0) {
         const ratio = totals.totalConsumo / totalOriginal;
-        const fullyConsumed = totals.restante <= 0.01;
+        const fullyConsumed = isFullyConsumed(totals);
         if (fullyConsumed) {
-          alerts.push(buildAlert(`El PO ${id} está consumido al 100%`, 'alerta'));
+          alerts.push(buildAlert(`El PO ${id} está consumido al 100%`, 'critica'));
         } else if (ratio >= 0.9) {
           alerts.push(
             buildAlert(`El consumo del PO ${id} ha alcanzado el ${(ratio * 100).toFixed(2)}%`, 'alerta')
@@ -1226,9 +1239,9 @@ async function getPoSummary(empresa, poId, options = {}) {
     const alerts = items.flatMap(item => item.alerts);
     if (totals.total > 0) {
       const ratio = totals.totalConsumo / totals.total;
-      const fullyConsumed = totals.restante <= 0.01;
+      const fullyConsumed = isFullyConsumed(totals);
       if (fullyConsumed) {
-        alerts.push(buildAlert(`Los recursos del grupo ${baseId} están consumidos al 100%`, 'alerta'));
+        alerts.push(buildAlert(`Los recursos del grupo ${baseId} están consumidos al 100%`, 'critica'));
       } else if (ratio >= 0.9) {
         alerts.push(
           buildAlert(
@@ -1312,9 +1325,9 @@ async function getPoSummaryGroup(empresa, selectionEntries) {
   const alerts = summaries.flatMap(summary => summary.alerts || []);
   if (totals.total > 0) {
     const ratio = totals.totalConsumo / totals.total;
-    const fullyConsumed = totals.restante <= 0.01;
+    const fullyConsumed = isFullyConsumed(totals);
     if (fullyConsumed) {
-      alerts.push(buildAlert('Los recursos combinados están consumidos al 100%', 'alerta'));
+      alerts.push(buildAlert('Los recursos combinados están consumidos al 100%', 'critica'));
     } else if (ratio >= 0.9) {
       alerts.push(
         buildAlert(
@@ -1612,9 +1625,9 @@ async function getUniverseSummary(empresa, rawFilter) {
         const alerts = [];
         if (totals.total > 0) {
           const ratio = totals.totalConsumo / totals.total;
-          const fullyConsumed = totals.restante <= 0.01;
+          const fullyConsumed = isFullyConsumed(totals);
           if (fullyConsumed) {
-            alerts.push(buildAlert(`El PO ${entry.id} está consumido al 100%`, 'alerta'));
+            alerts.push(buildAlert(`El PO ${entry.id} está consumido al 100%`, 'critica'));
           } else if (ratio >= 0.9) {
             alerts.push(
               buildAlert(
@@ -1691,9 +1704,9 @@ async function getUniverseSummary(empresa, rawFilter) {
       alerts.push(buildAlert('No se encontraron POs activas con el filtro seleccionado.', 'info'));
     } else {
       const ratio = totals.totalConsumo / totals.total;
-      const fullyConsumed = totals.restante <= 0.01;
+      const fullyConsumed = isFullyConsumed(totals);
       if (fullyConsumed) {
-        alerts.push(buildAlert('El universo está consumido al 100%', 'alerta'));
+        alerts.push(buildAlert('El universo está consumido al 100%', 'critica'));
       } else if (ratio >= 0.9) {
         alerts.push(
           buildAlert(
