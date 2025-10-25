@@ -436,14 +436,58 @@ function clampPercentage(value, decimals = 2) {
 }
 
 function computeResponsiveChartHeight(itemCount) {
-  const count = Number(itemCount) || 0;
+  const count = Math.max(0, Number(itemCount) || 0);
   if (count <= 1) {
-    return 220;
+    return 260;
   }
-  const base = 220;
-  const perItem = 26;
-  const computed = base + Math.max(0, count - 4) * perItem;
-  return Math.min(420, Math.max(200, computed));
+
+  const base = 260;
+  const growthSteps = Math.max(0, count - 3);
+  const perItem = count > 24 ? 36 : count > 12 ? 32 : 28;
+  const computed = base + growthSteps * perItem;
+
+  return Math.min(960, Math.max(260, computed));
+}
+
+function computeBarThickness(itemCount) {
+  const count = Math.max(1, Number(itemCount) || 0);
+  if (count <= 4) return 42;
+  if (count <= 8) return 36;
+  if (count <= 16) return 30;
+  if (count <= 24) return 26;
+  if (count <= 36) return 22;
+  return 18;
+}
+
+function wrapChartLabel(label) {
+  if (typeof label !== 'string') {
+    return label;
+  }
+
+  const cleanLabel = label.trim();
+  if (cleanLabel.length <= 28) {
+    return cleanLabel;
+  }
+
+  const words = cleanLabel.split(/\s+/);
+  const lines = [];
+  let currentLine = '';
+
+  words.forEach(word => {
+    const tentative = currentLine ? `${currentLine} ${word}` : word;
+    if (tentative.length > 28 && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = tentative;
+    }
+  });
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.join('\n');
 }
 
 function formatCurrency(value) {
@@ -3061,11 +3105,13 @@ function renderCharts(summary) {
       .join('');
   });
 
-  const labels = chartEntries.map(entry => entry.label);
+  const displayLabels = chartEntries.map(entry => wrapChartLabel(entry.label));
   const ctxRem = document.getElementById('chartRem');
   const ctxFac = document.getElementById('chartFac');
   const ctxStack = document.getElementById('chartJunto');
   const dynamicHeight = computeResponsiveChartHeight(chartEntries.length);
+  const barThickness = computeBarThickness(chartEntries.length);
+  const axisTickFontSize = chartEntries.length > 28 ? 10 : chartEntries.length > 18 ? 11 : 12;
   const stackMaxPercentage = chartEntries.reduce((max, entry) => {
     const global = entry.globalPercentages || { rem: 0, fac: 0, rest: 0 };
     const totalPercentage = global.rem + global.fac + global.rest;
@@ -3083,7 +3129,8 @@ function renderCharts(summary) {
     const wrapper = meta.canvas.closest('.chart-wrapper');
     if (wrapper) {
       wrapper.style.minHeight = `${dynamicHeight}px`;
-      wrapper.style.maxHeight = `${Math.max(dynamicHeight, 240)}px`;
+      wrapper.style.maxHeight = `${dynamicHeight}px`;
+      wrapper.style.height = `${dynamicHeight}px`;
     }
     meta.canvas.height = dynamicHeight;
     meta.canvas.style.height = `${dynamicHeight}px`;
@@ -3095,11 +3142,12 @@ function renderCharts(summary) {
       data: values,
       backgroundColor: meta.color,
       borderRadius: 10,
-      maxBarThickness: 32
+      maxBarThickness: barThickness,
+      barThickness: barThickness
     };
     const chart = new Chart(meta.canvas.getContext('2d'), {
       type: 'bar',
-      data: { labels, datasets: [dataset] },
+      data: { labels: displayLabels, datasets: [dataset] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -3133,7 +3181,7 @@ function renderCharts(summary) {
           },
           y: {
             grid: { display: false },
-            ticks: { color: '#475569', autoSkip: false }
+            ticks: { color: '#475569', autoSkip: false, font: { size: axisTickFontSize, lineHeight: 1.1 } }
           }
         }
       }
@@ -3145,7 +3193,8 @@ function renderCharts(summary) {
     const wrapper = ctxStack.closest('.chart-wrapper');
     if (wrapper) {
       wrapper.style.minHeight = `${dynamicHeight}px`;
-      wrapper.style.maxHeight = `${Math.max(dynamicHeight, 240)}px`;
+      wrapper.style.maxHeight = `${dynamicHeight}px`;
+      wrapper.style.height = `${dynamicHeight}px`;
     }
     ctxStack.height = dynamicHeight;
     ctxStack.style.height = `${dynamicHeight}px`;
@@ -3157,13 +3206,15 @@ function renderCharts(summary) {
     const chart = new Chart(ctxStack.getContext('2d'), {
       type: 'bar',
       data: {
-        labels,
+        labels: displayLabels,
         datasets: stackMeta.map(meta => ({
           label: `${meta.label} %`,
           data: chartEntries.map(entry => entry.globalPercentages?.[meta.percKey] ?? 0),
           backgroundColor: meta.color,
           borderRadius: 8,
-          stack: 'total'
+          stack: 'total',
+          maxBarThickness: barThickness,
+          barThickness: barThickness
         }))
       },
       options: {
@@ -3205,7 +3256,7 @@ function renderCharts(summary) {
           y: {
             stacked: true,
             grid: { display: false },
-            ticks: { color: '#475569', autoSkip: false }
+            ticks: { color: '#475569', autoSkip: false, font: { size: axisTickFontSize, lineHeight: 1.1 } }
           }
         }
       }
