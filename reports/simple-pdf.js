@@ -2,6 +2,9 @@ const fs = require('fs');
 
 let PDFDocument;
 let pdfkitLoadError = null;
+let SVGtoPDF;
+let svgToPdfLoadError = null;
+let svgRenderErrorLogged = false;
 
 try {
   PDFDocument = require('pdfkit');
@@ -12,6 +15,14 @@ try {
   console.error('El motor "PDF directo" requiere la dependencia opcional "pdfkit".');
   console.error('Ejecuta "npm install" para instalar las dependencias del proyecto.');
   console.error('Si estás en Windows y ves errores de compilación puedes usar "npm install --omit=optional".\n');
+}
+
+try {
+  SVGtoPDF = require('svg-to-pdfkit');
+  console.log('✓ svg-to-pdfkit cargado correctamente');
+} catch (err) {
+  svgToPdfLoadError = err;
+  console.warn('⚠️ No se pudo cargar svg-to-pdfkit. Los íconos vectoriales no estarán disponibles:', err.message);
 }
 
 const PDF_UNAVAILABLE_MESSAGE =
@@ -243,12 +254,37 @@ const ALERT_SUMMARY_LABELS = {
   success: 'Éxito'
 };
 
-const ALERT_SUMMARY_ICONS = {
-  alerta: '⚠️',
-  warning: '⚠️',
-  critica: '⛔',
-  critical: '⛔',
-  danger: '⛔'
+const ALERT_SUMMARY_SVGS = {
+  alerta: `
+    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2L1 21h22L12 2z" fill="#F59E0B"/>
+      <path d="M12 7a1 1 0 0 0-1 1v6a1 1 0 0 0 2 0V8a1 1 0 0 0-1-1zm-1 10v2h2v-2h-2z" fill="#FFFFFF"/>
+    </svg>
+  `,
+  warning: `
+    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2L1 21h22L12 2z" fill="#F59E0B"/>
+      <path d="M12 7a1 1 0 0 0-1 1v6a1 1 0 0 0 2 0V8a1 1 0 0 0-1-1zm-1 10v2h2v-2h-2z" fill="#FFFFFF"/>
+    </svg>
+  `,
+  critica: `
+    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#DC2626"/>
+      <path d="M12 7a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1zm-1 10v2h2v-2h-2z" fill="#FFFFFF"/>
+    </svg>
+  `,
+  critical: `
+    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#DC2626"/>
+      <path d="M12 7a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1zm-1 10v2h2v-2h-2z" fill="#FFFFFF"/>
+    </svg>
+  `,
+  danger: `
+    <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#DC2626"/>
+      <path d="M12 7a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1zm-1 10v2h2v-2h-2z" fill="#FFFFFF"/>
+    </svg>
+  `
 };
 
 function formatAlertSeverityLabel(rawSeverity) {
@@ -265,18 +301,14 @@ function formatAlertSeverityLabel(rawSeverity) {
 function summarizeAlertEntries(alerts, fallback) {
   const entries = normalizeAlertEntries(alerts, fallback);
   if (!entries.length) {
-    return 'Sin alertas registradas';
+    return { text: 'Sin alertas registradas', severity: '', count: 0 };
   }
   const [first, ...rest] = entries;
   const match = first.match(/^\[([^\]]+)\]\s*(.*)$/u);
   const severityKey = match ? match[1].trim().toLowerCase() : '';
   const message = match ? match[2].trim() : first.trim();
   const severityLabel = formatAlertSeverityLabel(severityKey);
-  const icon = ALERT_SUMMARY_ICONS[severityKey] || '';
   const parts = [];
-  if (icon) {
-    parts.push(icon);
-  }
   if (severityLabel) {
     parts.push(`${severityLabel}:`);
   }
@@ -290,7 +322,66 @@ function summarizeAlertEntries(alerts, fallback) {
   if (rest.length > 0) {
     summary += ` (+${rest.length} más)`;
   }
-  return summary;
+  return { text: summary, severity: severityKey, count: entries.length, label: severityLabel };
+}
+
+function getAlertSummary(value) {
+  if (value && typeof value === 'object') {
+    const text = typeof value.text === 'string' ? value.text : String(value.text ?? '');
+    const severity = typeof value.severity === 'string' ? value.severity.trim().toLowerCase() : '';
+    return {
+      text: text.trim(),
+      severity,
+      label: typeof value.label === 'string' ? value.label : '',
+      count: Number.isFinite(value.count) ? value.count : undefined
+    };
+  }
+  const text = typeof value === 'string' ? value : String(value ?? '');
+  return { text: text.trim(), severity: '', label: '', count: undefined };
+}
+
+function getCellText(value) {
+  if (value && typeof value === 'object') {
+    const text = typeof value.text === 'string' ? value.text : String(value.text ?? '');
+    return text;
+  }
+  return String(value ?? '');
+}
+
+function drawAlertCell(doc, value, cellX, cellY, cellWidth, rowHeight) {
+  const summary = getAlertSummary(value);
+  const paddingX = 10;
+  const paddingY = 6;
+  const availableWidth = Math.max(0, cellWidth - paddingX * 2);
+  const baseX = cellX + paddingX;
+  const baseY = cellY + paddingY;
+  const iconSvg = summary.severity ? ALERT_SUMMARY_SVGS[summary.severity] : null;
+  const hasSvgRenderer = typeof SVGtoPDF === 'function' && !svgToPdfLoadError;
+  let textOffset = 0;
+
+  if (hasSvgRenderer && iconSvg) {
+    const iconSize = 12;
+    const iconX = baseX;
+    const iconY = cellY + Math.max(0, (rowHeight - iconSize) / 2);
+    try {
+      SVGtoPDF(doc, iconSvg, iconX, iconY, { width: iconSize, height: iconSize, assumePt: true });
+      textOffset = iconSize + 4;
+    } catch (err) {
+      if (!svgRenderErrorLogged) {
+        svgRenderErrorLogged = true;
+        console.warn('⚠️ Error dibujando SVG en el PDF:', err.message);
+      }
+      textOffset = 0;
+    }
+  }
+
+  const textX = baseX + textOffset;
+  const textWidth = Math.max(0, availableWidth - textOffset);
+  doc
+    .font('Helvetica')
+    .fontSize(11)
+    .fillColor('#111827')
+    .text(summary.text || '—', textX, baseY, { width: textWidth, align: 'left' });
 }
 
 function getContentBounds(doc) {
@@ -571,7 +662,7 @@ function drawPoSummaryTable(doc, summary, branding) {
     return values.reduce((height, value, index) => {
       const column = columns[index];
       const cellWidth = Math.max(0, column.width - 20);
-      const text = String(value ?? '');
+      const text = getCellText(value);
       const cellHeight = measuringFont.heightOfString(text, { width: cellWidth });
       return Math.max(height, cellHeight + rowPadding);
     }, rowPadding);
@@ -634,11 +725,16 @@ function drawPoSummaryTable(doc, summary, branding) {
         doc.lineWidth(0.5).strokeColor('#d1d5db').rect(startX, y, tableWidth, rowHeight).stroke();
         let offsetX = startX;
         columns.forEach((column, index) => {
-          doc
-            .font('Helvetica')
-            .fontSize(11)
-            .fillColor('#111827')
-            .text(rowValues[index], offsetX + 10, y + 6, { width: column.width - 20, align: column.align });
+          const value = rowValues[index];
+          if (column.key === 'alerts') {
+            drawAlertCell(doc, value, offsetX, y, column.width, rowHeight);
+          } else {
+            doc
+              .font('Helvetica')
+              .fontSize(11)
+              .fillColor('#111827')
+              .text(getCellText(value), offsetX + 10, y + 6, { width: column.width - 20, align: column.align });
+          }
           offsetX += column.width;
         });
         doc.y = y + rowHeight;
