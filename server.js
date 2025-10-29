@@ -650,6 +650,8 @@ function normalizeDocKey(value) {
   return value.trim().toUpperCase();
 }
 
+const FIREBIRD_IN_CHUNK_SIZE = 200;
+
 function uniqueNormalizedValues(values = []) {
   const set = new Set();
   values.forEach(value => {
@@ -661,47 +663,147 @@ function uniqueNormalizedValues(values = []) {
   return Array.from(set);
 }
 
+function chunkArray(values, chunkSize) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return [];
+  }
+  const chunks = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+
+function buildAggregateKey(row) {
+  const id = (row.ID ?? row.id ?? '').trim();
+  const fechaRaw = row.FECHA ?? row.fecha ?? row.FECHA_DOC ?? row.fecha_doc ?? null;
+  const fechaKey = fechaRaw instanceof Date ? fechaRaw.toISOString() : String(fechaRaw ?? '');
+  return `${id}|${fechaKey}`;
+}
+
+function createAggregateRow(row) {
+  const id = (row.ID ?? row.id ?? '').trim();
+  const fecha = row.FECHA ?? row.fecha ?? row.FECHA_DOC ?? row.fecha_doc ?? null;
+  const importe = Number(row.IMPORTE ?? row.importe ?? 0) || 0;
+  const tipDocSig = row.TIP_DOC_SIG ?? row.tip_doc_sig ?? null;
+  const docSig = row.DOC_SIG ?? row.doc_sig ?? null;
+  const tipDocAnt = row.TIP_DOC_ANT ?? row.tip_doc_ant ?? null;
+  const docAnt = row.DOC_ANT ?? row.doc_ant ?? null;
+  const status = row.STATUS ?? row.status ?? null;
+  return {
+    ID: id,
+    id,
+    FECHA: fecha,
+    fecha,
+    FECHA_DOC: fecha,
+    fecha_doc: fecha,
+    IMPORTE: importe,
+    importe,
+    TIP_DOC_SIG: tipDocSig,
+    tip_doc_sig: tipDocSig,
+    DOC_SIG: docSig,
+    doc_sig: docSig,
+    TIP_DOC_ANT: tipDocAnt,
+    tip_doc_ant: tipDocAnt,
+    DOC_ANT: docAnt,
+    doc_ant: docAnt,
+    STATUS: status,
+    status
+  };
+}
+
+function mergeAggregateRow(target, source) {
+  const currentImporte = Number(target.IMPORTE ?? target.importe ?? 0) || 0;
+  const incomingImporte = Number(source.IMPORTE ?? source.importe ?? 0) || 0;
+  if (incomingImporte > currentImporte) {
+    target.IMPORTE = incomingImporte;
+    target.importe = incomingImporte;
+  }
+
+  if ((!target.TIP_DOC_SIG || !target.tip_doc_sig) && (source.TIP_DOC_SIG || source.tip_doc_sig)) {
+    target.TIP_DOC_SIG = source.TIP_DOC_SIG ?? source.tip_doc_sig;
+    target.tip_doc_sig = target.TIP_DOC_SIG;
+  }
+  if ((!target.DOC_SIG || !target.doc_sig) && (source.DOC_SIG || source.doc_sig)) {
+    target.DOC_SIG = source.DOC_SIG ?? source.doc_sig;
+    target.doc_sig = target.DOC_SIG;
+  }
+  if ((!target.TIP_DOC_ANT || !target.tip_doc_ant) && (source.TIP_DOC_ANT || source.tip_doc_ant)) {
+    target.TIP_DOC_ANT = source.TIP_DOC_ANT ?? source.tip_doc_ant;
+    target.tip_doc_ant = target.TIP_DOC_ANT;
+  }
+  if ((!target.DOC_ANT || !target.doc_ant) && (source.DOC_ANT || source.doc_ant)) {
+    target.DOC_ANT = source.DOC_ANT ?? source.doc_ant;
+    target.doc_ant = target.DOC_ANT;
+  }
+  if ((!target.STATUS || !target.status) && (source.STATUS || source.status)) {
+    target.STATUS = source.STATUS ?? source.status;
+    target.status = target.STATUS;
+  }
+  if ((!target.FECHA || !target.fecha) && (source.FECHA || source.fecha)) {
+    const fecha = source.FECHA ?? source.fecha;
+    target.FECHA = fecha;
+    target.fecha = fecha;
+    target.FECHA_DOC = fecha;
+    target.fecha_doc = fecha;
+  }
+}
+
+function accumulateAggregateRows(aggregateMap, rows = []) {
+  rows.forEach(row => {
+    const key = buildAggregateKey(row);
+    if (!aggregateMap.has(key)) {
+      aggregateMap.set(key, createAggregateRow(row));
+    } else {
+      mergeAggregateRow(aggregateMap.get(key), createAggregateRow(row));
+    }
+  });
+}
+
 async function fetchRemisiones(db, tableName, { docAntValues = [], docIds = [] } = {}) {
   if (!tableName) return [];
   const alias = 'r';
-  const conditions = [];
-  const params = [];
   const normalizedDocAnt = uniqueNormalizedValues(docAntValues);
   const normalizedDocIds = uniqueNormalizedValues(docIds);
 
-  if (normalizedDocAnt.length > 0) {
-    const placeholders = normalizedDocAnt.map(() => '?').join(',');
-    conditions.push(`TRIM(${alias}.DOC_ANT) IN (${placeholders})`);
-    params.push(...normalizedDocAnt);
-  }
-
-  if (normalizedDocIds.length > 0) {
-    const placeholders = normalizedDocIds.map(() => '?').join(',');
-    conditions.push(`TRIM(${alias}.CVE_DOC) IN (${placeholders})`);
-    params.push(...normalizedDocIds);
-  }
-
-  if (conditions.length === 0) {
+  if (normalizedDocAnt.length === 0 && normalizedDocIds.length === 0) {
     return [];
   }
 
-  const whereClause = conditions.map(condition => `(${condition})`).join(' OR ');
-    const query = `
-      SELECT
-        TRIM(${alias}.CVE_DOC) AS id,
-        ${alias}.FECHA_DOC AS fecha,
-        COALESCE(SUM(${alias}.IMPORTE), 0) AS importe,
-        MAX(${alias}.TIP_DOC_SIG) AS tip_doc_sig,
-        MAX(${alias}.DOC_SIG) AS doc_sig,
-        MAX(${alias}.TIP_DOC_ANT) AS tip_doc_ant,
-        MAX(${alias}.DOC_ANT) AS doc_ant,
-        MAX(${alias}.STATUS) AS status
-      FROM ${tableName} ${alias}
-      WHERE ${alias}.STATUS <> 'C' AND (${whereClause})
-      GROUP BY ${alias}.CVE_DOC, ${alias}.FECHA_DOC
-      ORDER BY TRIM(${alias}.CVE_DOC)
-    `;
-  return await queryWithTimeout(db, query, params);
+  const aggregateMap = new Map();
+
+  const runChunkedQuery = async (values, buildCondition) => {
+    for (const chunk of chunkArray(values, FIREBIRD_IN_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => '?').join(',');
+      const whereClause = buildCondition(placeholders);
+      const query = `
+        SELECT
+          TRIM(${alias}.CVE_DOC) AS id,
+          ${alias}.FECHA_DOC AS fecha,
+          COALESCE(SUM(${alias}.IMPORTE), 0) AS importe,
+          MAX(${alias}.TIP_DOC_SIG) AS tip_doc_sig,
+          MAX(${alias}.DOC_SIG) AS doc_sig,
+          MAX(${alias}.TIP_DOC_ANT) AS tip_doc_ant,
+          MAX(${alias}.DOC_ANT) AS doc_ant,
+          MAX(${alias}.STATUS) AS status
+        FROM ${tableName} ${alias}
+        WHERE ${alias}.STATUS <> 'C' AND (${whereClause})
+        GROUP BY ${alias}.CVE_DOC, ${alias}.FECHA_DOC
+        ORDER BY TRIM(${alias}.CVE_DOC)
+      `;
+      const rows = await queryWithTimeout(db, query, chunk);
+      accumulateAggregateRows(aggregateMap, rows);
+    }
+  };
+
+  if (normalizedDocAnt.length > 0) {
+    await runChunkedQuery(normalizedDocAnt, placeholders => `TRIM(${alias}.DOC_ANT) IN (${placeholders})`);
+  }
+  if (normalizedDocIds.length > 0) {
+    await runChunkedQuery(normalizedDocIds, placeholders => `TRIM(${alias}.CVE_DOC) IN (${placeholders})`);
+  }
+
+  return Array.from(aggregateMap.values());
 }
 
 async function fetchFacturas(
@@ -711,51 +813,57 @@ async function fetchFacturas(
 ) {
   if (!tableName) return [];
   const alias = 'f';
-  const conditions = [];
-  const params = [];
   const normalizedDocAntPo = uniqueNormalizedValues(docAntPoValues);
   const normalizedDocAntRem = uniqueNormalizedValues(docAntRemValues);
   const normalizedDocIds = uniqueNormalizedValues(docIds);
 
-  if (normalizedDocAntPo.length > 0) {
-    const placeholders = normalizedDocAntPo.map(() => '?').join(',');
-    conditions.push(`(TRIM(${alias}.DOC_ANT) IN (${placeholders}) AND UPPER(TRIM(${alias}.TIP_DOC_ANT)) = 'P')`);
-    params.push(...normalizedDocAntPo);
-  }
-
-  if (normalizedDocAntRem.length > 0) {
-    const placeholders = normalizedDocAntRem.map(() => '?').join(',');
-    conditions.push(`(TRIM(${alias}.DOC_ANT) IN (${placeholders}) AND UPPER(TRIM(${alias}.TIP_DOC_ANT)) = 'R')`);
-    params.push(...normalizedDocAntRem);
-  }
-
-  if (normalizedDocIds.length > 0) {
-    const placeholders = normalizedDocIds.map(() => '?').join(',');
-    conditions.push(`TRIM(${alias}.CVE_DOC) IN (${placeholders})`);
-    params.push(...normalizedDocIds);
-  }
-
-  if (conditions.length === 0) {
+  if (normalizedDocAntPo.length === 0 && normalizedDocAntRem.length === 0 && normalizedDocIds.length === 0) {
     return [];
   }
 
-  const whereClause = conditions.map(condition => `(${condition})`).join(' OR ');
-  const query = `
-    SELECT
-      TRIM(${alias}.CVE_DOC) AS id,
-      ${alias}.FECHA_DOC AS fecha,
-      COALESCE(SUM(${alias}.IMPORTE), 0) AS importe,
-      MAX(${alias}.TIP_DOC_SIG) AS tip_doc_sig,
-      MAX(${alias}.DOC_SIG) AS doc_sig,
-      MAX(${alias}.TIP_DOC_ANT) AS tip_doc_ant,
-      MAX(${alias}.DOC_ANT) AS doc_ant,
-      MAX(${alias}.STATUS) AS status
-    FROM ${tableName} ${alias}
-    WHERE ${alias}.STATUS <> 'C' AND (${whereClause})
-    GROUP BY ${alias}.CVE_DOC, ${alias}.FECHA_DOC
-    ORDER BY TRIM(${alias}.CVE_DOC)
-  `;
-  return await queryWithTimeout(db, query, params);
+  const aggregateMap = new Map();
+
+  const runChunkedQuery = async (values, buildCondition) => {
+    for (const chunk of chunkArray(values, FIREBIRD_IN_CHUNK_SIZE)) {
+      const placeholders = chunk.map(() => '?').join(',');
+      const whereClause = buildCondition(placeholders);
+      const query = `
+        SELECT
+          TRIM(${alias}.CVE_DOC) AS id,
+          ${alias}.FECHA_DOC AS fecha,
+          COALESCE(SUM(${alias}.IMPORTE), 0) AS importe,
+          MAX(${alias}.TIP_DOC_SIG) AS tip_doc_sig,
+          MAX(${alias}.DOC_SIG) AS doc_sig,
+          MAX(${alias}.TIP_DOC_ANT) AS tip_doc_ant,
+          MAX(${alias}.DOC_ANT) AS doc_ant,
+          MAX(${alias}.STATUS) AS status
+        FROM ${tableName} ${alias}
+        WHERE ${alias}.STATUS <> 'C' AND (${whereClause})
+        GROUP BY ${alias}.CVE_DOC, ${alias}.FECHA_DOC
+        ORDER BY TRIM(${alias}.CVE_DOC)
+      `;
+      const rows = await queryWithTimeout(db, query, chunk);
+      accumulateAggregateRows(aggregateMap, rows);
+    }
+  };
+
+  if (normalizedDocAntPo.length > 0) {
+    await runChunkedQuery(
+      normalizedDocAntPo,
+      placeholders => `(TRIM(${alias}.DOC_ANT) IN (${placeholders}) AND UPPER(TRIM(${alias}.TIP_DOC_ANT)) = 'P')`
+    );
+  }
+  if (normalizedDocAntRem.length > 0) {
+    await runChunkedQuery(
+      normalizedDocAntRem,
+      placeholders => `(TRIM(${alias}.DOC_ANT) IN (${placeholders}) AND UPPER(TRIM(${alias}.TIP_DOC_ANT)) = 'R')`
+    );
+  }
+  if (normalizedDocIds.length > 0) {
+    await runChunkedQuery(normalizedDocIds, placeholders => `TRIM(${alias}.CVE_DOC) IN (${placeholders})`);
+  }
+
+  return Array.from(aggregateMap.values());
 }
 
 async function fetchFacturaStatuses(db, tableName, docIds = []) {
@@ -765,25 +873,28 @@ async function fetchFacturaStatuses(db, tableName, docIds = []) {
   if (normalizedDocIds.length === 0) {
     return new Map();
   }
-  const placeholders = normalizedDocIds.map(() => '?').join(',');
-  const query = `
-    SELECT
-      TRIM(${alias}.CVE_DOC) AS id,
-      MAX(${alias}.STATUS) AS status
-    FROM ${tableName} ${alias}
-    WHERE TRIM(${alias}.CVE_DOC) IN (${placeholders})
-    GROUP BY TRIM(${alias}.CVE_DOC)
-  `;
-  const rows = await queryWithTimeout(db, query, normalizedDocIds);
-  const map = new Map();
-  rows.forEach(row => {
-    const id = (row.ID || row.id || '').trim();
-    if (!id) return;
-    const statusRaw = row.STATUS ?? row.status ?? '';
-    const status = typeof statusRaw === 'string' ? statusRaw.trim().toUpperCase() : '';
-    map.set(normalizeDocKey(id), status);
-  });
-  return map;
+
+  const result = new Map();
+  for (const chunk of chunkArray(normalizedDocIds, FIREBIRD_IN_CHUNK_SIZE)) {
+    const placeholders = chunk.map(() => '?').join(',');
+    const query = `
+      SELECT
+        TRIM(${alias}.CVE_DOC) AS id,
+        MAX(${alias}.STATUS) AS status
+      FROM ${tableName} ${alias}
+      WHERE TRIM(${alias}.CVE_DOC) IN (${placeholders})
+      GROUP BY TRIM(${alias}.CVE_DOC)
+    `;
+    const rows = await queryWithTimeout(db, query, chunk);
+    rows.forEach(row => {
+      const id = (row.ID || row.id || '').trim();
+      if (!id) return;
+      const statusRaw = row.STATUS ?? row.status ?? '';
+      const status = typeof statusRaw === 'string' ? statusRaw.trim().toUpperCase() : '';
+      result.set(normalizeDocKey(id), status);
+    });
+  }
+  return result;
 }
 
 async function getPoSummary(empresa, poId, options = {}) {
