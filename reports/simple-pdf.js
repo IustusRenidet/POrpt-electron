@@ -548,7 +548,6 @@ function drawTotalsTable(doc, summary, branding) {
   const totals = summary.totals || {};
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const rowHeight = 32;
   const remainderLabel = summary.universe?.isUniverse
     ? 'Remanente total del universo'
     : 'Remanente total de la selección';
@@ -560,26 +559,44 @@ function drawTotalsTable(doc, summary, branding) {
     { label: remainderLabel, value: formatCurrency(totals.restante), color: branding.restanteColor }
   ];
 
-  const totalHeight = rowHeight * rows.length;
+  const labelColumnWidth = Math.max(0, width / 2 - 16);
+  const valueColumnWidth = Math.max(0, width / 2 - 16);
+  const verticalPadding = 20;
+
+  const measuredRows = rows.map(row => {
+    const labelHeight = doc.font('Helvetica-Bold').fontSize(12).heightOfString(row.label, {
+      width: labelColumnWidth
+    });
+    const valueHeight = doc.font('Helvetica').fontSize(12).heightOfString(row.value, {
+      width: valueColumnWidth,
+      align: 'right'
+    });
+    const contentHeight = Math.max(labelHeight, valueHeight);
+    const height = Math.max(32, Math.ceil(contentHeight + verticalPadding));
+    return { ...row, height };
+  });
+
+  const totalHeight = measuredRows.reduce((sum, row) => sum + row.height, 0);
   ensureSpace(doc, totalHeight + 32);
   const adjustedTop = doc.y;
   doc.save();
   doc.lineWidth(1).rect(startX, adjustedTop, width, totalHeight).stroke('#d1d5db');
-  rows.forEach((row, index) => {
-    const y = adjustedTop + index * rowHeight;
+  let currentY = adjustedTop;
+  measuredRows.forEach((row, index) => {
     if (index > 0) {
-      doc.lineWidth(0.5).moveTo(startX, y).lineTo(startX + width, y).stroke('#e5e7eb');
+      doc.lineWidth(0.5).moveTo(startX, currentY).lineTo(startX + width, currentY).stroke('#e5e7eb');
     }
     doc
       .font('Helvetica-Bold')
       .fontSize(12)
       .fillColor(row.color || branding.accentColor || '#1f2937')
-      .text(row.label, startX + 12, y + 10, { width: width / 2 - 16 });
+      .text(row.label, startX + 12, currentY + 10, { width: labelColumnWidth });
     doc
       .font('Helvetica')
       .fontSize(12)
       .fillColor('#111827')
-      .text(row.value, startX + width / 2, y + 10, { width: width / 2 - 16, align: 'right' });
+      .text(row.value, startX + width / 2, currentY + 10, { width: valueColumnWidth, align: 'right' });
+    currentY += row.height;
   });
   doc.restore();
   doc.y = adjustedTop + totalHeight + 18;
@@ -698,7 +715,8 @@ function drawPoSummaryTable(doc, summary, branding) {
           ? totals.restante
           : roundTo(Math.max(totalAmount - consumido, 0));
         const isExtension = !item.isBase;
-        const alertSummary = summarizeAlertEntries(item.alerts || [], item.alertasTexto || '');
+        const consumptionPercent = totalAmount > 0 ? clampPercentage((consumido / totalAmount) * 100) : 0;
+        const alertSummary = `Consumido al ${formatPercentage(consumptionPercent)}`;
         const poLabel = isExtension
           ? `${item.id} · Ext. de ${group.baseId}`
           : `${item.id} (base)`;

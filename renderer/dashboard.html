@@ -114,11 +114,21 @@
                         placeholder="Filtra por PO, remisión o factura"
                       >
                     </div>
-                    <div class="col-lg-2 col-md-6">
-                      <label class="form-label d-block" for="overviewAlertsOnly">Alertas</label>
-                      <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="overviewAlertsOnly">
-                        <label class="form-check-label" for="overviewAlertsOnly">Solo POs con alerta</label>
+                    <div class="col-lg-3 col-md-6">
+                      <span class="form-label d-block">Tipos de alerta</span>
+                      <div id="overviewAlertFilters" class="d-flex flex-column gap-1">
+                        <div class="form-check form-switch">
+                          <input class="form-check-input" type="checkbox" id="overviewAlertCritical" data-alert-filter="critical">
+                          <label class="form-check-label" for="overviewAlertCritical">Crítica</label>
+                        </div>
+                        <div class="form-check form-switch">
+                          <input class="form-check-input" type="checkbox" id="overviewAlertWarning" data-alert-filter="warning">
+                          <label class="form-check-label" for="overviewAlertWarning">Alerta</label>
+                        </div>
+                        <div class="form-check form-switch">
+                          <input class="form-check-input" type="checkbox" id="overviewAlertMissing" data-alert-filter="missing-doc">
+                          <label class="form-check-label" for="overviewAlertMissing">Docs sin vínculo</label>
+                        </div>
                       </div>
                     </div>
                     <div class="col-12 d-flex justify-content-end gap-2">
@@ -174,6 +184,10 @@
                     <span class="legend-item d-inline-flex align-items-center gap-2">
                       <span class="legend-swatch legend-warning" aria-hidden="true"></span>
                       <span>Consumo ≥ 90%</span>
+                    </span>
+                    <span class="legend-item d-inline-flex align-items-center gap-2">
+                      <span class="legend-swatch legend-missing" aria-hidden="true"></span>
+                      <span>Docs sin vínculo</span>
                     </span>
                   </div>
                 </div>

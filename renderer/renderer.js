@@ -21,6 +21,24 @@ function createDefaultCustomization() {
   };
 }
 
+function createDefaultAlertTypeFilter() {
+  return {
+    critical: false,
+    warning: false,
+    'missing-doc': false
+  };
+}
+
+function createDefaultOverviewFilters() {
+  return {
+    mode: 'global',
+    startDate: '',
+    endDate: '',
+    search: '',
+    alertTypes: createDefaultAlertTypeFilter()
+  };
+}
+
 const DASHBOARD_AUTO_REFRESH_MS = 60000;
 
 const state = {
@@ -53,13 +71,7 @@ const state = {
     filteredItems: [],
     selection: new Map(),
     itemIndex: new Map(),
-    filters: {
-      mode: 'global',
-      startDate: '',
-      endDate: '',
-      search: '',
-      alertsOnly: false
-    },
+    filters: createDefaultOverviewFilters(),
     loading: false,
     lastUpdated: null,
     autoRefresh: {
@@ -1932,12 +1944,9 @@ async function selectEmpresa(value) {
   state.overview.selection = new Map();
   state.overview.itemIndex = new Map();
   state.overview.filters.search = '';
-  state.overview.filters.alertsOnly = false;
+  state.overview.filters.alertTypes = createDefaultAlertTypeFilter();
   updateOverviewSearchInput('');
-  const alertsToggle = document.getElementById('overviewAlertsOnly');
-  if (alertsToggle) {
-    alertsToggle.checked = false;
-  }
+  syncOverviewAlertFilterInputs();
   renderUniverseEmpresaSelect();
   hideDashboardPanel();
   destroyCharts();
@@ -2049,13 +2058,10 @@ function resetOverviewState(options = {}) {
   state.overview.itemIndex = new Map();
   state.overview.loading = false;
   if (!keepFilters) {
-    state.overview.filters = { mode: 'global', startDate: '', endDate: '', search: '', alertsOnly: false };
+    state.overview.filters = createDefaultOverviewFilters();
     updateOverviewSearchInput('');
     updateOverviewModeControls();
-    const alertsToggle = document.getElementById('overviewAlertsOnly');
-    if (alertsToggle) {
-      alertsToggle.checked = false;
-    }
+    syncOverviewAlertFilterInputs();
   }
   renderOverviewTable();
   renderOverviewSummary();
@@ -2227,29 +2233,96 @@ function setOverviewItemSelected(item, selected) {
   return false;
 }
 
+function normalizeAlertLine(line) {
+  return typeof line === 'string'
+    ? line
+        .replace(/^\[[^\]]*\]\s*/u, '')
+        .replace(/^Alerta:\s*/iu, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    : '';
+}
+
+function normalizeSearchText(value) {
+  return typeof value === 'string'
+    ? value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+    : '';
+}
+
+function isAlphaNumericCharCode(code) {
+  return (code >= 48 && code <= 57) || (code >= 97 && code <= 122);
+}
+
+function fieldContainsSearchToken(field, token) {
+  if (!field || !token) return false;
+  let index = field.indexOf(token);
+  while (index !== -1) {
+    const beforeIndex = index - 1;
+    const afterIndex = index + token.length;
+    const beforeChar = beforeIndex >= 0 ? field.charCodeAt(beforeIndex) : NaN;
+    const afterChar = afterIndex < field.length ? field.charCodeAt(afterIndex) : NaN;
+    const boundaryBefore = beforeIndex < 0 || !isAlphaNumericCharCode(beforeChar);
+    const boundaryAfter = afterIndex >= field.length || !isAlphaNumericCharCode(afterChar);
+    if (boundaryBefore && boundaryAfter) {
+      return true;
+    }
+    index = field.indexOf(token, index + 1);
+  }
+  return false;
+}
+
+function getActiveAlertFilterSet() {
+  const alertTypes = state.overview.filters?.alertTypes || {};
+  return new Set(
+    Object.entries(alertTypes)
+      .filter(([, enabled]) => enabled)
+      .map(([type]) => type)
+  );
+}
+
+function syncOverviewAlertFilterInputs() {
+  const alertTypes = state.overview.filters?.alertTypes || {};
+  document
+    .querySelectorAll('[data-alert-filter]')
+    .forEach(input => {
+      if (!(input instanceof HTMLInputElement)) return;
+      const type = input.dataset.alertFilter;
+      if (!type) return;
+      input.checked = alertTypes[type] === true;
+    });
+}
+
 function applyOverviewFilters() {
   const items = Array.isArray(state.overview.items) ? state.overview.items : [];
-  const term = (state.overview.filters.search || '').trim().toLowerCase();
-  const alertsOnly = state.overview.filters.alertsOnly === true;
+  const term = (state.overview.filters.search || '').trim();
+  const normalizedTerm = normalizeSearchText(term);
+  const searchTokens = normalizedTerm ? normalizedTerm.split(/\s+/u).filter(Boolean) : [];
+  const activeAlertFilters = getActiveAlertFilterSet();
+  const hasAlertFilter = activeAlertFilters.size > 0;
   const filtered = items.filter(item => {
-    const fields = [item.id, item.baseId, item.remisionesTexto, item.facturasTexto];
-    const matchesSearch = !term
-      || fields.some(value => typeof value === 'string' && value.toLowerCase().includes(term));
+    const fields = [item.id, item.baseId, item.remisionesTexto, item.facturasTexto, item.alertasTexto];
+    const matchesSearch = !searchTokens.length
+      || searchTokens.every(token => fields.some(value => {
+        if (typeof value !== 'string' || !value) {
+          return false;
+        }
+        const normalizedValue = normalizeSearchText(value);
+        if (!normalizedValue) {
+          return false;
+        }
+        return fieldContainsSearchToken(normalizedValue, token);
+      }));
     if (!matchesSearch) {
       return false;
     }
-    if (!alertsOnly) {
+    const alertInfo = getOverviewAlertInfo(item);
+    if (!hasAlertFilter) {
       return true;
     }
-    const totals = getTotalsWithDefaults(item.totals);
-    const total = normalizeNumber(totals.total || item.total);
-    const totalRem = normalizeNumber(totals.totalRem);
-    const totalFac = normalizeNumber(totals.totalFac);
-    const consumido = totals.totalConsumo != null
-      ? normalizeNumber(totals.totalConsumo)
-      : roundTo(totalRem + totalFac);
-    const alertLevel = getOverviewAlertInfo(consumido, total).level;
-    return alertLevel === 'warning' || alertLevel === 'critical';
+    return activeAlertFilters.has(alertInfo.level);
   });
   state.overview.filteredItems = filtered;
   renderOverviewTable();
@@ -2274,10 +2347,50 @@ function maybeRefreshDashboardFromOverview(options = {}) {
   updateSummary({ silent: true, ...options });
 }
 
-function getOverviewAlertInfo(consumido, total) {
-  const totalAmount = normalizeNumber(total);
-  const consumedAmount = normalizeNumber(consumido);
-  if (totalAmount <= 0) {
+function getOverviewAlertInfo(item, context = {}) {
+  const totals = context.totals || getTotalsWithDefaults(item?.totals);
+  const totalAmount = context.totalAmount != null
+    ? normalizeNumber(context.totalAmount)
+    : normalizeNumber(totals.total ?? item?.total);
+  const totalRem = context.totalRem != null
+    ? normalizeNumber(context.totalRem)
+    : normalizeNumber(totals.totalRem);
+  const totalFac = context.totalFac != null
+    ? normalizeNumber(context.totalFac)
+    : normalizeNumber(totals.totalFac);
+  const consumedAmount = context.consumedAmount != null
+    ? normalizeNumber(context.consumedAmount)
+    : totals.totalConsumo != null
+      ? normalizeNumber(totals.totalConsumo)
+      : roundTo(totalRem + totalFac);
+
+  const hasBudget = totalAmount > 0;
+  const tolerance = hasBudget ? Math.max(totalAmount * 0.0005, 0.01) : 0;
+  const remainingAmount = hasBudget ? Math.max(totalAmount - consumedAmount, 0) : 0;
+  const fullyConsumed = hasBudget ? remainingAmount <= tolerance : false;
+  const rawPercentage = hasBudget && totalAmount > 0 ? (consumedAmount / totalAmount) * 100 : 0;
+  const normalizedPercentage = fullyConsumed ? 100 : rawPercentage;
+  const limitedPercentage = hasBudget ? clampPercentage(normalizedPercentage) : 0;
+  const formattedPercentage = hasBudget ? formatPercentageLabel(limitedPercentage) : '';
+  const consumptionLabel = hasBudget ? `Consumo ${formattedPercentage}` : 'Sin presupuesto registrado';
+
+  const rawAlertsText = typeof item?.alertasTexto === 'string' ? item.alertasTexto : '';
+  const alertLines = rawAlertsText
+    ? rawAlertsText.split(/\n+/u).map(line => line.trim()).filter(Boolean)
+    : [];
+  const meaningfulAlerts = alertLines.filter(line => !/^sin alertas/i.test(line));
+  const normalizedAlerts = meaningfulAlerts.map(normalizeAlertLine).filter(Boolean);
+  const alertsCount = normalizedAlerts.length;
+  const missingDocLines = normalizedAlerts.filter(line => /sin documento encontrado/i.test(line));
+
+  if (!hasBudget && !missingDocLines.length) {
+    const message = normalizedAlerts[0] || 'Sin alertas registradas';
+    const detailParts = [];
+    if (alertsCount > 1) {
+      detailParts.push(`${alertsCount} alertas registradas`);
+    }
+    detailParts.push('Sin presupuesto registrado');
+    const detail = detailParts.join(' · ');
     return {
       level: 'unknown',
       label: 'Sin dato',
@@ -2285,47 +2398,104 @@ function getOverviewAlertInfo(consumido, total) {
       subtext: 'Sin presupuesto registrado',
       rowClass: '',
       cellClass: 'overview-alert-cell-muted',
-      ariaLabel: 'Sin datos de consumo disponibles.'
+      ariaLabel: 'Sin datos de consumo disponibles.',
+      message,
+      detail,
+      alerts: normalizedAlerts,
+      alertsCount,
+      consumptionLabel,
+      consumptionPercentage: 0,
+      missingDocLines
     };
   }
-  const remainingAmount = Math.max(totalAmount - consumedAmount, 0);
-  const tolerance = Math.max(totalAmount * 0.0005, 0.01);
-  const fullyConsumed = remainingAmount <= tolerance;
-  const rawPercentage = (consumedAmount / totalAmount) * 100;
-  const normalizedPercentage = fullyConsumed ? 100 : rawPercentage;
-  const limitedPercentage = Math.max(0, Math.min(normalizedPercentage, 999.99));
-  const formattedPercentage = formatPercentageLabel(limitedPercentage);
-  const consumptionPhrase = `Consumo ${formattedPercentage}`;
+
+  if (missingDocLines.length) {
+    const primaryMissing = missingDocLines[0];
+    const detailParts = [];
+    if (missingDocLines.length > 1) {
+      detailParts.push(`${missingDocLines.length} avisos de documentos`);
+    }
+    if (hasBudget && consumptionLabel) {
+      detailParts.push(consumptionLabel);
+    }
+    const detail = detailParts.join(' · ') || (hasBudget ? consumptionLabel : 'Documentos pendientes');
+    return {
+      level: 'missing-doc',
+      label: 'Docs sin vínculo',
+      description: primaryMissing,
+      subtext: hasBudget ? consumptionLabel : 'Documentos pendientes',
+      rowClass: 'overview-alert-missing',
+      cellClass: 'overview-alert-cell-missing',
+      ariaLabel: `Documentos sin vínculo detectados. ${primaryMissing}`,
+      message: primaryMissing,
+      detail,
+      alerts: normalizedAlerts,
+      alertsCount,
+      consumptionLabel,
+      consumptionPercentage: hasBudget ? limitedPercentage : 0,
+      missingDocLines
+    };
+  }
+
+  let level = 'safe';
+  let label = 'En rango';
+  let rowClass = '';
+  let cellClass = 'overview-alert-cell-safe';
+  let ariaLabel = `Consumo dentro de rango: ${consumptionLabel} del presupuesto autorizado.`;
+
   if (normalizedPercentage >= 100) {
-    return {
-      level: 'critical',
-      label: 'Crítica',
-      description: `${consumptionPhrase} del presupuesto autorizado.`,
-      subtext: consumptionPhrase,
-      rowClass: 'overview-alert-critical',
-      cellClass: 'overview-alert-cell-critical',
-      ariaLabel: `Alerta crítica: ${consumptionPhrase} del presupuesto autorizado.`
-    };
+    level = 'critical';
+    label = 'Crítica';
+    rowClass = 'overview-alert-critical';
+    cellClass = 'overview-alert-cell-critical';
+    ariaLabel = alertsCount
+      ? `Alerta crítica: ${normalizedAlerts.join('. ')}`
+      : `Alerta crítica: ${consumptionLabel} del presupuesto autorizado.`;
+  } else if (normalizedPercentage >= 90) {
+    level = 'warning';
+    label = 'Atención';
+    rowClass = 'overview-alert-warning';
+    cellClass = 'overview-alert-cell-warning';
+    ariaLabel = alertsCount
+      ? `Alerta preventiva: ${normalizedAlerts.join('. ')}`
+      : `Alerta preventiva: ${consumptionLabel} del presupuesto autorizado.`;
+  } else if (alertsCount) {
+    ariaLabel = `${label}: ${normalizedAlerts.join('. ')}`;
   }
-  if (normalizedPercentage >= 90) {
-    return {
-      level: 'warning',
-      label: 'Atención',
-      description: `${consumptionPhrase} del presupuesto autorizado.`,
-      subtext: consumptionPhrase,
-      rowClass: 'overview-alert-warning',
-      cellClass: 'overview-alert-cell-warning',
-      ariaLabel: `Alerta preventiva: ${consumptionPhrase} del presupuesto autorizado.`
-    };
+
+  const description = alertsCount
+    ? normalizedAlerts.join('. ')
+    : `${consumptionLabel} del presupuesto autorizado.`;
+  const message = normalizedAlerts[0]
+    || (level === 'critical'
+      ? 'Consumo al 100%'
+      : level === 'warning'
+        ? consumptionLabel
+        : 'Sin alertas relevantes');
+  const detailParts = [];
+  if (alertsCount > 1) {
+    detailParts.push(`${alertsCount} alertas registradas`);
   }
+  if (consumptionLabel) {
+    detailParts.push(consumptionLabel);
+  }
+  const detail = detailParts.join(' · ') || consumptionLabel;
+
   return {
-    level: 'safe',
-    label: 'En rango',
-    description: `${consumptionPhrase} del presupuesto autorizado.`,
-    subtext: consumptionPhrase,
-    rowClass: '',
-    cellClass: 'overview-alert-cell-safe',
-    ariaLabel: `Consumo dentro de rango: ${consumptionPhrase} del presupuesto autorizado.`
+    level,
+    label,
+    description,
+    subtext: consumptionLabel,
+    rowClass,
+    cellClass,
+    ariaLabel,
+    message,
+    detail,
+    alerts: normalizedAlerts,
+    alertsCount,
+    consumptionLabel,
+    consumptionPercentage: limitedPercentage,
+    missingDocLines
   };
 }
 
@@ -2364,7 +2534,13 @@ function renderOverviewTable() {
       const baseLabel = isExtension ? `Base ${escapeHtml(item.baseId)}` : 'PO base';
       const remTooltip = escapeHtml(item.remisionesTexto || '');
       const facTooltip = escapeHtml(item.facturasTexto || '');
-      const alertInfo = getOverviewAlertInfo(consumido, total);
+      const alertInfo = getOverviewAlertInfo(item, {
+        totals,
+        totalAmount: total,
+        totalRem,
+        totalFac,
+        consumedAmount: consumido
+      });
       const rowClasses = [selected ? '' : 'overview-row-unchecked', alertInfo.rowClass || '']
         .filter(Boolean)
         .join(' ');
@@ -2378,7 +2554,7 @@ function renderOverviewTable() {
       const alertDescription = escapeHtml(alertInfo.description || '');
       const alertAria = escapeHtml(alertInfo.ariaLabel || alertInfo.description || alertInfo.label || '');
       return `
-        <tr data-po-id="${escapeHtml(item.id)}" data-base-id="${escapeHtml(item.baseId)}" class="${rowClasses}">
+        <tr data-po-id="${escapeHtml(item.id)}" data-base-id="${escapeHtml(item.baseId)}" data-alert-level="${escapeHtml(alertInfo.level || '')}" class="${rowClasses}">
           <td class="text-center">
             <input class="form-check-input" type="checkbox" data-po-checkbox aria-label="Seleccionar ${escapeHtml(item.id)}" ${selected ? 'checked' : ''}>
           </td>
@@ -2738,14 +2914,26 @@ function initializeOverviewTab() {
     state.overview.filters.search = event.target.value || '';
     applyOverviewFilters();
   });
-  const alertsToggle = document.getElementById('overviewAlertsOnly');
-  if (alertsToggle) {
-    alertsToggle.checked = state.overview.filters.alertsOnly === true;
-    alertsToggle.addEventListener('change', event => {
-      state.overview.filters.alertsOnly = event.target.checked;
-      applyOverviewFilters();
-    });
+  const alertFilterContainer = document.getElementById('overviewAlertFilters');
+  if (alertFilterContainer) {
+    const alertTypes = state.overview.filters.alertTypes || createDefaultAlertTypeFilter();
+    state.overview.filters.alertTypes = alertTypes;
+    alertFilterContainer
+      .querySelectorAll('input[data-alert-filter]')
+      .forEach(input => {
+        if (!(input instanceof HTMLInputElement)) return;
+        const type = input.dataset.alertFilter;
+        if (!type) return;
+        input.checked = alertTypes[type] === true;
+        input.addEventListener('change', event => {
+          const updated = { ...state.overview.filters.alertTypes };
+          updated[type] = event.target.checked;
+          state.overview.filters.alertTypes = updated;
+          applyOverviewFilters();
+        });
+      });
   }
+  syncOverviewAlertFilterInputs();
   document.getElementById('overviewRefreshBtn')?.addEventListener('click', () => loadPoOverview({ preserveSelection: false }));
   document.getElementById('overviewApplySelectionBtn')?.addEventListener('click', handleOverviewApplySelection);
   document.getElementById('overviewReportBtn')?.addEventListener('click', handleOverviewGenerateReport);
@@ -2852,36 +3040,40 @@ function renderTable(summary) {
           restante
         };
         const percentages = computePercentagesFromTotals(normalizedTotals);
-        const consumptionPercentage = clampPercentage(percentages.rem + percentages.fac);
+        const consumedAmount = totals.totalConsumo != null
+          ? normalizeNumber(totals.totalConsumo)
+          : roundTo(normalizedTotals.totalRem + normalizedTotals.totalFac);
+        const alertInfo = getOverviewAlertInfo(item, {
+          totals: normalizedTotals,
+          totalAmount: totalBase,
+          totalRem: normalizedTotals.totalRem,
+          totalFac: normalizedTotals.totalFac,
+          consumedAmount
+        });
         let alertClass = 'po-alert-safe';
         let rowAlertClass = 'po-row-safe';
-        if (consumptionPercentage >= 100) {
-          alertClass = 'po-alert-critical';
-          rowAlertClass = 'po-row-critical';
-        } else if (consumptionPercentage >= 90) {
-          alertClass = 'po-alert-warning';
-          rowAlertClass = 'po-row-warning';
+        switch (alertInfo.level) {
+          case 'critical':
+            alertClass = 'po-alert-critical';
+            rowAlertClass = 'po-row-critical';
+            break;
+          case 'warning':
+            alertClass = 'po-alert-warning';
+            rowAlertClass = 'po-row-warning';
+            break;
+          case 'missing-doc':
+            alertClass = 'po-alert-missing';
+            rowAlertClass = 'po-row-missing';
+            break;
+          default:
+            alertClass = 'po-alert-safe';
+            rowAlertClass = 'po-row-safe';
+            break;
         }
-        const rawAlertsText = typeof item.alertasTexto === 'string' ? item.alertasTexto : '';
-        const alertLines = rawAlertsText
-          ? rawAlertsText.split(/\n+/u).map(line => line.trim()).filter(Boolean)
-          : [];
-        const meaningfulAlerts = alertLines.filter(line => !/^sin alertas/i.test(line));
-        const primaryAlertLine = meaningfulAlerts[0] || '';
-        const normalizedPrimaryAlert = primaryAlertLine.replace(/^\[[^\]]*\]\s*/u, '').trim();
-        const alertMessage = normalizedPrimaryAlert
-          || (alertClass === 'po-alert-critical'
-            ? 'Consumo al 100%'
-            : alertClass === 'po-alert-warning'
-              ? `Consumo ${formatPercentageLabel(consumptionPercentage)}`
-              : 'Sin alertas relevantes');
-        const detailParts = [`Consumo ${formatPercentageLabel(consumptionPercentage)}`];
-        if (meaningfulAlerts.length > 1) {
-          detailParts.unshift(`${meaningfulAlerts.length} alertas registradas`);
-        }
-        const alertDetail = detailParts.join(' · ');
+        const alertMessage = alertInfo.message || 'Sin alertas relevantes';
+        const alertDetail = alertInfo.detail || alertInfo.subtext || alertInfo.consumptionLabel || '';
         return `
-        <tr data-po="${escapeHtml(item.id || '')}" class="po-alert-row ${rowAlertClass}">
+        <tr data-po="${escapeHtml(item.id || '')}" class="po-alert-row ${rowAlertClass}" data-alert-level="${escapeHtml(alertInfo.level || '')}">
           <td class="fw-semibold">${escapeHtml(item.id || '')}</td>
           <td>${escapeHtml(item.fecha || '-')}</td>
           <td>
