@@ -660,45 +660,42 @@ body.dashboard-panel-expanded .dashboard-main {
 
 .po-alert-row {
   transition: background 0.3s ease, box-shadow 0.3s ease;
+  background-color: #ffffff;
 }
 
 .po-alert-row.po-row-safe {
-  background: linear-gradient(90deg, rgba(236, 253, 245, 0.5), rgba(236, 253, 245, 0.85));
   box-shadow: inset 4px 0 0 rgba(16, 185, 129, 0.35);
 }
 
 
 .po-alert-row.po-row-warning {
-  background: linear-gradient(90deg, var(--alert-warning-row-start), var(--alert-warning-row-end));
   box-shadow: inset 4px 0 0 var(--alert-warning-rail);
 }
 
 .po-alert-row.po-row-critical {
-  background: linear-gradient(90deg, var(--alert-critical-row-start), var(--alert-critical-row-end));
   box-shadow: inset 4px 0 0 var(--alert-critical-rail);
 }
 
 .po-alert-row.po-row-missing {
-  background: linear-gradient(90deg, var(--alert-missing-row-start), var(--alert-missing-row-end));
   box-shadow: inset 4px 0 0 var(--alert-missing-rail);
 }
 
 .po-alert-row.po-row-warning:hover {
-  background: linear-gradient(90deg, rgba(253, 230, 138, 0.78), var(--alert-warning-row-end));
+  background-color: #fff7ed;
 }
 
 .po-alert-row.po-row-critical:hover {
-  background: linear-gradient(90deg, rgba(248, 113, 113, 0.74), var(--alert-critical-row-end));
+  background-color: #fef2f2;
 }
 
 .po-alert-row.po-row-missing:hover {
-  background: linear-gradient(90deg, rgba(191, 219, 254, 0.78), var(--alert-missing-row-end));
+  background-color: #f0f9ff;
 }
 
 .po-alert-row.po-row-warning .po-alert-cell,
 .po-alert-cell.po-alert-warning,
 .overview-alert-cell-warning {
-  background: linear-gradient(135deg, var(--alert-warning-highlight), var(--alert-warning-surface));
+  background-color: #ffffff;
   border-color: var(--alert-warning-border);
   color: var(--alert-warning-text);
 }
@@ -706,7 +703,7 @@ body.dashboard-panel-expanded .dashboard-main {
 .po-alert-row.po-row-critical .po-alert-cell,
 .po-alert-cell.po-alert-critical,
 .overview-alert-cell-critical {
-  background: linear-gradient(135deg, var(--alert-critical-highlight), var(--alert-critical-surface));
+  background-color: #ffffff;
   border-color: var(--alert-critical-border);
   color: var(--alert-critical-text);
 }
@@ -714,7 +711,7 @@ body.dashboard-panel-expanded .dashboard-main {
 .po-alert-row.po-row-missing .po-alert-cell,
 .po-alert-cell.po-alert-missing,
 .overview-alert-cell-missing {
-  background: linear-gradient(135deg, var(--alert-missing-highlight), var(--alert-missing-surface));
+  background-color: #ffffff;
   border-color: var(--alert-missing-border);
   color: var(--alert-missing-text);
 }
@@ -722,7 +719,7 @@ body.dashboard-panel-expanded .dashboard-main {
 .po-alert-row.po-row-safe .po-alert-cell,
 .po-alert-cell.po-alert-safe,
 .overview-alert-cell-safe {
-  background: linear-gradient(135deg, var(--alert-safe-highlight), var(--alert-safe-surface));
+  background-color: #ffffff;
   border-color: var(--alert-safe-border);
   color: var(--alert-safe-text);
 }
@@ -769,32 +766,32 @@ body.dashboard-panel-expanded .dashboard-main {
 
 .table-modern tbody tr.overview-alert-warning,
 .table-modern tbody tr.overview-alert-warning:nth-child(odd) {
-  background: linear-gradient(90deg, rgba(253, 230, 138, 0.6), rgba(255, 251, 235, 0.8));
+  background-color: #ffffff;
   box-shadow: inset 4px 0 0 rgba(217, 119, 6, 0.85);
 }
 
 .table-modern tbody tr.overview-alert-critical,
 .table-modern tbody tr.overview-alert-critical:nth-child(odd) {
-  background: linear-gradient(90deg, rgba(248, 113, 113, 0.55), rgba(254, 226, 226, 0.85));
+  background-color: #ffffff;
   box-shadow: inset 4px 0 0 rgba(220, 38, 38, 0.8);
 }
 
 .table-modern tbody tr.overview-alert-missing,
 .table-modern tbody tr.overview-alert-missing:nth-child(odd) {
-  background: linear-gradient(90deg, rgba(191, 219, 254, 0.55), rgba(224, 242, 254, 0.85));
+  background-color: #ffffff;
   box-shadow: inset 4px 0 0 rgba(14, 116, 144, 0.65);
 }
 
 table.table-hover tbody tr.overview-alert-warning:hover {
-  background: linear-gradient(90deg, rgba(253, 230, 138, 0.8), rgba(255, 251, 235, 0.95));
+  background-color: #fff7ed;
 }
 
 table.table-hover tbody tr.overview-alert-critical:hover {
-  background: linear-gradient(90deg, rgba(248, 113, 113, 0.75), rgba(254, 226, 226, 0.95));
+  background-color: #fef2f2;
 }
 
 table.table-hover tbody tr.overview-alert-missing:hover {
-  background: linear-gradient(90deg, rgba(191, 219, 254, 0.78), rgba(224, 242, 254, 0.95));
+  background-color: #f0f9ff;
 }
 
 .table-alert-legend {

@@ -25,6 +25,7 @@ function createDefaultAlertTypeFilter() {
   return {
     critical: false,
     warning: false,
+    safe: false,
     'missing-doc': false
   };
 }
@@ -2234,13 +2235,40 @@ function setOverviewItemSelected(item, selected) {
 }
 
 function normalizeAlertLine(line) {
-  return typeof line === 'string'
-    ? line
-        .replace(/^\[[^\]]*\]\s*/u, '')
-        .replace(/^Alerta:\s*/iu, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-    : '';
+  if (typeof line !== 'string') {
+    return '';
+  }
+
+  let normalized = line
+    .replace(/^\[[^\]]*\]\s*/u, '')
+    .replace(/^Alerta:\s*/iu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (/^(cr[ií]tica|cr[ií]tico|atenci[oó]n|alerta|informativa|info|advertencia|warning)$/iu.test(normalized)) {
+    return '';
+  }
+
+  normalized = normalized.replace(/^(cr[ií]tica|cr[ií]tico|atenci[oó]n|alerta|informativa|info|advertencia|warning)[:\-]?\s*/iu, '');
+
+  if (/^(?:el\s+)?po\b/iu.test(normalized) && normalized.split(/\s+/u).length <= 3) {
+    return '';
+  }
+
+  if (/^[A-Z0-9-]{3,}$/u.test(normalized) && !/\s/u.test(normalized)) {
+    return '';
+  }
+
+  normalized = normalized
+    .replace(/\s*(?:para\s+)?po\s+[A-Z0-9-]+\b/giu, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return normalized;
 }
 
 function normalizeSearchText(value) {
@@ -2466,12 +2494,17 @@ function getOverviewAlertInfo(item, context = {}) {
   const description = alertsCount
     ? normalizedAlerts.join('. ')
     : `${consumptionLabel} del presupuesto autorizado.`;
-  const message = normalizedAlerts[0]
-    || (level === 'critical'
-      ? 'Consumo al 100%'
-      : level === 'warning'
-        ? consumptionLabel
-        : 'Sin alertas relevantes');
+  const primaryAlert = normalizedAlerts.find(text => text.length > 0) || '';
+  let message = primaryAlert;
+  if (!message) {
+    if (level === 'missing-doc') {
+      message = 'Documentos sin vínculo';
+    } else if (hasBudget) {
+      message = consumptionLabel || 'Consumo registrado';
+    } else {
+      message = 'Sin alertas relevantes';
+    }
+  }
   const detailParts = [];
   if (alertsCount > 1) {
     detailParts.push(`${alertsCount} alertas registradas`);
