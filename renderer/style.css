@@ -17,6 +17,13 @@
   --alert-critical-rail: rgba(220, 38, 38, 0.75);
   --alert-critical-row-start: rgba(248, 113, 113, 0.6);
   --alert-critical-row-end: rgba(254, 226, 226, 0.96);
+  --alert-missing-surface: #e0f2fe;
+  --alert-missing-highlight: #bae6fd;
+  --alert-missing-border: rgba(14, 116, 144, 0.35);
+  --alert-missing-text: #0f172a;
+  --alert-missing-rail: rgba(14, 116, 144, 0.65);
+  --alert-missing-row-start: rgba(191, 219, 254, 0.6);
+  --alert-missing-row-end: rgba(224, 242, 254, 0.96);
 }
 
 body.bg-gradient {
@@ -671,12 +678,21 @@ body.dashboard-panel-expanded .dashboard-main {
   box-shadow: inset 4px 0 0 var(--alert-critical-rail);
 }
 
+.po-alert-row.po-row-missing {
+  background: linear-gradient(90deg, var(--alert-missing-row-start), var(--alert-missing-row-end));
+  box-shadow: inset 4px 0 0 var(--alert-missing-rail);
+}
+
 .po-alert-row.po-row-warning:hover {
   background: linear-gradient(90deg, rgba(253, 230, 138, 0.78), var(--alert-warning-row-end));
 }
 
 .po-alert-row.po-row-critical:hover {
   background: linear-gradient(90deg, rgba(248, 113, 113, 0.74), var(--alert-critical-row-end));
+}
+
+.po-alert-row.po-row-missing:hover {
+  background: linear-gradient(90deg, rgba(191, 219, 254, 0.78), var(--alert-missing-row-end));
 }
 
 .po-alert-row.po-row-warning .po-alert-cell,
@@ -695,6 +711,14 @@ body.dashboard-panel-expanded .dashboard-main {
   color: var(--alert-critical-text);
 }
 
+.po-alert-row.po-row-missing .po-alert-cell,
+.po-alert-cell.po-alert-missing,
+.overview-alert-cell-missing {
+  background: linear-gradient(135deg, var(--alert-missing-highlight), var(--alert-missing-surface));
+  border-color: var(--alert-missing-border);
+  color: var(--alert-missing-text);
+}
+
 .po-alert-row.po-row-safe .po-alert-cell,
 .po-alert-cell.po-alert-safe,
 .overview-alert-cell-safe {
@@ -705,7 +729,8 @@ body.dashboard-panel-expanded .dashboard-main {
 
 .po-alert-cell.po-alert-safe:hover,
 .po-alert-cell.po-alert-warning:hover,
-.po-alert-cell.po-alert-critical:hover {
+.po-alert-cell.po-alert-critical:hover,
+.po-alert-cell.po-alert-missing:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.55);
 }
@@ -754,12 +779,22 @@ body.dashboard-panel-expanded .dashboard-main {
   box-shadow: inset 4px 0 0 rgba(220, 38, 38, 0.8);
 }
 
+.table-modern tbody tr.overview-alert-missing,
+.table-modern tbody tr.overview-alert-missing:nth-child(odd) {
+  background: linear-gradient(90deg, rgba(191, 219, 254, 0.55), rgba(224, 242, 254, 0.85));
+  box-shadow: inset 4px 0 0 rgba(14, 116, 144, 0.65);
+}
+
 table.table-hover tbody tr.overview-alert-warning:hover {
   background: linear-gradient(90deg, rgba(253, 230, 138, 0.8), rgba(255, 251, 235, 0.95));
 }
 
 table.table-hover tbody tr.overview-alert-critical:hover {
   background: linear-gradient(90deg, rgba(248, 113, 113, 0.75), rgba(254, 226, 226, 0.95));
+}
+
+table.table-hover tbody tr.overview-alert-missing:hover {
+  background: linear-gradient(90deg, rgba(191, 219, 254, 0.78), rgba(224, 242, 254, 0.95));
 }
 
 .table-alert-legend {
@@ -784,6 +819,10 @@ table.table-hover tbody tr.overview-alert-critical:hover {
 
 .table-alert-legend .legend-warning {
   background-color: #fcd34d;
+}
+
+.table-alert-legend .legend-missing {
+  background-color: #bae6fd;
 }
 
 .dropdown-menu .dropdown-item small {
