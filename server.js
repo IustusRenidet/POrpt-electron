@@ -897,6 +897,37 @@ async function fetchFacturaStatuses(db, tableName, docIds = []) {
   return result;
 }
 
+async function fetchRemisionStatuses(db, tableName, docIds = []) {
+  if (!tableName) return new Map();
+  const alias = 'rs';
+  const normalizedDocIds = uniqueNormalizedValues(docIds);
+  if (normalizedDocIds.length === 0) {
+    return new Map();
+  }
+
+  const result = new Map();
+  for (const chunk of chunkArray(normalizedDocIds, FIREBIRD_IN_CHUNK_SIZE)) {
+    const placeholders = chunk.map(() => '?').join(',');
+    const query = `
+      SELECT
+        TRIM(${alias}.CVE_DOC) AS id,
+        MAX(${alias}.STATUS) AS status
+      FROM ${tableName} ${alias}
+      WHERE TRIM(${alias}.CVE_DOC) IN (${placeholders})
+      GROUP BY TRIM(${alias}.CVE_DOC)
+    `;
+    const rows = await queryWithTimeout(db, query, chunk);
+    rows.forEach(row => {
+      const id = (row.ID || row.id || '').trim();
+      if (!id) return;
+      const statusRaw = row.STATUS ?? row.status ?? '';
+      const status = typeof statusRaw === 'string' ? statusRaw.trim().toUpperCase() : '';
+      result.set(normalizeDocKey(id), status);
+    });
+  }
+  return result;
+}
+
 async function getPoSummary(empresa, poId, options = {}) {
   const targetPo = (poId || '').trim();
   if (!targetPo) {
@@ -1004,6 +1035,7 @@ async function getPoSummary(empresa, poId, options = {}) {
     const remIdsByPoKey = new Map();
     const factDocIdsFromRem = new Set();
     const factDocAntFromRem = new Set();
+    const remStatusByKey = new Map();
 
     filteredRemRows.forEach(row => {
       const remId = (row.ID || row.id || '').trim();
@@ -1021,6 +1053,11 @@ async function getPoSummary(empresa, poId, options = {}) {
       const docAntKey = normalizeDocKey(docAnt);
       const tipDocAntRaw = row.TIP_DOC_ANT ?? row.tip_doc_ant;
       const tipDocAnt = typeof tipDocAntRaw === 'string' ? tipDocAntRaw.trim().toUpperCase() : '';
+      const statusRaw = row.STATUS ?? row.status ?? '';
+      const status = typeof statusRaw === 'string' ? statusRaw.trim().toUpperCase() : '';
+      if (status) {
+        remStatusByKey.set(remKey, status);
+      }
       factDocAntFromRem.add(remId);
       if (tipDocSig === 'F' && docSig) {
         factDocIdsFromRem.add(docSig);
@@ -1039,7 +1076,9 @@ async function getPoSummary(empresa, poId, options = {}) {
         docSig,
         docAnt,
         docAntKey,
-        tipDocAnt
+        tipDocAnt,
+        status,
+        cancelada: status === 'C'
       });
     });
 
@@ -1067,6 +1106,13 @@ async function getPoSummary(empresa, poId, options = {}) {
     const factIdsByRemKey = new Map();
     const factDataById = new Map();
     const factStatusByKey = new Map();
+
+    const remStatusLookup = await fetchRemisionStatuses(db, tables.FACTR, remDocIds);
+    remStatusLookup.forEach((status, key) => {
+      if (status && !remStatusByKey.has(key)) {
+        remStatusByKey.set(key, status);
+      }
+    });
 
     filteredFactRows.forEach(row => {
       const facId = (row.ID || row.id || '').trim();
@@ -1160,6 +1206,8 @@ async function getPoSummary(empresa, poId, options = {}) {
 
       orderedRemKeys.forEach(remKey => {
         const remEntry = remDataById.get(remKey);
+        const status = remStatusByKey.get(remKey) || (remEntry && remEntry.status) || '';
+        const cancelada = status === 'C';
         if (remEntry) {
           const monto = Number(remEntry.monto || 0);
           const linkedByDocSig = tipDoc === 'R' && docSigKey === remKey;
@@ -1169,7 +1217,9 @@ async function getPoSummary(empresa, poId, options = {}) {
             fecha: formatFirebirdDate(remEntry.fecha),
             monto,
             porcentaje: totalOriginal > 0 ? (monto / totalOriginal) * 100 : 0,
-            vinculado: linkedByDocSig || linkedByDocAnt
+            vinculado: linkedByDocSig || linkedByDocAnt,
+            status,
+            cancelada
           });
           if (remEntry.tipDocSig === 'F') {
             const facKeyFromRem = normalizeDocKey(remEntry.docSig);
@@ -1183,7 +1233,9 @@ async function getPoSummary(empresa, poId, options = {}) {
             fecha: null,
             monto: 0,
             porcentaje: 0,
-            vinculado: false
+            vinculado: false,
+            status,
+            cancelada
           });
         }
       });
@@ -1260,7 +1312,7 @@ async function getPoSummary(empresa, poId, options = {}) {
           );
         }
       }
-      const remSinVinculo = remisiones.filter(rem => !rem.vinculado);
+      const remSinVinculo = remisiones.filter(rem => !rem.vinculado && !rem.cancelada);
       if (remSinVinculo.length > 0) {
         alerts.push(
           buildAlert(
@@ -1319,7 +1371,9 @@ async function getPoSummary(empresa, poId, options = {}) {
         cotizacionesTexto,
         linking: {
           disponible: linkingAvailable,
-          remisionesSinVinculo: remisiones.filter(rem => !rem.vinculado).map(rem => rem.id),
+          remisionesSinVinculo: remisiones
+            .filter(rem => !rem.vinculado && !rem.cancelada)
+            .map(rem => rem.id),
           facturasSinVinculo: facturas
             .filter(fac => !fac.vinculado && !fac.cancelada)
             .map(fac => fac.id)
