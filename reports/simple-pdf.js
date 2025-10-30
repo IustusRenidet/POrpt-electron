@@ -644,7 +644,6 @@ function drawPoSummaryTable(doc, summary, branding) {
   const hasGroups = groups.length > 0;
   const startX = doc.page.margins.left;
   const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const headerHeight = 24;
   const rowPadding = 12;
   const columns = [
     { key: 'po', label: 'PO', width: tableWidth * 0.24, align: 'left' },
@@ -654,6 +653,12 @@ function drawPoSummaryTable(doc, summary, branding) {
     { key: 'consumo', label: 'Consumido / Disponible', width: tableWidth * 0.20, align: 'right' },
     { key: 'alerts', label: 'Advertencias', width: tableWidth * 0.16, align: 'left' }
   ];
+  const headerLabelHeights = columns.map(column => {
+    const labelWidth = Math.max(0, column.width - 20);
+    return doc.font('Helvetica-Bold').fontSize(11).heightOfString(column.label, { width: labelWidth });
+  });
+  const headerContentHeight = Math.max(...headerLabelHeights, 0);
+  const headerHeight = Math.max(24, headerContentHeight + 12);
   const minimumRowHeight = rowPadding + 14;
   const minimumSectionContent = headerHeight + minimumRowHeight + 8;
 
@@ -716,7 +721,15 @@ function drawPoSummaryTable(doc, summary, branding) {
           : roundTo(Math.max(totalAmount - consumido, 0));
         const isExtension = !item.isBase;
         const consumptionPercent = totalAmount > 0 ? clampPercentage((consumido / totalAmount) * 100) : 0;
-        const alertSummary = `Consumido al ${formatPercentage(consumptionPercent)}`;
+        const alertSummaryInfo = summarizeAlertEntries(item.alerts, item.alertasTexto);
+        const hasAlertEntries =
+          alertSummaryInfo.count > 0 &&
+          typeof alertSummaryInfo.text === 'string' &&
+          alertSummaryInfo.text.trim() &&
+          !/^Sin alertas/iu.test(alertSummaryInfo.text);
+        const alertSummary = hasAlertEntries
+          ? alertSummaryInfo
+          : { text: `Consumido al ${formatPercentage(consumptionPercent)}` };
         const poLabel = isExtension
           ? `${item.id} · Ext. de ${group.baseId}`
           : `${item.id} (base)`;
