@@ -2432,8 +2432,8 @@ function getOverviewAlertInfo(item, context = {}) {
     rowClass = 'overview-alert-critical';
     cellClass = 'overview-alert-cell-critical';
     ariaLabel = alertsCount
-      ? `Alerta crítica: ${normalizedAlerts.join('. ')}`
-      : `Alerta crítica: ${consumptionLabel} del presupuesto autorizado.`;
+      ? `${normalizedAlerts.join('. ')}`
+      : `${consumptionLabel} del presupuesto autorizado.`;
   } else if (normalizedPercentage >= 90) {
     level = 'warning';
     label = 'Atención';
