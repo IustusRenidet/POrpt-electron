@@ -1305,10 +1305,10 @@ async function getPoSummary(empresa, poId, options = {}) {
         const ratio = totals.totalConsumo / totalOriginal;
         const fullyConsumed = isFullyConsumed(totals);
         if (fullyConsumed) {
-          alerts.push(buildAlert(`El PO ${id} está consumido al 100%`, 'critica'));
+          alerts.push(buildAlert(`Consumido al 100%`, 'critica'));
         } else if (ratio >= 0.9) {
           alerts.push(
-            buildAlert(`El consumo del PO ${id} ha alcanzado el ${(ratio * 100).toFixed(2)}%`, 'alerta')
+            buildAlert(`${(ratio * 100).toFixed(2)}% consumido`, 'alerta')
           );
         }
       }
@@ -1792,11 +1792,11 @@ async function getUniverseSummary(empresa, rawFilter) {
           const ratio = totals.totalConsumo / totals.total;
           const fullyConsumed = isFullyConsumed(totals);
           if (fullyConsumed) {
-            alerts.push(buildAlert(`El PO ${entry.id} está consumido al 100%`, 'critica'));
+            alerts.push(buildAlert(`Consumido al 100%`, 'critica'));
           } else if (ratio >= 0.9) {
             alerts.push(
               buildAlert(
-                `El consumo del PO ${entry.id} ha alcanzado el ${(ratio * 100).toFixed(2)}%`,
+                `${(ratio * 100).toFixed(2)}% consumido`,
                 'alerta'
               )
             );

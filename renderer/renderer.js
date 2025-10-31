@@ -25,7 +25,7 @@ function createDefaultAlertTypeFilter() {
   return {
     critical: false,
     warning: false,
-    'missing-doc': false
+    'onrange-doc': false
   };
 }
 
@@ -2236,19 +2236,19 @@ function setOverviewItemSelected(item, selected) {
 function normalizeAlertLine(line) {
   return typeof line === 'string'
     ? line
-        .replace(/^\[[^\]]*\]\s*/u, '')
-        .replace(/^Alerta:\s*/iu, '')
-        .replace(/\s+/g, ' ')
-        .trim()
+      .replace(/^\[[^\]]*\]\s*/u, '')
+      .replace(/^Alerta:\s*/iu, '')
+      .replace(/\s+/g, ' ')
+      .trim()
     : '';
 }
 
 function normalizeSearchText(value) {
   return typeof value === 'string'
     ? value
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
     : '';
 }
 
@@ -2418,23 +2418,6 @@ function getOverviewAlertInfo(item, context = {}) {
     if (hasBudget && consumptionLabel) {
       detailParts.push(consumptionLabel);
     }
-    const detail = detailParts.join(' · ') || (hasBudget ? consumptionLabel : 'Documentos pendientes');
-    return {
-      level: 'missing-doc',
-      label: 'Docs sin vínculo',
-      description: primaryMissing,
-      subtext: hasBudget ? consumptionLabel : 'Documentos pendientes',
-      rowClass: 'overview-alert-missing',
-      cellClass: 'overview-alert-cell-missing',
-      ariaLabel: `Documentos sin vínculo detectados. ${primaryMissing}`,
-      message: primaryMissing,
-      detail,
-      alerts: normalizedAlerts,
-      alertsCount,
-      consumptionLabel,
-      consumptionPercentage: hasBudget ? limitedPercentage : 0,
-      missingDocLines
-    };
   }
 
   let level = 'safe';
@@ -3061,9 +3044,9 @@ function renderTable(summary) {
             alertClass = 'po-alert-warning';
             rowAlertClass = 'po-row-warning';
             break;
-          case 'missing-doc':
-            alertClass = 'po-alert-missing';
-            rowAlertClass = 'po-row-missing';
+          case 'onrange-doc':
+            alertClass = 'po-alert-safe';
+            rowAlertClass = 'po-row-safe';
             break;
           default:
             alertClass = 'po-alert-safe';
@@ -3272,13 +3255,13 @@ function renderCharts(summary) {
         },
         topRemEntry
           ? {
-              label: `Mayor consumo: ${escapeHtml(topRemEntry.label)}`,
-              className: 'text-muted',
-              amount: topRemEntry.totals.totalRem,
-              percentage: aggregatedTotals.totalRem > 0
-                ? clampPercentage((topRemEntry.totals.totalRem / aggregatedTotals.totalRem) * 100, 2, 100)
-                : 0
-            }
+            label: `Mayor consumo: ${escapeHtml(topRemEntry.label)}`,
+            className: 'text-muted',
+            amount: topRemEntry.totals.totalRem,
+            percentage: aggregatedTotals.totalRem > 0
+              ? clampPercentage((topRemEntry.totals.totalRem / aggregatedTotals.totalRem) * 100, 2, 100)
+              : 0
+          }
           : null
       ].filter(Boolean)
     },
@@ -3293,13 +3276,13 @@ function renderCharts(summary) {
         },
         topFacEntry
           ? {
-              label: `Mayor consumo: ${escapeHtml(topFacEntry.label)}`,
-              className: 'text-muted',
-              amount: topFacEntry.totals.totalFac,
-              percentage: aggregatedTotals.totalFac > 0
-                ? clampPercentage((topFacEntry.totals.totalFac / aggregatedTotals.totalFac) * 100, 2, 100)
-                : 0
-            }
+            label: `Mayor consumo: ${escapeHtml(topFacEntry.label)}`,
+            className: 'text-muted',
+            amount: topFacEntry.totals.totalFac,
+            percentage: aggregatedTotals.totalFac > 0
+              ? clampPercentage((topFacEntry.totals.totalFac / aggregatedTotals.totalFac) * 100, 2, 100)
+              : 0
+          }
           : null
       ].filter(Boolean)
     },
@@ -3592,13 +3575,13 @@ function renderCharts(summary) {
           </div>
           <div class="chart-metrics mt-2">
             ${donutMeta
-              .map(meta => `
+          .map(meta => `
                 <div class="metric-row">
                   <span class="metric-label ${meta.labelClass}">${meta.label}</span>
                   <span>$${formatCurrency(entry.totals[meta.amountKey])} · ${formatPercentageLabel(entry.percentages[meta.percKey])}</span>
                 </div>
               `)
-              .join('')}
+          .join('')}
           </div>
           ${breakdownTable}
         </div>
@@ -3867,7 +3850,7 @@ function renderReportSelectionOverview() {
   const help = document.getElementById('reportDownloadHelp');
   if (state.selectedPoIds.length === 0 || !state.selectedEmpresa) {
     container.innerHTML = '<p class="text-muted mb-0">Selecciona una empresa y al menos una PO en la pestaña "Selección".</p>';
-    
+
   }
   if (!state.summary) {
     container.innerHTML = '<p class="text-muted mb-0">Cuando el dashboard termine de cargar, verás aquí el resumen del reporte.</p>';
@@ -4555,9 +4538,9 @@ function renderReportFormatSelect() {
   const availableFormats = (Array.isArray(state.reportSettings?.export?.availableFormats)
     ? state.reportSettings.export.availableFormats
     : ['pdf']).filter(format => {
-    if (!state.reportFormatsCatalog || state.reportFormatsCatalog.length === 0) return true;
-    return state.reportFormatsCatalog.includes(format);
-  });
+      if (!state.reportFormatsCatalog || state.reportFormatsCatalog.length === 0) return true;
+      return state.reportFormatsCatalog.includes(format);
+    });
   if (availableFormats.length === 0) {
     availableFormats.push('pdf');
   }
@@ -4961,8 +4944,8 @@ function renderUsers(users) {
           <td class="text-end">
             <button class="btn btn-sm btn-outline-secondary me-1" data-action="edit" data-id="${user.id}">Editar</button>
             ${user.usuario === 'admin'
-              ? ''
-              : `<button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="${user.id}">Eliminar</button>`}
+          ? ''
+          : `<button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="${user.id}">Eliminar</button>`}
           </td>
         </tr>
       `;
