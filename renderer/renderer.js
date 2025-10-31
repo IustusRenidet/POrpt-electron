@@ -74,6 +74,7 @@ const state = {
     filters: createDefaultOverviewFilters(),
     loading: false,
     lastUpdated: null,
+    needsManualRefresh: false,
     autoRefresh: {
       timerId: null,
       intervalMs: DASHBOARD_AUTO_REFRESH_MS
@@ -1929,7 +1930,7 @@ async function selectEmpresa(value) {
     return;
   }
   if (state.selectedEmpresa === value) {
-    scheduleOverviewAutoRefresh();
+    await loadPoOverview({ preserveSelection: true });
     return;
   }
   clearOverviewAutoRefresh();
@@ -1954,7 +1955,6 @@ async function selectEmpresa(value) {
   updateUniverseControls();
   await loadPOs();
   await loadPoOverview();
-  scheduleOverviewAutoRefresh();
 }
 
 async function loadPOs() {
@@ -2057,6 +2057,7 @@ function resetOverviewState(options = {}) {
   state.overview.selection = new Map();
   state.overview.itemIndex = new Map();
   state.overview.loading = false;
+  state.overview.needsManualRefresh = false;
   if (!keepFilters) {
     state.overview.filters = createDefaultOverviewFilters();
     updateOverviewSearchInput('');
@@ -2073,6 +2074,7 @@ async function loadPoOverview(options = {}) {
   if (!state.selectedEmpresa) {
     resetOverviewState({ keepFilters: true });
     clearOverviewAutoRefresh();
+    setOverviewNeedsManualRefresh(false);
     return;
   }
   if (overview.loading && options.skipIfBusy) {
@@ -2085,12 +2087,14 @@ async function loadPoOverview(options = {}) {
       if (!suppressAlerts) {
         showAlert('Selecciona las fechas de inicio y fin para aplicar el rango.', 'warning');
       }
+      setOverviewNeedsManualRefresh(true);
       return;
     }
     if (overview.filters.startDate > overview.filters.endDate) {
       if (!suppressAlerts) {
         showAlert('La fecha inicial no puede ser posterior a la fecha final.', 'warning');
       }
+      setOverviewNeedsManualRefresh(true);
       return;
     }
   }
@@ -2098,9 +2102,11 @@ async function loadPoOverview(options = {}) {
     if (!suppressAlerts) {
       showAlert('Selecciona la fecha para aplicar el filtro unitario.', 'warning');
     }
+    setOverviewNeedsManualRefresh(true);
     return;
   }
 
+  setOverviewNeedsManualRefresh(false);
   overview.loading = true;
   renderOverviewTable();
   renderOverviewSummary();
@@ -2184,6 +2190,7 @@ async function loadPoOverview(options = {}) {
     if (!suppressAlerts) {
       showAlert(error.message || 'Error consultando la tabla principal de POs', 'danger');
     }
+    setOverviewNeedsManualRefresh(true);
     overview.items = [];
     overview.filteredItems = [];
     overview.selection = new Map();
@@ -2764,37 +2771,20 @@ function handleOverviewModeChange(mode) {
     state.overview.filters.endDate = '';
   }
   updateOverviewModeControls();
-  if (state.overview.filters.mode === 'global') {
-    if (state.selectedEmpresa) {
-      loadPoOverview();
-    }
-    return;
-  }
-  handleOverviewDateChange();
+  setOverviewNeedsManualRefresh(true);
+  handleOverviewDateChange({ silent: true });
 }
 
-function handleOverviewDateChange() {
-  if (!state.selectedEmpresa) return;
+function handleOverviewDateChange(options = {}) {
+  const silent = options?.silent === true;
   const mode = state.overview.filters.mode || 'global';
   if (mode === 'range') {
-    if (!state.overview.filters.startDate || !state.overview.filters.endDate) {
-      return;
-    }
-    if (state.overview.filters.startDate > state.overview.filters.endDate) {
+    const { startDate, endDate } = state.overview.filters;
+    if (startDate && endDate && startDate > endDate && !silent) {
       showAlert('La fecha inicial no puede ser posterior a la fecha final.', 'warning');
-      return;
     }
-    loadPoOverview({ preserveSelection: false });
-    return;
   }
-  if (mode === 'single') {
-    if (!state.overview.filters.startDate) {
-      return;
-    }
-    loadPoOverview({ preserveSelection: false });
-    return;
-  }
-  loadPoOverview({ preserveSelection: false });
+  setOverviewNeedsManualRefresh(true);
 }
 
 async function handleOverviewApplySelection() {
@@ -2837,22 +2827,33 @@ function scheduleOverviewAutoRefresh(options = {}) {
   const intervalMs = Number.isFinite(rawInterval) && rawInterval >= 15000 ? rawInterval : DASHBOARD_AUTO_REFRESH_MS;
   autoRefresh.intervalMs = intervalMs;
   clearOverviewAutoRefresh();
-  if (!state.selectedEmpresa) {
+}
+
+function setOverviewNeedsManualRefresh(needsRefresh) {
+  const hasEmpresa = Boolean(state.selectedEmpresa);
+  const needs = hasEmpresa && needsRefresh === true;
+  state.overview.needsManualRefresh = needs;
+  const button = document.getElementById('overviewRefreshBtn');
+  if (!button) {
     return;
   }
-  autoRefresh.timerId = setInterval(() => {
-    if (!state.selectedEmpresa) {
-      clearOverviewAutoRefresh();
-      return;
-    }
-    loadPoOverview({
-      preserveSelection: true,
-      skipIfBusy: true,
-      source: 'auto-refresh'
-    }).catch(error => {
-      console.warn('No se pudo actualizar automáticamente el dashboard:', error);
-    });
-  }, intervalMs);
+  const defaultLabel = button.dataset.defaultLabel || button.textContent || 'Actualizar tabla';
+  if (!button.dataset.defaultLabel) {
+    button.dataset.defaultLabel = defaultLabel;
+  }
+  const applyLabel = button.dataset.applyLabel || 'Aplicar filtros';
+  if (!button.dataset.applyLabel) {
+    button.dataset.applyLabel = applyLabel;
+  }
+  button.textContent = needs ? applyLabel : defaultLabel;
+  button.setAttribute('data-refresh-needed', needs ? 'true' : 'false');
+  if (needs) {
+    button.classList.add('btn-warning');
+    button.classList.remove('btn-outline-secondary');
+  } else {
+    button.classList.remove('btn-warning');
+    button.classList.add('btn-outline-secondary');
+  }
 }
 
 function initializeOverviewTab() {
@@ -2880,6 +2881,7 @@ function initializeOverviewTab() {
       hideDashboardPanel();
       resetSearchableSelect(document.getElementById('poSearch'));
       clearOverviewAutoRefresh();
+      setOverviewNeedsManualRefresh(false);
       return;
     }
     selectEmpresa(value);
@@ -2923,9 +2925,7 @@ function initializeOverviewTab() {
   document.getElementById('overviewSelectAll')?.addEventListener('change', handleOverviewSelectAllChange);
   document.getElementById('overviewTableBody')?.addEventListener('change', handleOverviewTableChange);
   updateOverviewSelectAllState();
-  if (state.selectedEmpresa) {
-    scheduleOverviewAutoRefresh();
-  }
+  setOverviewNeedsManualRefresh(false);
 }
 
 async function selectPo(poId) {
