@@ -40,6 +40,12 @@ function createDefaultOverviewFilters() {
 }
 
 const DASHBOARD_AUTO_REFRESH_MS = 60000;
+const GRAPH_SEARCH_EMPTY_MESSAGE = 'Selecciona POs para mostrar sus gráficas.';
+const GRAPH_SEARCH_HINT_MESSAGE = 'Escribe el número de la PO o extensión para ubicar su gráfica.';
+const OVERVIEW_SEARCH_MAX_SUGGESTIONS = 50;
+const OVERVIEW_SEARCH_HINT_MESSAGE = 'Escribe la PO, extensión, remisión o factura y presiona Enter para enfocarla.';
+const OVERVIEW_SEARCH_EMPTY_MESSAGE = 'Sin datos para buscar. Actualiza la tabla primero.';
+const OVERVIEW_SEARCH_HIGHLIGHT_MS = 4500;
 
 const state = {
   empresas: [],
@@ -85,7 +91,13 @@ const state = {
     userCollapsed: false,
     isExpanded: false
   },
-  dashboardActiveTab: 'overview'
+  dashboardActiveTab: 'overview',
+  graphSearch: {
+    highlightTimerId: null
+  },
+  overviewSearch: {
+    highlightTimerId: null
+  }
 };
 
 const searchableSelectStates = new WeakMap();
@@ -222,6 +234,16 @@ function escapeHtml(value) {
     .replace(/>/gu, '&gt;')
     .replace(/"/gu, '&quot;')
     .replace(/'/gu, '&#39;');
+}
+
+function cssEscape(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value);
+  }
+  return value.replace(/[^a-zA-Z0-9_-]/g, match => `\\${match}`);
 }
 
 function sanitizeFileName(value, fallback) {
@@ -865,55 +887,52 @@ function formatPercentageLabel(value, decimals = 2) {
 }
 
 function computePercentagesFromTotals(totals = {}) {
-  const total = normalizeNumber(totals.total);
+  const normalized = getTotalsWithDefaults(totals);
+  const total = normalized.total;
   if (total <= 0) {
     return { rem: 0, fac: 0, rest: 0 };
   }
-  const totalRem = normalizeNumber(totals.totalRem);
-  const totalFac = normalizeNumber(totals.totalFac);
-  const consumo = totals.totalConsumo != null
-    ? normalizeNumber(totals.totalConsumo)
-    : roundTo(totalRem + totalFac);
-  const restante = totals.restante != null
-    ? Math.max(normalizeNumber(totals.restante), 0)
-    : Math.max(roundTo(total - consumo), 0);
-  const rem = roundTo((totalRem / total) * 100);
-  const fac = roundTo((totalFac / total) * 100);
-  const rest = roundTo((restante / total) * 100);
+  const rem = roundTo((normalized.totalRem / total) * 100);
+  const fac = roundTo((normalized.totalFac / total) * 100);
+  const rest = roundTo((normalized.restante / total) * 100);
   return { rem, fac, rest };
 }
 
 function computeGlobalPercentages(totals = {}, baseAmount = 0) {
+  const normalized = getTotalsWithDefaults(totals);
   const base = normalizeNumber(baseAmount);
-  const fallbackTotal = normalizeNumber(totals.total);
+  const fallbackTotal = normalized.total;
   const scale = base > 0 ? base : fallbackTotal > 0 ? fallbackTotal : 1;
-  const totalRem = Math.max(0, normalizeNumber(totals.totalRem));
-  const totalFac = Math.max(0, normalizeNumber(totals.totalFac));
-  const consumo = totals.totalConsumo != null
-    ? Math.max(0, normalizeNumber(totals.totalConsumo))
-    : roundTo(totalRem + totalFac);
-  const restanteCalculado = totals.restante != null
-    ? normalizeNumber(totals.restante)
-    : roundTo((totals.total || 0) - consumo);
-  const restante = Math.max(restanteCalculado, 0);
-  const rem = roundTo((totalRem / scale) * 100);
-  const fac = roundTo((totalFac / scale) * 100);
-  const consumoPerc = roundTo((consumo / scale) * 100);
-  const rest = roundTo((restante / scale) * 100);
+  const rem = roundTo((normalized.totalRem / scale) * 100);
+  const fac = roundTo((normalized.totalFac / scale) * 100);
+  const consumoPerc = roundTo((normalized.totalConsumo / scale) * 100);
+  const rest = roundTo((normalized.restante / scale) * 100);
   return { rem, fac, consumo: consumoPerc, rest };
 }
 
 function getTotalsWithDefaults(totals) {
+  const raw = totals || {};
+  const total = normalizeNumber(raw.total);
+  const totalRem = Math.max(0, normalizeNumber(raw.totalRem));
+  const totalFac = Math.max(0, normalizeNumber(raw.totalFac));
+  const computedConsumo = roundTo(totalRem + totalFac);
+  const providedConsumo = raw.totalConsumo != null ? Math.max(0, normalizeNumber(raw.totalConsumo)) : undefined;
+  const totalConsumo = providedConsumo != null ? Math.max(providedConsumo, computedConsumo) : computedConsumo;
+  const restanteFallback = roundTo(total - totalConsumo);
+  const restante = raw.restante != null ? Math.max(0, normalizeNumber(raw.restante)) : Math.max(restanteFallback, 0);
+  const porcRem = total > 0 ? roundTo((totalRem / total) * 100) : 0;
+  const porcFac = total > 0 ? roundTo((totalFac / total) * 100) : 0;
+  const porcRest = total > 0 ? roundTo((restante / total) * 100) : 0;
   return {
-    total: 0,
-    totalRem: 0,
-    totalFac: 0,
-    totalConsumo: 0,
-    restante: 0,
-    porcRem: 0,
-    porcFac: 0,
-    porcRest: 0,
-    ...(totals || {})
+    ...raw,
+    total,
+    totalRem,
+    totalFac,
+    totalConsumo,
+    restante,
+    porcRem,
+    porcFac,
+    porcRest
   };
 }
 
@@ -1900,6 +1919,7 @@ function removePoFromSelection(baseId) {
     document.getElementById('summaryCards')?.replaceChildren();
     document.getElementById('poTable')?.replaceChildren();
     document.getElementById('extensionsContainer')?.replaceChildren();
+    showGraphSearchEmptyState();
     hideDashboardPanel();
   } else {
     updateSummary();
@@ -1918,6 +1938,7 @@ function clearSelectedPos() {
   document.getElementById('summaryCards')?.replaceChildren();
   document.getElementById('poTable')?.replaceChildren();
   document.getElementById('extensionsContainer')?.replaceChildren();
+  showGraphSearchEmptyState();
   hideDashboardPanel();
   resetSearchableSelect(document.getElementById('poSearch'));
   renderReportSelectionOverview();
@@ -2067,6 +2088,9 @@ function resetOverviewState(options = {}) {
   renderOverviewTable();
   renderOverviewSummary();
   updateOverviewSelectAllState();
+  updateOverviewSearchSuggestions([]);
+  clearOverviewSearchHighlight();
+  updateOverviewSearchFeedback(OVERVIEW_SEARCH_EMPTY_MESSAGE, 'muted');
 }
 
 async function loadPoOverview(options = {}) {
@@ -2177,12 +2201,6 @@ async function loadPoOverview(options = {}) {
     overview.loading = false;
     overview.lastUpdated = new Date().toISOString();
     applyOverviewFilters();
-    const overviewPanel = document.getElementById('panel-overview');
-    const panelIsActive = overviewPanel?.classList.contains('active');
-    const shouldAutoApply = !options.skipAutoApply && (options.forceAutoApply || panelIsActive);
-    if (shouldAutoApply && state.dashboardActiveTab !== 'overview') {
-      await handleOverviewApplySelection();
-    }
   } catch (error) {
     overview.loading = false;
     overview.lastUpdated = new Date().toISOString();
@@ -2250,6 +2268,31 @@ function normalizeAlertLine(line) {
     : '';
 }
 
+function extractDocumentLabels(documentEntry) {
+  if (documentEntry == null) {
+    return [];
+  }
+  if (typeof documentEntry === 'string' || typeof documentEntry === 'number') {
+    const value = String(documentEntry).trim();
+    return value ? [value] : [];
+  }
+  if (typeof documentEntry !== 'object') {
+    return [];
+  }
+  const candidates = [
+    documentEntry.id,
+    documentEntry.folio,
+    documentEntry.numero,
+    documentEntry.remision,
+    documentEntry.factura,
+    documentEntry.referencia,
+    documentEntry.serie
+  ];
+  return candidates
+    .map(value => (typeof value === 'string' || typeof value === 'number') ? String(value).trim() : '')
+    .filter(Boolean);
+}
+
 function normalizeSearchText(value) {
   return typeof value === 'string'
     ? value
@@ -2302,6 +2345,45 @@ function syncOverviewAlertFilterInputs() {
     });
 }
 
+function getOverviewSearchableFields(item = {}) {
+  const baseFields = [
+    item.id,
+    item.baseId,
+    item.descripcion,
+    item.descripcionDetallada,
+    item.detalle,
+    item.proveedor,
+    item.cliente,
+    item.alertasTexto,
+    item.remisionesTexto,
+    item.facturasTexto,
+    item.comentarios,
+    item.nota
+  ];
+  const docFields = [];
+  (Array.isArray(item.remisiones) ? item.remisiones : []).forEach(entry => {
+    docFields.push(...extractDocumentLabels(entry));
+  });
+  (Array.isArray(item.facturas) ? item.facturas : []).forEach(entry => {
+    docFields.push(...extractDocumentLabels(entry));
+  });
+  return [...baseFields, ...docFields].filter(value => typeof value === 'string' && value.trim());
+}
+
+function overviewItemMatchesTokens(item, tokens = []) {
+  if (!tokens.length) {
+    return true;
+  }
+  const fields = getOverviewSearchableFields(item);
+  if (!fields.length) {
+    return false;
+  }
+  return tokens.every(token => fields.some(value => {
+    const normalizedValue = normalizeSearchText(value);
+    return normalizedValue && fieldContainsSearchToken(normalizedValue, token);
+  }));
+}
+
 function applyOverviewFilters() {
   const items = Array.isArray(state.overview.items) ? state.overview.items : [];
   const term = (state.overview.filters.search || '').trim();
@@ -2310,18 +2392,7 @@ function applyOverviewFilters() {
   const activeAlertFilters = getActiveAlertFilterSet();
   const hasAlertFilter = activeAlertFilters.size > 0;
   const filtered = items.filter(item => {
-    const fields = [item.id, item.baseId, item.remisionesTexto, item.facturasTexto, item.alertasTexto];
-    const matchesSearch = !searchTokens.length
-      || searchTokens.every(token => fields.some(value => {
-        if (typeof value !== 'string' || !value) {
-          return false;
-        }
-        const normalizedValue = normalizeSearchText(value);
-        if (!normalizedValue) {
-          return false;
-        }
-        return fieldContainsSearchToken(normalizedValue, token);
-      }));
+    const matchesSearch = !searchTokens.length || overviewItemMatchesTokens(item, searchTokens);
     if (!matchesSearch) {
       return false;
     }
@@ -2332,26 +2403,144 @@ function applyOverviewFilters() {
     return activeAlertFilters.has(alertInfo.level);
   });
   state.overview.filteredItems = filtered;
+  clearOverviewSearchHighlight();
+  updateOverviewSearchSuggestions(state.overview.items || []);
   renderOverviewTable();
   renderOverviewSummary();
-  maybeRefreshDashboardFromOverview();
+  if (!state.selectedEmpresa || !filtered.length) {
+    updateOverviewSearchFeedback(OVERVIEW_SEARCH_EMPTY_MESSAGE, 'muted');
+  } else if (!term) {
+    updateOverviewSearchFeedback(`POs visibles: ${filtered.length}. Usa el botón "Ir" o Enter para saltar a una fila.`, 'muted');
+  } else {
+    updateOverviewSearchFeedback(`Coincidencias actuales: ${filtered.length}.`, 'success');
+  }
 }
 
-function maybeRefreshDashboardFromOverview(options = {}) {
-  if (state.dashboardActiveTab !== 'overview') {
-    return;
+function updateOverviewSearchSuggestions(items = []) {
+  const dataList = document.getElementById('overviewSearchSuggestions');
+  if (!dataList) return;
+  const suggestions = [];
+  const seen = new Set();
+  const addSuggestion = value => {
+    if (value == null) return;
+    const text = String(value).trim();
+    if (!text || seen.has(text)) {
+      return;
+    }
+    seen.add(text);
+    suggestions.push(text);
+  };
+  items.forEach(item => {
+    addSuggestion(item.id);
+    addSuggestion(item.baseId);
+    (Array.isArray(item.remisiones) ? item.remisiones : []).forEach(entry => {
+      extractDocumentLabels(entry).forEach(addSuggestion);
+    });
+    (Array.isArray(item.facturas) ? item.facturas : []).forEach(entry => {
+      extractDocumentLabels(entry).forEach(addSuggestion);
+    });
+  });
+  const limited = suggestions.slice(0, OVERVIEW_SEARCH_MAX_SUGGESTIONS);
+  dataList.innerHTML = limited
+    .map(option => `<option value="${escapeHtml(option)}"></option>`)
+    .join('');
+}
+
+function updateOverviewSearchFeedback(message, tone = 'muted') {
+  const feedback = document.getElementById('overviewSearchFeedback');
+  if (!feedback) return;
+  ['text-muted', 'text-danger', 'text-success'].forEach(cls => feedback.classList.remove(cls));
+  const toneClass = tone === 'error' ? 'text-danger' : tone === 'success' ? 'text-success' : 'text-muted';
+  feedback.classList.add(toneClass);
+  feedback.textContent = message || '';
+}
+
+function clearOverviewSearchHighlight() {
+  if (state.overviewSearch?.highlightTimerId) {
+    clearTimeout(state.overviewSearch.highlightTimerId);
+    state.overviewSearch.highlightTimerId = null;
   }
-  if (!state.selectedEmpresa) {
-    return;
+  document
+    .querySelectorAll('#overviewTableBody tr.overview-search-highlight')
+    .forEach(row => row.classList.remove('overview-search-highlight'));
+}
+
+function highlightOverviewRow(row) {
+  if (!row) return;
+  clearOverviewSearchHighlight();
+  row.classList.add('overview-search-highlight');
+  state.overviewSearch.highlightTimerId = window.setTimeout(() => {
+    row.classList.remove('overview-search-highlight');
+    state.overviewSearch.highlightTimerId = null;
+  }, OVERVIEW_SEARCH_HIGHLIGHT_MS);
+}
+
+function focusOverviewRowBySearch(rawTerm) {
+  const term = (rawTerm || '').trim();
+  const normalizedTerm = normalizeSearchText(term);
+  if (!normalizedTerm) {
+    updateOverviewSearchFeedback(OVERVIEW_SEARCH_HINT_MESSAGE, 'muted');
+    clearOverviewSearchHighlight();
+    return false;
   }
-  const synced = syncOverviewSelectionToState({ silent: true, allowEmpty: true });
-  if (!synced) {
-    return;
+  const tokens = normalizedTerm.split(/\s+/u).filter(Boolean);
+  if (!tokens.length) {
+    updateOverviewSearchFeedback(OVERVIEW_SEARCH_HINT_MESSAGE, 'muted');
+    return false;
   }
-  if (state.selectedPoIds.length === 0) {
-    return;
+  const filtered = Array.isArray(state.overview.filteredItems) ? state.overview.filteredItems : [];
+  if (!filtered.length) {
+    updateOverviewSearchFeedback(OVERVIEW_SEARCH_EMPTY_MESSAGE, 'muted');
+    return false;
   }
-  updateSummary({ silent: true, ...options });
+  const match = filtered.find(item => overviewItemMatchesTokens(item, tokens));
+  if (!match) {
+    updateOverviewSearchFeedback(`No se encontraron coincidencias para "${term}".`, 'error');
+    return false;
+  }
+  const targetId = match.id || match.baseId;
+  if (!targetId) {
+    updateOverviewSearchFeedback('La PO seleccionada no tiene identificador visible.', 'error');
+    return false;
+  }
+  const selector = `#overviewTableBody tr[data-po-id="${cssEscape(targetId)}"]`;
+  const row = document.querySelector(selector);
+  if (!row) {
+    updateOverviewSearchFeedback('La fila no está visible con los filtros actuales.', 'error');
+    return false;
+  }
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  highlightOverviewRow(row);
+  updateOverviewSearchFeedback(`Enfocando ${targetId}.`, 'success');
+  return true;
+}
+
+function setupOverviewSearchEnhancements() {
+  const input = document.getElementById('overviewSearch');
+  if (!input) return;
+  const button = document.getElementById('overviewSearchFocusBtn');
+  const setDefaultMessage = () => {
+    const filtered = Array.isArray(state.overview.filteredItems) ? state.overview.filteredItems : [];
+    const message = filtered.length ? OVERVIEW_SEARCH_HINT_MESSAGE : OVERVIEW_SEARCH_EMPTY_MESSAGE;
+    updateOverviewSearchFeedback(message, 'muted');
+  };
+  setDefaultMessage();
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      focusOverviewRowBySearch(input.value);
+    }
+  });
+  input.addEventListener('input', () => {
+    if (!input.value.trim()) {
+      clearOverviewSearchHighlight();
+      setDefaultMessage();
+    }
+  });
+  button?.addEventListener('click', () => {
+    focusOverviewRowBySearch(input.value);
+  });
+}
 }
 
 function getOverviewAlertInfo(item, context = {}) {
@@ -2882,6 +3071,9 @@ function initializeOverviewTab() {
       resetSearchableSelect(document.getElementById('poSearch'));
       clearOverviewAutoRefresh();
       setOverviewNeedsManualRefresh(false);
+      updateOverviewSearchSuggestions([]);
+      updateOverviewSearchFeedback(OVERVIEW_SEARCH_EMPTY_MESSAGE, 'muted');
+      clearOverviewSearchHighlight();
       return;
     }
     selectEmpresa(value);
@@ -2926,6 +3118,8 @@ function initializeOverviewTab() {
   document.getElementById('overviewTableBody')?.addEventListener('change', handleOverviewTableChange);
   updateOverviewSelectAllState();
   setOverviewNeedsManualRefresh(false);
+  setupOverviewSearchEnhancements();
+  updateOverviewSearchSuggestions([]);
 }
 
 async function selectPo(poId) {
@@ -3190,12 +3384,15 @@ function renderCharts(summary) {
   const items = Array.isArray(summary.items) ? summary.items : [];
   const groups = buildPoGroups(items, summary.selectionDetails);
   const extensionContainer = document.getElementById('extensionsContainer');
+  clearGraphSearchHighlight();
   if (!groups.length) {
     if (extensionContainer) {
       extensionContainer.innerHTML = '<p class="text-muted">Sin información suficiente para graficar esta selección.</p>';
     }
+    showGraphSearchEmptyState();
     return;
   }
+  updateGraphSearchFeedback(GRAPH_SEARCH_HINT_MESSAGE, 'muted');
 
   const totals = getTotalsWithDefaults(summary.totals);
   const total = normalizeNumber(totals.total);
@@ -3487,6 +3684,18 @@ function renderCharts(summary) {
     chartEntries.forEach((entry, index) => {
       const card = document.createElement('article');
       card.className = 'card h-100 shadow-sm chart-card';
+      const variantIds = Array.isArray(entry.variantIds) ? entry.variantIds : [];
+      const itemIds = Array.isArray(entry.items) ? entry.items.map(item => item.id).filter(Boolean) : [];
+      const searchTerms = [
+        entry.label,
+        entry.shortLabel,
+        entry.id,
+        ...variantIds,
+        ...entry.extensionIds,
+        ...itemIds
+      ].filter(Boolean);
+      card.dataset.poLabel = entry.label;
+      card.dataset.poSearch = searchTerms.join(' ');
       const extensionCount = entry.extensionIds.length;
       const variantBadge = extensionCount === 0
         ? 'Solo base'
@@ -3645,6 +3854,102 @@ function renderCharts(summary) {
       state.charts.set(`ext-${index}`, chart);
     });
   }
+}
+
+function getGraphCardElements() {
+  const container = document.getElementById('extensionsContainer');
+  if (!container) {
+    return [];
+  }
+  return Array.from(container.querySelectorAll('.chart-card'));
+}
+
+function clearGraphSearchHighlight() {
+  if (state.graphSearch?.highlightTimerId) {
+    clearTimeout(state.graphSearch.highlightTimerId);
+    state.graphSearch.highlightTimerId = null;
+  }
+  getGraphCardElements().forEach(card => card.classList.remove('graph-search-highlight'));
+}
+
+function highlightGraphCard(card) {
+  if (!card) return;
+  clearGraphSearchHighlight();
+  card.classList.add('graph-search-highlight');
+  state.graphSearch.highlightTimerId = window.setTimeout(() => {
+    card.classList.remove('graph-search-highlight');
+    state.graphSearch.highlightTimerId = null;
+  }, 4000);
+}
+
+function updateGraphSearchFeedback(message, tone = 'muted') {
+  const feedback = document.getElementById('graphSearchFeedback');
+  if (!feedback) return;
+  const toneClasses = ['text-muted', 'text-danger', 'text-success'];
+  toneClasses.forEach(cls => feedback.classList.remove(cls));
+  const toneClass = tone === 'error' ? 'text-danger' : tone === 'success' ? 'text-success' : 'text-muted';
+  feedback.classList.add(toneClass);
+  feedback.textContent = message || '';
+}
+
+function showGraphSearchEmptyState() {
+  clearGraphSearchHighlight();
+  updateGraphSearchFeedback(GRAPH_SEARCH_EMPTY_MESSAGE, 'muted');
+}
+
+function focusGraphCardByTerm(rawTerm) {
+  const term = (rawTerm || '').trim();
+  const normalizedTerm = normalizeSearchText(term);
+  if (!normalizedTerm) {
+    updateGraphSearchFeedback(GRAPH_SEARCH_HINT_MESSAGE, 'muted');
+    return false;
+  }
+  const tokens = normalizedTerm.split(/\s+/u).filter(Boolean);
+  if (!tokens.length) {
+    updateGraphSearchFeedback(GRAPH_SEARCH_HINT_MESSAGE, 'muted');
+    return false;
+  }
+  const cards = getGraphCardElements();
+  if (!cards.length) {
+    showGraphSearchEmptyState();
+    return false;
+  }
+  const match = cards.find(card => {
+    const searchField = card.dataset.poSearch || '';
+    const normalizedField = normalizeSearchText(searchField);
+    if (!normalizedField) {
+      return false;
+    }
+    return tokens.every(token => fieldContainsSearchToken(normalizedField, token));
+  });
+  if (!match) {
+    updateGraphSearchFeedback(`No se encontró una gráfica para "${term}".`, 'error');
+    return false;
+  }
+  match.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  highlightGraphCard(match);
+  const label = match.dataset.poLabel || term;
+  updateGraphSearchFeedback(`Mostrando la gráfica del conjunto ${label}.`, 'success');
+  return true;
+}
+
+function setupGraphSearchControls() {
+  const form = document.getElementById('graphSearchForm');
+  const input = document.getElementById('graphSearchInput');
+  if (!form || !input) {
+    return;
+  }
+  updateGraphSearchFeedback(GRAPH_SEARCH_HINT_MESSAGE, 'muted');
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    focusGraphCardByTerm(input.value);
+  });
+  input.addEventListener('input', () => {
+    if (!input.value.trim()) {
+      clearGraphSearchHighlight();
+      updateGraphSearchFeedback(GRAPH_SEARCH_HINT_MESSAGE, 'muted');
+    }
+  });
 }
 
 function renderAlerts(alerts) {
@@ -3937,9 +4242,6 @@ function setDashboardActiveTab(mode) {
     return;
   }
   state.dashboardActiveTab = normalized;
-  if (normalized === 'overview') {
-    maybeRefreshDashboardFromOverview({ silent: true });
-  }
 }
 
 function setupWizardNavigation() {
@@ -5338,6 +5640,7 @@ async function setupDashboard() {
   renderCustomizationSummary();
   setupWizardNavigation();
   initializeDashboardTabListeners();
+  setupGraphSearchControls();
   updateReportOverviewMeta();
   renderReportSelectionOverview();
   showAlert('Selecciona empresa y PO para visualizar el tablero.', 'info', 9000);

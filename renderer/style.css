@@ -371,6 +371,7 @@ body.dashboard-panel-expanded .dashboard-main {
 .dashboard-panel .chart-card {
   border: none;
   border-radius: 0.9rem;
+  transition: box-shadow 0.25s ease, transform 0.25s ease;
 }
 
 .dashboard-panel .chart-card + .chart-card {
@@ -400,6 +401,20 @@ body.dashboard-panel-expanded .dashboard-main {
 
 #dashboard-detail .table-section-card .card-body {
   border-top: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+.graph-search-form {
+  max-width: 420px;
+}
+
+.graph-search-feedback {
+  min-height: 1rem;
+}
+
+.dashboard-panel .chart-card.graph-search-highlight {
+  box-shadow: 0 1.15rem 2.5rem rgba(37, 99, 235, 0.25);
+  border: 1px solid rgba(37, 99, 235, 0.45);
+  transform: translateY(-2px);
 }
 
 .chart-metrics {
@@ -1074,6 +1089,34 @@ table.table-hover tbody tr.overview-alert-missing:hover {
   color: #fff;
   background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
   box-shadow: 0 0.5rem 1rem rgba(37, 99, 235, 0.15);
+}
+
+.overview-search-group .input-group-text {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.overview-search-group .form-control {
+  min-width: 0;
+}
+
+.overview-search-feedback {
+  min-height: 1rem;
+  margin-top: 0.25rem;
+}
+
+#overviewTableBody tr.overview-search-highlight {
+  animation: overviewRowPulse 1.2s ease-in-out infinite alternate;
+  background-color: rgba(59, 130, 246, 0.2);
+}
+
+@keyframes overviewRowPulse {
+  0% {
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+  100% {
+    background-color: rgba(59, 130, 246, 0.35);
+  }
 }
 
 .selection-overview {

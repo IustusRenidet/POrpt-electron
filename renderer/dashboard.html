@@ -107,12 +107,20 @@
                     </div>
                     <div class="col-lg-3 col-md-6">
                       <label for="overviewSearch" class="form-label">Buscar en la tabla</label>
-                      <input
-                        type="search"
-                        id="overviewSearch"
-                        class="form-control"
-                        placeholder="Filtra por PO, remisión o factura"
-                      >
+                      <div class="input-group input-group-sm overview-search-group">
+                        <span class="input-group-text">PO</span>
+                        <input
+                          type="search"
+                          id="overviewSearch"
+                          class="form-control"
+                          placeholder="Filtra por PO, remisión o factura"
+                          list="overviewSearchSuggestions"
+                          autocomplete="off"
+                        >
+                        <button class="btn btn-outline-primary" type="button" id="overviewSearchFocusBtn">Ir</button>
+                      </div>
+                      <datalist id="overviewSearchSuggestions"></datalist>
+                      <p id="overviewSearchFeedback" class="form-text small text-muted mb-0"></p>
                     </div>
                     <div class="col-lg-3 col-md-6">
                       <span class="form-label d-block">Tipos de alerta</span>
@@ -125,10 +133,10 @@
                           <input class="form-check-input" type="checkbox" id="overviewAlertWarning" data-alert-filter="warning">
                           <label class="form-check-label" for="overviewAlertWarning">Alerta</label>
                         </div>
-                        <div class="form-check form-switch">
+                        <!-- <div class="form-check form-switch">
                           <input class="form-check-input" type="checkbox" id="overviewAlertOnRange" data-alert-filter="onrange-doc">
                           <label class="form-check-label" for="overviewAlertOnRange">En rango</label>
-                        </div>
+                        </div> -->
                       </div>
                     </div>
                     <div class="col-12 d-flex justify-content-end gap-2">
@@ -622,8 +630,27 @@
       <div class="tab-pane fade show active" id="dashboard-summary" role="tabpanel" aria-labelledby="dashboard-tab-summary">
         <div id="summaryCards" class="summary-cards mb-4"></div>
         <div class="dashboard-panel-section">
-          <h3 class="h6 mb-1">Extensiones y consumo consolidado</h3>
-          <p class="small text-muted mb-3">Los datos combinan la PO base con las extensiones seleccionadas para mostrar el resultado del subgrupo.</p>
+          <div class="d-flex flex-column flex-xl-row gap-3 align-items-xl-end mb-3">
+            <div class="flex-grow-1">
+              <h3 class="h6 mb-1">Extensiones y consumo consolidado</h3>
+              <p class="small text-muted mb-0">Los datos combinan la PO base con las extensiones seleccionadas para mostrar el resultado del subgrupo.</p>
+            </div>
+            <form id="graphSearchForm" class="graph-search-form w-100 w-xl-auto" role="search">
+              <label for="graphSearchInput" class="form-label small text-uppercase text-muted fw-semibold mb-1">Buscar gráfica por PO</label>
+              <div class="input-group input-group-sm">
+                <span class="input-group-text">PO</span>
+                <input
+                  type="search"
+                  class="form-control"
+                  id="graphSearchInput"
+                  placeholder="Escribe la PO base o alguna extensión"
+                  autocomplete="off"
+                >
+                <button class="btn btn-outline-primary" type="submit" id="graphSearchSubmit">Buscar</button>
+              </div>
+              <p id="graphSearchFeedback" class="graph-search-feedback small text-muted mb-0 mt-1" aria-live="polite"></p>
+            </form>
+          </div>
           <div id="extensionsContainer" class="extensions-grid"></div>
         </div>
       </div>
