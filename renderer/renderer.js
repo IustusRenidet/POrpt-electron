@@ -40,11 +40,11 @@ function createDefaultOverviewFilters() {
 }
 
 const DASHBOARD_AUTO_REFRESH_MS = 60000;
-const GRAPH_SEARCH_EMPTY_MESSAGE = 'Selecciona POs para mostrar sus gráficas.';
-const GRAPH_SEARCH_HINT_MESSAGE = 'Escribe el número de la PO o extensión para ubicar su gráfica.';
+const GRAPH_SEARCH_EMPTY_MESSAGE = '';
+const GRAPH_SEARCH_HINT_MESSAGE = '';
 const OVERVIEW_SEARCH_MAX_SUGGESTIONS = 50;
-const OVERVIEW_SEARCH_HINT_MESSAGE = 'Escribe la PO, extensión, remisión o factura y presiona Enter para enfocarla.';
-const OVERVIEW_SEARCH_EMPTY_MESSAGE = 'Sin datos para buscar. Actualiza la tabla primero.';
+const OVERVIEW_SEARCH_HINT_MESSAGE = '';
+const OVERVIEW_SEARCH_EMPTY_MESSAGE = '';
 const OVERVIEW_SEARCH_HIGHLIGHT_MS = 4500;
 
 const state = {
@@ -2436,7 +2436,7 @@ function applyOverviewFilters() {
   if (!state.selectedEmpresa || !filtered.length) {
     updateOverviewSearchFeedback(OVERVIEW_SEARCH_EMPTY_MESSAGE, 'muted');
   } else if (!term) {
-    updateOverviewSearchFeedback(`POs visibles: ${filtered.length}. Usa el botón "Ir" o Enter para saltar a una fila.`, 'muted');
+    updateOverviewSearchFeedback(`POs visibles: ${filtered.length}.`, 'muted');
   } else {
     updateOverviewSearchFeedback(`Coincidencias actuales: ${filtered.length}.`, 'success');
   }
@@ -3317,23 +3317,18 @@ function renderTable(summary) {
           <th scope="col">Fecha</th>
           <th scope="col">
             <span class="table-heading-title">Total autorizado</span>
-            <span class="table-heading-sub">Monto aprobado</span>
           </th>
           <th scope="col">
             <span class="table-heading-title">Remisiones</span>
-            <span class="table-heading-sub">Monto · % consumo</span>
           </th>
           <th scope="col">
             <span class="table-heading-title">Facturas</span>
-            <span class="table-heading-sub">Monto · % consumo</span>
           </th>
           <th scope="col">
             <span class="table-heading-title">Disponible</span>
-            <span class="table-heading-sub">Saldo restante</span>
           </th>
           <th scope="col">
             <span class="table-heading-title">Alerta</span>
-            <span class="table-heading-sub">Estado de consumo</span>
           </th>
           <th scope="col" class="text-center">Acción</th>
         </tr>
@@ -3547,16 +3542,10 @@ function renderCharts(summary) {
   const dynamicHeight = computeResponsiveChartHeight(chartEntries.length);
   const barThickness = computeBarThickness(chartEntries.length);
   const axisTickFontSize = chartEntries.length > 28 ? 10 : chartEntries.length > 18 ? 11 : 12;
-  const stackMaxPercentage = chartEntries.reduce((max, entry) => {
-    const global = entry.globalPercentages || { rem: 0, fac: 0, rest: 0 };
-    const totalPercentage = global.rem + global.fac + global.rest;
-    return Math.max(max, totalPercentage);
-  }, 0);
-  const stackAxisMax = Math.max(100, Math.ceil(stackMaxPercentage / 10) * 10);
 
   const barChartsMeta = [
-    { canvas: ctxRem, key: 'rem', amountKey: 'totalRem', percKey: 'rem', label: 'Remisiones', color: CHART_COLORS.rem },
-    { canvas: ctxFac, key: 'fac', amountKey: 'totalFac', percKey: 'fac', label: 'Facturas', color: CHART_COLORS.fac }
+    { canvas: ctxRem, key: 'rem', amountKey: 'totalRem', label: 'Remisiones', color: CHART_COLORS.rem },
+    { canvas: ctxFac, key: 'fac', amountKey: 'totalFac', label: 'Facturas', color: CHART_COLORS.fac }
   ];
 
   barChartsMeta.forEach(meta => {
@@ -3569,20 +3558,31 @@ function renderCharts(summary) {
     }
     meta.canvas.height = dynamicHeight;
     meta.canvas.style.height = `${dynamicHeight}px`;
-    const values = chartEntries.map(entry => entry.globalPercentages?.[meta.percKey] ?? 0);
-    const maxValue = values.length ? Math.max(...values) : 0;
-    const axisMax = Math.max(100, Math.ceil(maxValue / 10) * 10 || 100);
-    const dataset = {
-      label: `${meta.label} (%)`,
-      data: values,
-      backgroundColor: meta.color,
-      borderRadius: 10,
-      maxBarThickness: barThickness,
-      barThickness: barThickness
-    };
+    const totalsData = chartEntries.map(entry => entry.totals.total || 0);
+    const consumptionData = chartEntries.map(entry => entry.totals[meta.amountKey] || 0);
+    const maxValue = Math.max(...totalsData, ...consumptionData, 0);
+    const axisMax = Math.max(1, Math.ceil(maxValue / 1000) * 1000);
+    const datasets = [
+      {
+        label: 'Total autorizado',
+        data: totalsData,
+        backgroundColor: '#94a3b8',
+        borderRadius: 10,
+        maxBarThickness: barThickness,
+        barThickness: barThickness
+      },
+      {
+        label: meta.label,
+        data: consumptionData,
+        backgroundColor: meta.color,
+        borderRadius: 10,
+        maxBarThickness: barThickness,
+        barThickness: barThickness
+      }
+    ];
     const chart = new Chart(meta.canvas.getContext('2d'), {
       type: 'bar',
-      data: { labels: displayLabels, datasets: [dataset] },
+      data: { labels: displayLabels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -3590,7 +3590,10 @@ function renderCharts(summary) {
         animation: { duration: 400 },
         layout: { padding: { top: 12, right: 16, bottom: 12, left: 8 } },
         plugins: {
-          legend: { display: false },
+          legend: {
+            position: 'bottom',
+            labels: { usePointStyle: true, padding: 16 }
+          },
           tooltip: {
             callbacks: {
               title(context) {
@@ -3598,8 +3601,10 @@ function renderCharts(summary) {
               },
               label(context) {
                 const entry = chartEntries[context.dataIndex];
-                const percentage = entry.globalPercentages?.[meta.percKey] ?? 0;
-                return `${meta.label}: $${formatCurrency(entry.totals[meta.amountKey])} (${formatPercentageLabel(percentage)})`;
+                const label = context.dataset.label || meta.label;
+                const amount = label === 'Total autorizado' ? entry.totals.total : entry.totals[meta.amountKey];
+                const ratio = entry.totals.total > 0 ? (amount / entry.totals.total) * 100 : 0;
+                return `${label}: $${formatCurrency(amount)} (${formatPercentageLabel(ratio)})`;
               }
             }
           }
@@ -3611,7 +3616,7 @@ function renderCharts(summary) {
             grid: { color: 'rgba(148, 163, 184, 0.25)', borderDash: [4, 4] },
             ticks: {
               color: '#475569',
-              callback: value => `${formatPercentageValue(value)}%`
+              callback: value => `$${formatCurrency(value)}`
             }
           },
           y: {
@@ -3625,79 +3630,12 @@ function renderCharts(summary) {
   });
 
   if (ctxStack) {
-    const wrapper = ctxStack.closest('.chart-wrapper');
-    if (wrapper) {
-      wrapper.style.minHeight = `${dynamicHeight}px`;
-      wrapper.style.maxHeight = `${dynamicHeight}px`;
-      wrapper.style.height = `${dynamicHeight}px`;
+    const card = ctxStack.closest('.chart-card');
+    if (card) {
+      card.classList.add('d-none');
     }
-    ctxStack.height = dynamicHeight;
-    ctxStack.style.height = `${dynamicHeight}px`;
-    const stackMeta = [
-      { label: 'Remisiones', percKey: 'rem', amountKey: 'totalRem', color: CHART_COLORS.rem },
-      { label: 'Facturas', percKey: 'fac', amountKey: 'totalFac', color: CHART_COLORS.fac },
-      { label: 'Disponible', percKey: 'rest', amountKey: 'restante', color: CHART_COLORS.rest }
-    ];
-    const chart = new Chart(ctxStack.getContext('2d'), {
-      type: 'bar',
-      data: {
-        labels: displayLabels,
-        datasets: stackMeta.map(meta => ({
-          label: `${meta.label} %`,
-          data: chartEntries.map(entry => entry.globalPercentages?.[meta.percKey] ?? 0),
-          backgroundColor: meta.color,
-          borderRadius: 8,
-          stack: 'total',
-          maxBarThickness: barThickness,
-          barThickness: barThickness
-        }))
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        indexAxis: 'y',
-        layout: { padding: { top: 12, right: 16, bottom: 12, left: 8 } },
-        animation: { duration: 400 },
-        plugins: {
-          legend: {
-            position: 'bottom',
-            labels: { usePointStyle: true, padding: 16 }
-          },
-          tooltip: {
-            callbacks: {
-              title(context) {
-                return chartEntries[context[0].dataIndex].label;
-              },
-              label(context) {
-                const meta = stackMeta[context.datasetIndex];
-                const entry = chartEntries[context.dataIndex];
-                const percentage = entry.globalPercentages?.[meta.percKey] ?? 0;
-                return `${meta.label}: $${formatCurrency(entry.totals[meta.amountKey])} (${formatPercentageLabel(percentage)})`;
-              }
-            }
-          }
-        },
-        scales: {
-          x: {
-            stacked: true,
-            beginAtZero: true,
-            max: stackAxisMax,
-            grid: { color: 'rgba(148, 163, 184, 0.25)', borderDash: [4, 4] },
-            ticks: {
-              color: '#475569',
-              callback: value => `${formatPercentageValue(value)}%`
-            }
-          },
-          y: {
-            stacked: true,
-            grid: { display: false },
-            ticks: { color: '#475569', autoSkip: false, font: { size: axisTickFontSize, lineHeight: 1.1 } }
-          }
-        }
-      }
-    });
-    state.charts.set('stack', chart);
   }
+
 
   if (extensionContainer) {
     const donutMeta = [

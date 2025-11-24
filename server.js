@@ -1513,20 +1513,6 @@ async function getPoSummaryGroup(empresa, selectionEntries) {
     `Restante: $${totals.restante.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRest.toFixed(2)}%)`;
 
   const alerts = summaries.flatMap(summary => summary.alerts || []);
-  if (totals.total > 0) {
-    const ratio = totals.totalConsumo / totals.total;
-    const fullyConsumed = isFullyConsumed(totals);
-    if (fullyConsumed) {
-      alerts.push(buildAlert('Los recursos combinados están consumidos al 100%', 'critica'));
-    } else if (ratio >= 0.9) {
-      alerts.push(
-        buildAlert(
-          `El consumo total combinado supera el 90% (${(ratio * 100).toFixed(2)}%)`,
-          'alerta'
-        )
-      );
-    }
-  }
   const alertasTexto = alerts.length
     ? alerts.map(alerta => `[${(alerta.type || 'info').toUpperCase()}] ${alerta.message}`).join('\n')
     : 'Sin alertas generales';
