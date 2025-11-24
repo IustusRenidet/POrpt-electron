@@ -1071,6 +1071,16 @@ table.table-hover tbody tr.overview-alert-missing:hover {
   height: 100% !important;
 }
 
+#poChartsContainer .chart-wrapper {
+  min-height: 220px;
+  max-height: 320px;
+}
+
+#poChartsContainer .chart-wrapper canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .nav-wizard .nav-link {
   border-radius: 999px;
   font-weight: 600;

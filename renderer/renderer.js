@@ -3592,7 +3592,16 @@ function focusGraphCardByTerm(rawTerm) {
     showGraphSearchEmptyState();
     return false;
   }
-  const index = Array.isArray(state.graphSearch?.index) ? state.graphSearch.index : [];
+  let index = Array.isArray(state.graphSearch?.index) ? state.graphSearch.index : [];
+  if (!index.length) {
+    const cards = getGraphCardElements();
+    index = cards
+      .map(card => ({
+        card,
+        normalized: normalizeSearchText(card.dataset.poSearch || card.dataset.poLabel || card.textContent || '')
+      }))
+      .filter(entry => entry.normalized);
+  }
   const matchEntry = index.find(entry => {
     return tokens.every(token => fieldContainsSearchToken(entry.normalized, token));
   });
