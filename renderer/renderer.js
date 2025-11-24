@@ -23,6 +23,7 @@ function createDefaultCustomization() {
 
 function createDefaultAlertTypeFilter() {
   return {
+    safe: false,
     critical: false,
     warning: false,
     'onrange-doc': false

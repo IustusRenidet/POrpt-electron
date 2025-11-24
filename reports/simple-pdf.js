@@ -1246,15 +1246,15 @@ function drawGroupTable(doc, group, options = {}) {
   const startX = options.startX ?? doc.page.margins.left;
   const width = options.width ?? (doc.page.width - doc.page.margins.left - doc.page.margins.right);
   const columns = [
-    { key: 'id', label: 'PO / Ext', width: width * 0.15 },
-    { key: 'fecha', label: 'Fecha', width: width * 0.11 },
-    { key: 'clave', label: 'Clave', width: width * 0.11 },
-    { key: 'autorizado', label: 'Autorizado', width: width * 0.14 },
-    { key: 'rem', label: 'Remisiones', width: width * 0.14 },
-    { key: 'fac', label: 'Facturas', width: width * 0.14 },
+    { key: 'id', label: 'PO / Ext', width: width * 0.18 },
+    { key: 'fecha', label: 'Fecha', width: width * 0.12 },
+    { key: 'autorizado', label: 'Autorizado', width: width * 0.18 },
+    { key: 'rem', label: 'Remisiones', width: width * 0.16 },
+    { key: 'fac', label: 'Facturas', width: width * 0.16 },
     { key: 'consumo', label: 'Consumido', width: width * 0.10 },
-    { key: 'rest', label: 'Disponible', width: width * 0.11 }
+    { key: 'rest', label: 'Disponible', width: width * 0.10 }
   ];
+  const numericColumns = new Set(['autorizado', 'rem', 'fac', 'consumo', 'rest']);
   const headerHeight = 24;
   const rowPadding = 12;
   const minimumRowHeight = rowPadding + 12;
@@ -1297,7 +1297,6 @@ function drawGroupTable(doc, group, options = {}) {
     const rowValues = [
       item.isBase ? `${item.id} (base)` : item.id,
       item.fecha || '-',
-      item.clave || '-',
       formatCurrency(totals.total),
       `${formatCurrency(totals.totalRem)} (${formatPercentage(percentages.rem)})`,
       `${formatCurrency(totals.totalFac)} (${formatPercentage(percentages.fac)})`,
@@ -1320,7 +1319,7 @@ function drawGroupTable(doc, group, options = {}) {
     doc.lineWidth(0.5).strokeColor('#d1d5db').rect(startX, y, width, rowHeight).stroke();
     let offsetX = startX;
     rowValues.forEach((value, index) => {
-      const align = index >= 3 ? 'right' : 'left';
+      const align = numericColumns.has(columns[index].key) ? 'right' : 'left';
       const cellWidth = columns[index].width - 16;
       doc
         .font('Helvetica')
