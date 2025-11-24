@@ -22,7 +22,7 @@ try {
   console.log('✓ svg-to-pdfkit cargado correctamente');
 } catch (err) {
   svgToPdfLoadError = err;
-  console.warn('⚠� No se pudo cargar svg-to-pdfkit. Los íconos vectoriales no estarán disponibles:', err.message);
+  console.warn('⚠� No se pudo cargar svg-to-pdfkit. Los íconos vectoriales no estarán disponibles:', err.message);
 }
 
 const PDF_UNAVAILABLE_MESSAGE =
@@ -369,7 +369,7 @@ function drawAlertCell(doc, value, cellX, cellY, cellWidth, rowHeight) {
     } catch (err) {
       if (!svgRenderErrorLogged) {
         svgRenderErrorLogged = true;
-        console.warn('⚠� Error dibujando SVG en el PDF:', err.message);
+        console.warn('⚠� Error dibujando SVG en el PDF:', err.message);
       }
       textOffset = 0;
     }
@@ -1356,6 +1356,8 @@ function drawGroupSection(doc, group, branding, options = {}) {
   doc.moveDown(0.2);
   drawSmallConsumptionBar(doc, group.totals, branding, { startX, width });
   drawGroupTable(doc, group, { startX, width });
+  
+  // SOLUCIÓN: Solo dibuja separador si NO es el último Y NO se agregó una página nueva
   if (!options.isLast) {
     const addedPage = ensureSpace(doc, 12);
     if (!addedPage) {
@@ -1367,9 +1369,8 @@ function drawGroupSection(doc, group, branding, options = {}) {
         .lineTo(startX + width, separatorY)
         .stroke();
       doc.moveDown(0.6);
-    } else {
-      doc.moveDown(0.3);
     }
+    // ← ELIMINADO: doc.moveDown(0.3) cuando hay página nueva
   }
 }
 

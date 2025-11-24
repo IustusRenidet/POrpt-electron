@@ -231,7 +231,6 @@ function createXlsx(summary = {}, options = {}) {
 
   const totals = summary.totals || {};
   if (includeTotals) {
-    rows.push([]);
     rows.push(['RESUMEN', '', '', '', 'Total autorizado', Number(totals.total || 0), '']);
     rows.push(['RESUMEN', '', '', '', 'Total remisiones', Number(totals.totalRem || 0), '']);
     rows.push(['RESUMEN', '', '', '', 'Total facturas', Number(totals.totalFac || 0), '']);
@@ -240,7 +239,6 @@ function createXlsx(summary = {}, options = {}) {
 
   if (includeUniverseInfo && summary.universe) {
     const universe = summary.universe;
-    rows.push([]);
     rows.push(['UNIVERSO', '', '', '', 'Filtro seleccionado', universe.label || universe.shortLabel || '', '']);
     rows.push(['UNIVERSO', '', '', '', 'Descripción', universe.description || '', '']);
   }

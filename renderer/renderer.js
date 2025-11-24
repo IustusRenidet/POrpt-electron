@@ -4080,9 +4080,12 @@ async function generateReport() {
     showAlert('Selecciona primero una empresa y al menos una PO base.', 'warning');
     return false;
   }
-  const formatSelect = document.getElementById('reportFormatSelect');
-  if (formatSelect) {
-    state.selectedFormat = formatSelect.value;
+  const previewSelect = document.getElementById('previewFormatSelect');
+  const mainFormatSelect = document.getElementById('reportFormatSelect');
+  if (previewSelect && previewSelect.value) {
+    state.selectedFormat = previewSelect.value;
+  } else if (mainFormatSelect && mainFormatSelect.value) {
+    state.selectedFormat = mainFormatSelect.value;
   }
   const filenameInput = document.getElementById('reportFileNameInput');
   if (filenameInput) {
@@ -4153,6 +4156,26 @@ async function generateReport() {
 function populateReportPreview() {
   const summary = state.summary;
   if (!summary) return;
+  const availableFormats = Array.isArray(state.reportSettings?.export?.availableFormats) && state.reportSettings.export.availableFormats.length
+    ? state.reportSettings.export.availableFormats
+    : ['pdf', 'xlsx', 'csv', 'json'];
+  const formatSelect = document.getElementById('previewFormatSelect');
+  if (formatSelect) {
+    formatSelect.innerHTML = availableFormats
+      .map(format => `<option value="${format}">${getFormatLabel(format)}</option>`)
+      .join('');
+    if (!availableFormats.includes(state.selectedFormat)) {
+      state.selectedFormat = availableFormats[0] || 'pdf';
+    }
+    formatSelect.value = state.selectedFormat;
+    if (!formatSelect.dataset.bound) {
+      formatSelect.addEventListener('change', () => {
+        state.selectedFormat = formatSelect.value;
+        populateReportPreview();
+      });
+      formatSelect.dataset.bound = 'true';
+    }
+  }
   const empresaElement = document.getElementById('previewEmpresa');
   if (empresaElement) {
     empresaElement.textContent = summary.companyName || summary.empresaLabel || state.selectedEmpresa || '-';
