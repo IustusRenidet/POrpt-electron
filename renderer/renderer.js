@@ -46,6 +46,8 @@ const OVERVIEW_SEARCH_MAX_SUGGESTIONS = 50;
 const OVERVIEW_SEARCH_HINT_MESSAGE = '';
 const OVERVIEW_SEARCH_EMPTY_MESSAGE = '';
 const OVERVIEW_SEARCH_HIGHLIGHT_MS = 4500;
+const OVERVIEW_RENDER_BATCH_SIZE = 300;
+const CHART_MAX_ENTRIES = 180;
 
 const state = {
   empresas: [],
@@ -1218,7 +1220,7 @@ async function login(event) {
       body: JSON.stringify({ username, password })
     });
     if (!response.ok) {
-      throw new Error(`No se pudo iniciar sesion (HTTP ${response.status})`);
+      throw new Error(`Credenciales inválidas (HTTP ${response.status})`);
     }
     const data = await response.json();
     if (!data.success) {
@@ -2017,13 +2019,9 @@ async function loadPOs() {
     }
     state.pos = (data.pos || []).map(po => ({
       ...po,
-      display: `${po.id} • ${po.fecha || '-'} • $${formatCurrency(po.total || 0)}${po.isExtension ? ' (Extensión)' : ''}`
+      display: `${po.id}  ${po.fecha || '-'}  $${formatCurrency(po.total || 0)}${po.isExtension ? ' (Extensión)' : ''}`
     }));
-    if (state.pos.length === 0) {
-      showAlert('La empresa seleccionada no tiene POs activas.', 'warning');
-    }
     renderPoOptions();
-    showAlert('POs disponibles listas. Selecciona una o varias para visualizar el consumo.', 'success');
   } catch (error) {
     console.error('Error cargando POs:', error);
     showAlert(error.message || 'Error consultando POs', 'danger');
@@ -2723,7 +2721,7 @@ function renderOverviewTable() {
     updateOverviewSelectAllState();
     return;
   }
-  const rows = filtered
+const rows = filtered
     .map(item => {
       const totals = getTotalsWithDefaults(item.totals);
       const total = normalizeNumber(totals.total || item.total);
@@ -2786,7 +2784,19 @@ function renderOverviewTable() {
       `;
     })
     .join('');
-  tbody.innerHTML = rows;
+  if (filtered.length > OVERVIEW_RENDER_BATCH_SIZE) {
+    // Render en dos pasos para no bloquear el hilo principal con muchas POs
+    const previewPortion = Math.max(OVERVIEW_RENDER_BATCH_SIZE, Math.floor(filtered.length * 0.25));
+    const tempBody = document.createElement('tbody');
+    tempBody.innerHTML = rows.slice(0, rows.length * (previewPortion / filtered.length));
+    tbody.innerHTML = tempBody.innerHTML;
+    setTimeout(() => {
+      tbody.innerHTML = rows;
+      updateOverviewSelectAllState();
+    }, 0);
+  } else {
+    tbody.innerHTML = rows;
+  }
   updateOverviewSelectAllState();
 }
 
@@ -3535,10 +3545,26 @@ function renderCharts(summary) {
       .join('');
   });
 
-  const displayLabels = chartEntries.map(entry => wrapChartLabel(entry.label));
+const displayLabels = chartEntries.map(entry => wrapChartLabel(entry.label));
   const ctxRem = document.getElementById('chartRem');
   const ctxFac = document.getElementById('chartFac');
   const ctxStack = document.getElementById('chartJunto');
+
+  if (chartEntries.length > CHART_MAX_ENTRIES) {
+    [ctxRem, ctxFac, ctxStack].forEach(canvas => {
+      const card = canvas?.closest('.chart-card');
+      if (card) {
+        card.querySelector('.chart-wrapper')?.classList.add('d-none');
+        const note = document.createElement('div');
+        note.className = 'text-muted small';
+        note.textContent = `Gráficas omitidas por volumen (${chartEntries.length} POs). Filtra para verlas.`;
+        card.appendChild(note);
+      }
+    });
+    state.charts.clear();
+    return;
+  }
+
   const dynamicHeight = computeResponsiveChartHeight(chartEntries.length);
   const barThickness = computeBarThickness(chartEntries.length);
   const axisTickFontSize = chartEntries.length > 28 ? 10 : chartEntries.length > 18 ? 11 : 12;
@@ -3912,7 +3938,15 @@ function setupGraphSearchControls() {
 }
 
 function renderAlerts(alerts) {
-  alerts.forEach(alert => showAlert(alert.message, alert.type || 'info', 8000));
+  // Evitamos bombardear con toasts en el dashboard; solo registramos en consola.
+  alerts.forEach(alert => {
+    const level = (alert.type || 'info').toLowerCase();
+    if (['danger', 'critica', 'error'].includes(level)) {
+      console.error(alert.message);
+    } else {
+      console.info(alert.message);
+    }
+  });
 }
 
 function resolveCustomizationFlag(value, defaultValue) {

@@ -1476,6 +1476,13 @@ async function generate(summary, branding = {}, customization = {}) {
   // Normalizamos la configuración de marca y personalización para homogenizar el uso posterior.
   const style = normalizeBranding(branding);
   const options = normalizeCustomization(customization);
+  const itemCount = Array.isArray(summary?.items) ? summary.items.length : 0;
+  if (itemCount > 400) {
+    options.includeCharts = false;
+    options.includeMovements = false;
+  } else if (itemCount > 250) {
+    options.includeMovements = false;
+  }
 
   // Generamos el PDF de forma asíncrona, acumulando los datos emitidos por PDFKit.
   return await new Promise((resolve, reject) => {
