@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-light">
@@ -199,10 +200,6 @@
                     <span class="legend-item d-inline-flex align-items-center gap-2">
                       <span class="legend-swatch legend-warning" aria-hidden="true"></span>
                       <span>Consumo ≥ 90%</span>
-                    </span>
-                    <span class="legend-item d-inline-flex align-items-center gap-2">
-                      <span class="legend-swatch legend-missing" aria-hidden="true"></span>
-                      <span>Docs sin vínculo</span>
                     </span>
                   </div>
                 </div>
@@ -636,62 +633,28 @@
       <div class="tab-pane fade show active" id="dashboard-summary" role="tabpanel" aria-labelledby="dashboard-tab-summary">
         <div id="summaryCards" class="summary-cards mb-4"></div>
         <div class="dashboard-panel-section">
-          <div class="d-flex flex-column flex-xl-row gap-3 align-items-xl-end mb-3">
-            <form id="graphSearchForm" class="graph-search-form w-100 w-xl-auto" role="search">
-              <label for="graphSearchInput" class="form-label small text-uppercase text-muted fw-semibold mb-1">Buscar gráfica por PO</label>
-              <div class="input-group input-group-sm">
-                <span class="input-group-text">PO</span>
-                <input
-                  type="search"
-                  class="form-control"
-                  id="graphSearchInput"
-                  placeholder="Escribe la PO base o alguna extensión"
-                  autocomplete="off"
-                >
-                <button class="btn btn-outline-primary" type="submit" id="graphSearchSubmit">Buscar</button>
-              </div>
-              <p id="graphSearchFeedback" class="graph-search-feedback small text-muted mb-0 mt-1" aria-live="polite"></p>
-            </form>
-          </div>
           <div id="extensionsContainer" class="extensions-grid"></div>
         </div>
       </div>
       <div class="tab-pane fade" id="dashboard-charts" role="tabpanel" aria-labelledby="dashboard-tab-charts">
-        <div class="row g-3">
-          <div class="col-12">
-            <div class="card shadow-sm chart-card">
-              <div class="card-header bg-primary text-white">Remisiones por PO</div>
-              <div class="card-body">
-                <div class="chart-wrapper">
-                  <canvas id="chartRem"></canvas>
-                </div>
-                <div class="chart-metrics mt-2" id="chartRemMetrics"></div>
-              </div>
+        <div class="d-flex flex-column flex-xl-row gap-3 align-items-xl-end mb-3">
+          <form id="graphSearchForm" class="graph-search-form w-100 w-xl-auto" role="search">
+            <label for="graphSearchInput" class="form-label small text-uppercase text-muted fw-semibold mb-1">Buscar gr�fica por PO</label>
+            <div class="input-group input-group-sm">
+              <span class="input-group-text">PO</span>
+              <input
+                type="search"
+                class="form-control"
+                id="graphSearchInput"
+                placeholder="Escribe la PO base o alguna extensi�n"
+                autocomplete="off"
+              >
+              <button class="btn btn-outline-primary" type="submit" id="graphSearchSubmit">Buscar</button>
             </div>
-          </div>
-          <div class="col-12">
-            <div class="card shadow-sm chart-card">
-              <div class="card-header bg-warning text-dark">Facturas por PO</div>
-              <div class="card-body">
-                <div class="chart-wrapper">
-                  <canvas id="chartFac"></canvas>
-                </div>
-                <div class="chart-metrics mt-2" id="chartFacMetrics"></div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12">
-            <div class="card shadow-sm chart-card">
-              <div class="card-header bg-success text-white">Consumo vs Disponible (%)</div>
-              <div class="card-body">
-                <div class="chart-wrapper">
-                  <canvas id="chartJunto"></canvas>
-                </div>
-                <div class="chart-metrics mt-2" id="chartStackMetrics"></div>
-              </div>
-            </div>
-          </div>
+            <p id="graphSearchFeedback" class="graph-search-feedback small text-muted mb-0 mt-1" aria-live="polite"></p>
+          </form>
         </div>
+        <div id="poChartsContainer" class="row g-3"></div>
       </div>
       <div class="tab-pane fade" id="dashboard-detail" role="tabpanel" aria-labelledby="dashboard-tab-detail">
         <div class="card shadow-sm table-section-card">

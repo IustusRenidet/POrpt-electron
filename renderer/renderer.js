@@ -47,7 +47,6 @@ const OVERVIEW_SEARCH_HINT_MESSAGE = '';
 const OVERVIEW_SEARCH_EMPTY_MESSAGE = '';
 const OVERVIEW_SEARCH_HIGHLIGHT_MS = 4500;
 const OVERVIEW_RENDER_BATCH_SIZE = 300;
-const CHART_MAX_ENTRIES = 180;
 
 const state = {
   empresas: [],
@@ -3405,12 +3404,10 @@ function attachTableHandlers(summary) {
 
 function renderCharts(summary) {
   destroyCharts();
-  ['chartRem', 'chartFac', 'chartJunto'].forEach(id => {
-    const canvas = document.getElementById(id);
-    if (canvas) {
-      resetChartCanvas(canvas);
-    }
-  });
+  const chartsContainer = document.getElementById('poChartsContainer');
+  if (chartsContainer) {
+    chartsContainer.innerHTML = '';
+  }
   const items = Array.isArray(summary.items) ? summary.items : [];
   const groups = buildPoGroups(items, summary.selectionDetails);
   const extensionContainer = document.getElementById('extensionsContainer');
@@ -3419,427 +3416,106 @@ function renderCharts(summary) {
     if (extensionContainer) {
       extensionContainer.innerHTML = '<p class="text-muted">Sin información suficiente para graficar esta selección.</p>';
     }
+    if (chartsContainer) {
+      chartsContainer.innerHTML = '<div class="col-12"><div class="card shadow-sm chart-card"><div class="card-body text-center text-muted">No hay datos para graficar.</div></div></div>';
+    }
     showGraphSearchEmptyState();
     return;
   }
   updateGraphSearchFeedback(GRAPH_SEARCH_HINT_MESSAGE, 'muted');
 
-  const totals = getTotalsWithDefaults(summary.totals);
-  const total = normalizeNumber(totals.total);
-  const totalRem = normalizeNumber(totals.totalRem);
-  const totalFac = normalizeNumber(totals.totalFac);
-  const restante = totals.restante != null
-    ? normalizeNumber(totals.restante)
-    : Math.max(total - totalFac, 0);
-  const aggregatedTotals = {
-    total,
-    totalRem,
-    totalFac,
-    restante,
-    totalConsumo: roundTo(totalFac)
-  };
-  const aggregatedPercentages = computePercentagesFromTotals(aggregatedTotals);
-  const combinedScaleBase = aggregatedTotals.total > 0
-    ? aggregatedTotals.total
-    : Math.max(roundTo(aggregatedTotals.totalFac), 0);
-  const percentageBase = combinedScaleBase > 0 ? combinedScaleBase : 1;
-
   const chartEntries = groups.map(group => {
-    const variantCount = group.ids.length;
     const extensionIds = Array.isArray(group.extensionIds) ? group.extensionIds : [];
     const extensionCount = extensionIds.length;
     const suffix = extensionCount > 0 ? ` (base + ${extensionCount} ext.)` : '';
     return {
       id: group.baseId,
       label: `PO ${group.baseId}${suffix}`,
-      shortLabel: extensionCount > 0 ? `${group.baseId} (+${extensionCount})` : group.baseId,
-      variantCount,
-      variantIds: group.ids,
-      extensionIds,
-      totals: group.totals,
-      percentages: group.percentages,
-      globalPercentages: computeGlobalPercentages(group.totals, percentageBase),
-      items: Array.isArray(group.items) ? group.items : []
+      totals: group.totals
     };
   });
 
-  const topRemEntry = chartEntries.reduce((acc, entry) => (
-    !acc || entry.totals.totalRem > acc.totals.totalRem ? entry : acc
-  ), null);
-  const topFacEntry = chartEntries.reduce((acc, entry) => (
-    !acc || entry.totals.totalFac > acc.totals.totalFac ? entry : acc
-  ), null);
-
-  const mainMetrics = [
-    {
-      containerId: 'chartRemMetrics',
-      rows: [
-        {
-          label: 'Remisiones acumuladas',
-          className: 'metric-rem',
-          amount: aggregatedTotals.totalRem,
-          percentage: aggregatedPercentages.rem
-        },
-        topRemEntry
-          ? {
-            label: `Mayor consumo: ${escapeHtml(topRemEntry.label)}`,
-            className: 'text-muted',
-            amount: topRemEntry.totals.totalRem,
-            percentage: aggregatedTotals.totalRem > 0
-              ? clampPercentage((topRemEntry.totals.totalRem / aggregatedTotals.totalRem) * 100, 2, 100)
-              : 0
-          }
-          : null
-      ].filter(Boolean)
-    },
-    {
-      containerId: 'chartFacMetrics',
-      rows: [
-        {
-          label: 'Facturas acumuladas',
-          className: 'metric-fac',
-          amount: aggregatedTotals.totalFac,
-          percentage: aggregatedPercentages.fac
-        },
-        topFacEntry
-          ? {
-            label: `Mayor consumo: ${escapeHtml(topFacEntry.label)}`,
-            className: 'text-muted',
-            amount: topFacEntry.totals.totalFac,
-            percentage: aggregatedTotals.totalFac > 0
-              ? clampPercentage((topFacEntry.totals.totalFac / aggregatedTotals.totalFac) * 100, 2, 100)
-              : 0
-          }
-          : null
-      ].filter(Boolean)
-    },
-    {
-      containerId: 'chartStackMetrics',
-      rows: [
-        {
-          label: 'Consumido (solo facturas)',
-          className: 'metric-rem',
-          amount: aggregatedTotals.totalFac,
-          percentage: aggregatedPercentages.fac
-        },
-        {
-          label: 'Disponible',
-          className: 'metric-rest',
-          amount: aggregatedTotals.restante,
-          percentage: aggregatedPercentages.rest
-        }
-      ]
-    }
-  ];
-
-  mainMetrics.forEach(definition => {
-    const container = document.getElementById(definition.containerId);
-    if (!container) return;
-    container.innerHTML = definition.rows
-      .map(row => `
-        <div class="metric-row">
-          <span class="metric-label ${row.className}">${row.label}</span>
-          <span>$${formatCurrency(row.amount)} · ${formatPercentageLabel(row.percentage)}</span>
-        </div>
-      `)
-      .join('');
-  });
-
-const displayLabels = chartEntries.map(entry => wrapChartLabel(entry.label));
-  const ctxRem = document.getElementById('chartRem');
-  const ctxFac = document.getElementById('chartFac');
-  const ctxStack = document.getElementById('chartJunto');
-
-  if (chartEntries.length > CHART_MAX_ENTRIES) {
-    [ctxRem, ctxFac, ctxStack].forEach(canvas => {
-      const card = canvas?.closest('.chart-card');
-      if (card) {
-        card.querySelector('.chart-wrapper')?.classList.add('d-none');
-        const note = document.createElement('div');
-        note.className = 'text-muted small';
-        note.textContent = `Gráficas omitidas por volumen (${chartEntries.length} POs). Filtra para verlas.`;
-        card.appendChild(note);
-      }
-    });
-    state.charts.clear();
-    return;
-  }
-
-  const dynamicHeight = computeResponsiveChartHeight(chartEntries.length);
-  const barThickness = computeBarThickness(chartEntries.length);
-  const axisTickFontSize = chartEntries.length > 28 ? 10 : chartEntries.length > 18 ? 11 : 12;
-
-  const barChartsMeta = [
-    { canvas: ctxRem, key: 'rem', amountKey: 'totalRem', label: 'Remisiones', color: CHART_COLORS.rem },
-    { canvas: ctxFac, key: 'fac', amountKey: 'totalFac', label: 'Facturas', color: CHART_COLORS.fac }
-  ];
-
-  barChartsMeta.forEach(meta => {
-    if (!meta.canvas) return;
-    const wrapper = meta.canvas.closest('.chart-wrapper');
-    if (wrapper) {
-      wrapper.style.minHeight = `${dynamicHeight}px`;
-      wrapper.style.maxHeight = `${dynamicHeight}px`;
-      wrapper.style.height = `${dynamicHeight}px`;
-    }
-    meta.canvas.height = dynamicHeight;
-    meta.canvas.style.height = `${dynamicHeight}px`;
-    const totalsData = chartEntries.map(entry => entry.totals.total || 0);
-    const consumptionData = chartEntries.map(entry => entry.totals[meta.amountKey] || 0);
-    const maxValue = Math.max(...totalsData, ...consumptionData, 0);
-    const axisMax = Math.max(1, Math.ceil(maxValue / 1000) * 1000);
-    const datasets = [
-      {
-        label: 'Total autorizado',
-        data: totalsData,
-        backgroundColor: '#94a3b8',
-        borderRadius: 10,
-        maxBarThickness: barThickness,
-        barThickness: barThickness
+  const createDonut = (canvas, amount, total, label, color) => {
+    const restante = Math.max(total - amount, 0);
+    return new Chart(canvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: [label, 'Restante'],
+        datasets: [{
+          data: [amount, restante],
+          backgroundColor: [color, '#e2e8f0'],
+          borderWidth: 1
+        }]
       },
-      {
-        label: meta.label,
-        data: consumptionData,
-        backgroundColor: meta.color,
-        borderRadius: 10,
-        maxBarThickness: barThickness,
-        barThickness: barThickness
-      }
-    ];
-    const chart = new Chart(meta.canvas.getContext('2d'), {
-      type: 'bar',
-      data: { labels: displayLabels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        indexAxis: 'y',
-        animation: { duration: 400 },
-        layout: { padding: { top: 12, right: 16, bottom: 12, left: 8 } },
+        cutout: '55%',
         plugins: {
-          legend: {
-            position: 'bottom',
-            labels: { usePointStyle: true, padding: 16 }
-          },
+          legend: { position: 'bottom' },
           tooltip: {
             callbacks: {
-              title(context) {
-                return chartEntries[context[0].dataIndex].label;
-              },
               label(context) {
-                const entry = chartEntries[context.dataIndex];
-                const label = context.dataset.label || meta.label;
-                const amount = label === 'Total autorizado' ? entry.totals.total : entry.totals[meta.amountKey];
-                const ratio = entry.totals.total > 0 ? (amount / entry.totals.total) * 100 : 0;
-                return `${label}: $${formatCurrency(amount)} (${formatPercentageLabel(ratio)})`;
+                const value = context.parsed ?? 0;
+                const perc = total > 0 ? (value / total) * 100 : 0;
+                return `${context.label}: $${formatCurrency(value)} (${formatPercentageLabel(perc)})`;
               }
             }
-          }
-        },
-        scales: {
-          x: {
-            beginAtZero: true,
-            max: axisMax,
-            grid: { color: 'rgba(148, 163, 184, 0.25)', borderDash: [4, 4] },
-            ticks: {
-              color: '#475569',
-              callback: value => `$${formatCurrency(value)}`
-            }
-          },
-          y: {
-            grid: { display: false },
-            ticks: { color: '#475569', autoSkip: false, font: { size: axisTickFontSize, lineHeight: 1.1 } }
           }
         }
       }
     });
-    state.charts.set(meta.key, chart);
-  });
+  };
 
-  if (ctxStack) {
-    const card = ctxStack.closest('.chart-card');
-    if (card) {
-      card.classList.add('d-none');
-    }
-  }
-
-
-  if (extensionContainer) {
-    const donutMeta = [
-      { label: 'Remisiones', amountKey: 'totalRem', percKey: 'rem', color: CHART_COLORS.rem, labelClass: 'metric-rem' },
-      { label: 'Facturas', amountKey: 'totalFac', percKey: 'fac', color: CHART_COLORS.fac, labelClass: 'metric-fac' },
-      { label: 'Disponible', amountKey: 'restante', percKey: 'rest', color: CHART_COLORS.rest, labelClass: 'metric-rest' }
-    ];
-    extensionContainer.innerHTML = '';
-    chartEntries.forEach((entry, index) => {
-      const card = document.createElement('article');
-      card.className = 'card h-100 shadow-sm chart-card';
-      const variantIds = Array.isArray(entry.variantIds) ? entry.variantIds : [];
-      const itemIds = Array.isArray(entry.items) ? entry.items.map(item => item.id).filter(Boolean) : [];
-      const searchTerms = [
-        entry.label,
-        entry.shortLabel,
-        entry.id,
-        ...variantIds,
-        ...entry.extensionIds,
-        ...itemIds
-      ].filter(Boolean);
-      card.dataset.poLabel = entry.label;
-      card.dataset.poSearch = searchTerms.join(' ');
-      const extensionCount = entry.extensionIds.length;
-      const variantBadge = extensionCount === 0
-        ? 'Solo base'
-        : `Conjunto (${entry.variantCount} variantes)`;
-      const donutHeight = Math.min(320, Math.max(220, 180 + Math.max(entry.variantCount - 1, 0) * 22));
-      const badgeListMarkup = buildGroupBadgeList(entry.id, entry.extensionIds);
-      const compositionNote = buildGroupCompositionNote(entry.extensionIds);
-      const breakdownRows = entry.items
-        .map(item => {
-          const badge = item.isBase
-            ? '<span class="badge text-bg-secondary ms-2">Base</span>'
-            : '<span class="badge text-bg-info ms-2">Extensión</span>';
-          return `
-            <tr>
-              <td>
-                <span class="fw-semibold">${escapeHtml(item.id)}</span>
-                ${badge}
-              </td>
-              <td class="text-end">
-                <span class="table-amount">$${formatCurrency(item.totals.total)}</span>
-              </td>
-              <td class="text-end">
-                <span class="table-amount">$${formatCurrency(item.totals.totalRem)}</span>
-                <span class="table-meta">${formatPercentageLabel(item.percentages.rem)}</span>
-              </td>
-              <td class="text-end">
-                <span class="table-amount">$${formatCurrency(item.totals.totalFac)}</span>
-                <span class="table-meta">${formatPercentageLabel(item.percentages.fac)}</span>
-              </td>
-              <td class="text-end">
-                <span class="table-amount">$${formatCurrency(item.totals.restante)}</span>
-                <span class="table-meta">${formatPercentageLabel(item.percentages.rest)}</span>
-              </td>
-            </tr>
-          `;
-        })
-        .join('');
-      const breakdownTable = breakdownRows
-        ? `
-          <div class="group-breakdown mt-3">
-            <h6 class="text-secondary">Desglose por PO</h6>
-            <div class="table-responsive">
-              <table class="table table-sm align-middle mb-0 group-breakdown-table table-modern table-modern-compact">
-                <thead>
-                  <tr>
-                    <th scope="col">PO</th>
-                    <th scope="col">
-                      <span class="table-heading-title">Total autorizado</span>
-                    </th>
-                    <th scope="col">
-                      <span class="table-heading-title">Remisiones</span>
-                    </th>
-                    <th scope="col">
-                      <span class="table-heading-title">Facturas</span>
-                    </th>
-                    <th scope="col">
-                      <span class="table-heading-title">Disponible</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${breakdownRows}
-                </tbody>
-              </table>
-            </div>
+  if (chartsContainer) {
+    const fragment = document.createDocumentFragment();
+    chartEntries.forEach(entry => {
+      const total = Math.max(0, Number(entry.totals.total || 0));
+      const totalRem = Math.max(0, Number(entry.totals.totalRem || 0));
+      const totalFac = Math.max(0, Number(entry.totals.totalFac || 0));
+      const safeId = entry.id.replace(/[^a-zA-Z0-9_-]/g, '-');
+      const remId = `chart-rem-${safeId}`;
+      const facId = `chart-fac-${safeId}`;
+      const col = document.createElement('div');
+      col.className = 'col-12 col-lg-6';
+      col.innerHTML = `
+        <div class="card shadow-sm chart-card h-100">
+          <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">${escapeHtml(entry.label)}</span>
+            <span class="badge text-bg-secondary">Total $${formatCurrency(total)}</span>
           </div>
-        `
-        : '';
-      card.innerHTML = `
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-start gap-3">
-            <div>
-              <h5 class="card-title mb-1">${escapeHtml(entry.label)}</h5>
-              <p class="small text-muted mb-0">Autorizado: $${formatCurrency(entry.totals.total)}</p>
-            </div>
-            <span class="badge text-bg-light text-dark">${escapeHtml(variantBadge)}</span>
-          </div>
-          <div class="extension-group-summary mt-2">${badgeListMarkup}</div>
-          <p class="extension-group-note mb-0">${escapeHtml(compositionNote)}</p>
-          <div class="chart-wrapper mt-2" style="min-height: ${donutHeight}px; height: ${donutHeight}px; max-height: ${donutHeight}px">
-            <canvas id="extChart-${index}"></canvas>
-          </div>
-          <div class="chart-metrics mt-2">
-            ${donutMeta
-          .map(meta => `
-                <div class="metric-row">
-                  <span class="metric-label ${meta.labelClass}">${meta.label}</span>
-                  <span>$${formatCurrency(entry.totals[meta.amountKey])} · ${formatPercentageLabel(entry.percentages[meta.percKey])}</span>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-12 col-md-6">
+                <div class="chart-wrapper" style="min-height:220px">
+                  <canvas id="${remId}" aria-label="Total vs Remisiones ${escapeHtml(entry.id)}"></canvas>
                 </div>
-              `)
-          .join('')}
+              </div>
+              <div class="col-12 col-md-6">
+                <div class="chart-wrapper" style="min-height:220px">
+                  <canvas id="${facId}" aria-label="Total vs Facturas ${escapeHtml(entry.id)}"></canvas>
+                </div>
+              </div>
+            </div>
           </div>
-          ${breakdownTable}
         </div>
       `;
-      extensionContainer.appendChild(card);
-      const canvas = card.querySelector('canvas');
-      const wrapper = canvas?.closest('.chart-wrapper');
-      if (wrapper) {
-        wrapper.style.minHeight = `${donutHeight}px`;
-        wrapper.style.height = `${donutHeight}px`;
-        wrapper.style.maxHeight = `${donutHeight}px`;
-      }
-      canvas.height = donutHeight;
-      canvas.style.height = `${donutHeight}px`;
-      canvas.style.maxHeight = `${donutHeight}px`;
-      const dataset = {
-        data: donutMeta.map(meta => entry.totals[meta.amountKey]),
-        backgroundColor: donutMeta.map(meta => meta.color),
-        hoverOffset: 8,
-        metaInfo: donutMeta.map(meta => ({
-          label: meta.label,
-          amount: entry.totals[meta.amountKey],
-          percentage: entry.percentages[meta.percKey]
-        }))
-      };
-      const chart = new Chart(canvas.getContext('2d'), {
-        type: 'doughnut',
-        data: {
-          labels: donutMeta.map(meta => meta.label),
-          datasets: [dataset]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          cutout: '60%',
-          layout: { padding: 6 },
-          plugins: {
-            legend: {
-              position: 'bottom',
-              labels: { usePointStyle: true, padding: 16 }
-            },
-            tooltip: {
-              callbacks: {
-                title() {
-                  return entry.label;
-                },
-                label(context) {
-                  const info = dataset.metaInfo?.[context.dataIndex];
-                  if (info) {
-                    return `${info.label}: $${formatCurrency(info.amount)} (${formatPercentageLabel(info.percentage)})`;
-                  }
-                  const totalValue = dataset.data.reduce((sum, value) => sum + value, 0);
-                  const percentage = totalValue > 0 ? (context.parsed / totalValue) * 100 : 0;
-                  return `${context.label}: $${formatCurrency(context.parsed)} (${formatPercentageLabel(percentage)})`;
-                }
-              }
-            }
-          }
+      fragment.appendChild(col);
+      setTimeout(() => {
+        const remCanvas = document.getElementById(remId);
+        const facCanvas = document.getElementById(facId);
+        if (remCanvas) {
+          state.charts.set(remId, createDonut(remCanvas, totalRem, total, 'Remisiones', CHART_COLORS.rem));
         }
-      });
-      state.charts.set(`ext-${index}`, chart);
+        if (facCanvas) {
+          state.charts.set(facId, createDonut(facCanvas, totalFac, total, 'Facturas', CHART_COLORS.fac));
+        }
+      }, 0);
     });
+    chartsContainer.appendChild(fragment);
   }
 }
+
 
 function getGraphCardElements() {
   const container = document.getElementById('extensionsContainer');

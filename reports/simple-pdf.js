@@ -1039,7 +1039,7 @@ function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
   const { x: startX, width } = clampHorizontalRect(bounds, bounds.left, requestedWidth);
   const barHeight = options.barHeight || 26;
   const title = options.title || 'Consumo combinado';
-  ensureSpace(doc, barHeight + 130);
+  ensureSpace(doc, barHeight + 80);
   doc
     .font('Helvetica-Bold')
     .fontSize(14)
