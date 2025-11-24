@@ -3707,19 +3707,15 @@ function renderCharts(summary) {
                     <th scope="col">PO</th>
                     <th scope="col">
                       <span class="table-heading-title">Total autorizado</span>
-                      <span class="table-heading-sub">Monto aprobado</span>
                     </th>
                     <th scope="col">
                       <span class="table-heading-title">Remisiones</span>
-                      <span class="table-heading-sub">Monto · % consumo</span>
                     </th>
                     <th scope="col">
                       <span class="table-heading-title">Facturas</span>
-                      <span class="table-heading-sub">Monto · % consumo</span>
                     </th>
                     <th scope="col">
                       <span class="table-heading-title">Disponible</span>
-                      <span class="table-heading-sub">Saldo restante</span>
                     </th>
                   </tr>
                 </thead>
