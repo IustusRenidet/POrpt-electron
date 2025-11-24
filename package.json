@@ -21,7 +21,8 @@
     "node-firebird": "^0.8.9",
     "pdfkit": "^0.13.0",
     "sqlite3": "^5.1.7",
-    "svg-to-pdfkit": "^0.1.8"
+    "svg-to-pdfkit": "^0.1.8",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@electron-forge/publisher-github": "^7.10.0",

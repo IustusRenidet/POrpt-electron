@@ -194,6 +194,47 @@ const baseOptions = {
   charset: getEnvVar('FB_CHARSET', 'ISO8859_1')
 };
 
+function normalizeEmpresasFromDirs(dirs = []) {
+  return dirs
+    .filter(dir => dir.match(/^Empresa\d+$/))
+    .sort((a, b) => parseInt(a.replace('Empresa', ''), 10) - parseInt(b.replace('Empresa', ''), 10));
+}
+
+async function listEmpresasSafely() {
+  try {
+    const dirs = await fs.promises.readdir(baseDir);
+    const empresas = normalizeEmpresasFromDirs(dirs);
+    const warning = empresas.length === 0
+      ? `No se encontraron carpetas de empresa en la ruta configurada (${baseDir}).`
+      : null;
+    return { empresas, warning };
+  } catch (err) {
+    console.error('Error listando empresas:', err);
+    return {
+      empresas: [],
+      warning: `No se pudieron listar empresas en la ruta configurada (${baseDir}): ${err.message}`
+    };
+  }
+}
+
+function resolveAvailableFormats(settings) {
+  const configured = Array.isArray(settings?.export?.availableFormats)
+    ? settings.export.availableFormats.filter(format => ALLOWED_FORMATS.includes(format))
+    : [];
+  const unique = Array.from(new Set(['pdf', ...configured]));
+  return unique.length ? unique : ['pdf'];
+}
+
+function pickFormat(requestedFormat, settings) {
+  const availableFormats = resolveAvailableFormats(settings);
+  const normalizedRequestFormat = typeof requestedFormat === 'string' ? requestedFormat.toLowerCase() : '';
+  const defaultFormat = availableFormats.includes(settings?.export?.defaultFormat)
+    ? settings.export.defaultFormat
+    : availableFormats[0];
+  const format = availableFormats.includes(normalizedRequestFormat) ? normalizedRequestFormat : defaultFormat;
+  return { format, availableFormats };
+}
+
 function queryWithTimeout(target, sql, params = [], timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Timeout en consulta')), timeoutMs);
@@ -238,51 +279,60 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(runtimeBaseDir, 'renderer', 'index.html'));
 });
 
+
+
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
-    return res.status(400).json({ success: false, message: 'Usuario y contraseña son obligatorios' });
+    return res.status(400).json({ success: false, message: 'Usuario y contrasena son obligatorios' });
   }
   try {
     const user = await getAsync(sqliteDb, 'SELECT * FROM usuarios WHERE usuario = ?', [username]);
     if (!user) {
-      return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
+      return res.status(401).json({ success: false, message: 'Credenciales invalidas' });
     }
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
-      return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
+      return res.status(401).json({ success: false, message: 'Credenciales invalidas' });
     }
     let empresas = [];
+    const warnings = [];
     const isAdmin = user.usuario === 'admin' || user.empresas === '*';
     if (isAdmin) {
-      try {
-        const dirs = await fs.promises.readdir(baseDir);
-        empresas = dirs
-          .filter(dir => dir.match(/^Empresa\d+$/))
-          .sort((a, b) => parseInt(a.replace('Empresa', '')) - parseInt(b.replace('Empresa', '')));
-      } catch (e) {
-        return res.status(500).json({ success: false, message: 'Error listando empresas: ' + e.message });
+      const result = await listEmpresasSafely();
+      empresas = result.empresas;
+      if (result.warning) {
+        warnings.push(result.warning);
       }
     } else {
       try {
-        empresas = user.empresas ? JSON.parse(user.empresas) : [];
-        if (Array.isArray(empresas) && empresas.includes('*')) {
-          const dirs = await fs.promises.readdir(baseDir);
-          empresas = dirs
-            .filter(dir => dir.match(/^Empresa\d+$/))
-            .sort((a, b) => parseInt(a.replace('Empresa', '')) - parseInt(b.replace('Empresa', '')));
+        if (user.empresas === '*') {
+          const result = await listEmpresasSafely();
+          empresas = result.empresas;
+          if (result.warning) {
+            warnings.push(result.warning);
+          }
+        } else {
+          empresas = user.empresas ? JSON.parse(user.empresas) : [];
         }
-      } catch {
+      } catch (err) {
+        console.warn('No se pudo interpretar el listado de empresas asignadas al usuario:', err.message);
         empresas = [];
+        warnings.push('No se pudo leer el listado de empresas asignadas. Ajusta el perfil y vuelve a intentar.');
       }
     }
-    res.json({ success: true, message: 'Login exitoso', empresas, isAdmin });
+    if (!Array.isArray(empresas)) {
+      empresas = [];
+    }
+    if (empresas.length === 0 && warnings.length === 0) {
+      warnings.push('No se encontraron empresas disponibles para este usuario en la ruta configurada.');
+    }
+    res.json({ success: true, message: 'Login exitoso', empresas, isAdmin, warnings });
   } catch (err) {
     console.error('Error consultando usuario:', err);
     res.status(500).json({ success: false, message: 'Error consultando usuario' });
   }
 });
-
 app.get('/users', async (req, res) => {
   if (!isAdminRequest(req)) {
     return res.status(403).json({ success: false, message: 'Acceso restringido a administradores' });
@@ -373,19 +423,8 @@ app.delete('/users/:id', async (req, res) => {
 });
 
 app.get('/empresas', async (req, res) => {
-  try {
-    const dirs = await fs.promises.readdir(baseDir);
-    const empresas = dirs
-      .filter(dir => dir.match(/^Empresa\d+$/))
-      .sort((a, b) => parseInt(a.replace('Empresa', '')) - parseInt(b.replace('Empresa', '')));
-    if (empresas.length === 0) {
-      return res.status(404).json({ success: false, message: 'No se encontraron empresas' });
-    }
-    res.json({ success: true, empresas });
-  } catch (err) {
-    console.error('Error listando empresas:', err);
-    res.status(500).json({ success: false, message: 'Error listando empresas: ' + err.message });
-  }
+  const result = await listEmpresasSafely();
+  res.json({ success: true, empresas: result.empresas, warning: result.warning });
 });
 
 function getDatabasePaths(empresa) {
@@ -445,7 +484,7 @@ function buildAlert(message, type = 'info') {
 }
 
 function calculateTotals(total, totalRem, totalFac) {
-  const consumo = totalRem + totalFac;
+  const consumo = totalFac;
   const restante = Math.max(total - consumo, 0);
   const porcRem = total > 0 ? (totalRem / total) * 100 : 0;
   const porcFac = total > 0 ? (totalFac / total) * 100 : 0;
@@ -1402,20 +1441,6 @@ async function getPoSummary(empresa, poId, options = {}) {
       `Facturas: $${totals.totalFac.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcFac.toFixed(2)}%)\n` +
       `Restante: $${totals.restante.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${totals.porcRest.toFixed(2)}%)`;
     const alerts = items.flatMap(item => item.alerts);
-    if (totals.total > 0) {
-      const ratio = totals.totalConsumo / totals.total;
-      const fullyConsumed = isFullyConsumed(totals);
-      if (fullyConsumed) {
-        alerts.push(buildAlert(`Los recursos del grupo ${baseId} están consumidos al 100%`, 'critica'));
-      } else if (ratio >= 0.9) {
-        alerts.push(
-          buildAlert(
-            `El consumo total del grupo ${baseId} supera el 90% (${(ratio * 100).toFixed(2)}%)`,
-            'alerta'
-          )
-        );
-      }
-    }
     const alertasTexto = alerts.length
       ? alerts.map(alerta => `[${alerta.type.toUpperCase()}] ${alerta.message}`).join('\n')
       : 'Sin alertas generales';
@@ -2133,9 +2158,7 @@ app.post('/report-universe', async (req, res) => {
     if (settings.branding?.companyName) {
       summary.companyName = settings.branding.companyName;
     }
-    const normalizedRequestFormat = typeof requestedFormat === 'string' ? requestedFormat.toLowerCase() : '';
-    const allowedFormats = ['pdf', 'csv', 'json'];
-    const format = allowedFormats.includes(normalizedRequestFormat) ? normalizedRequestFormat : 'pdf';
+    const { format } = pickFormat(requestedFormat, settings);
     const branding = settings.branding || {};
     const rawLabel = summary.universe?.shortLabel || 'global';
     const sanitized = rawLabel.replace(/[^0-9a-zA-Z_-]+/gu, '-');
@@ -2159,6 +2182,20 @@ app.post('/report-universe', async (req, res) => {
       res.set('Content-Type', 'application/json');
       res.set('Content-Disposition', `attachment; filename=${filenameBase}.json`);
       return res.send(buffer);
+    }
+
+    if (format === 'xlsx') {
+      try {
+        const buffer = exporters.createXlsx(summary, { customization });
+        res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.set('Content-Disposition', `attachment; filename=${filenameBase}.xlsx`);
+        return res.send(buffer);
+      } catch (err) {
+        const message = err.code === 'XLSX_UNAVAILABLE'
+          ? exporters.getXlsxUnavailableMessage()
+          : err.message;
+        return res.status(503).json({ success: false, message });
+      }
     }
 
     if (!simplePdf.isAvailable()) {
@@ -2200,17 +2237,7 @@ app.post('/report', async (req, res) => {
     const engine = ALLOWED_ENGINES.includes(requestedEngine)
       ? requestedEngine
       : (ALLOWED_ENGINES.includes(settings.defaultEngine) ? settings.defaultEngine : 'simple-pdf');
-    const availableFormats = Array.isArray(settings.export?.availableFormats)
-      ? settings.export.availableFormats.filter(item => ALLOWED_FORMATS.includes(item))
-      : ['pdf'];
-    if (!availableFormats.includes('pdf')) {
-      availableFormats.unshift('pdf');
-    }
-    const normalizedRequestFormat = typeof requestedFormat === 'string' ? requestedFormat.toLowerCase() : '';
-    const defaultFormat = availableFormats.includes(settings.export?.defaultFormat)
-      ? settings.export.defaultFormat
-      : 'pdf';
-    const format = availableFormats.includes(normalizedRequestFormat) ? normalizedRequestFormat : defaultFormat;
+    const { format, availableFormats } = pickFormat(requestedFormat, settings);
     const filenameBase = summary.selectedIds && summary.selectedIds.length
       ? summary.selectedIds.join('_')
       : summary.baseId || 'reporte';
@@ -2232,6 +2259,20 @@ app.post('/report', async (req, res) => {
       res.set('Content-Type', 'application/json');
       res.set('Content-Disposition', `attachment; filename=${filenameBase}.json`);
       return res.send(buffer);
+    }
+
+    if (format === 'xlsx') {
+      try {
+        const buffer = exporters.createXlsx(summary, { customization });
+        res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.set('Content-Disposition', `attachment; filename=${filenameBase}.xlsx`);
+        return res.send(buffer);
+      } catch (err) {
+        const message = err.code === 'XLSX_UNAVAILABLE'
+          ? exporters.getXlsxUnavailableMessage()
+          : err.message;
+        return res.status(503).json({ success: false, message });
+      }
     }
 
     if (!simplePdf.isAvailable()) {

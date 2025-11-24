@@ -57,6 +57,7 @@ const state = {
   charts: new Map(),
   summary: null,
   users: [],
+  empresasWarningShown: false,
   reportSettings: null,
   reportEngines: [],
   selectedEngine: '',
@@ -119,7 +120,7 @@ const ALERT_SETTINGS = {
 };
 
 const alertRegistry = new Map();
-const ALERT_UI_ENABLED = false;
+const ALERT_UI_ENABLED = true;
 
 function mapAlertType(type) {
   return ALERT_TYPE_CLASS[type] || 'info';
@@ -136,6 +137,11 @@ function pruneAlertHistory(message, timestamp) {
 
 function showAlert(message, type = 'info', delay = ALERT_SETTINGS.autoHideMs) {
   const normalizedMessage = typeof message === 'string' ? message.trim() : String(message ?? '');
+  // Reducimos ruido: solo mostramos alertas de error/advertencia en UI; info/éxito se van a consola.
+  if (['info', 'success'].includes(type)) {
+    console[type === 'success' ? 'log' : 'info'](normalizedMessage);
+    return;
+  }
   if (!ALERT_UI_ENABLED) {
     const logger = type === 'danger' ? console.error : type === 'warning' ? console.warn : console.log;
     logger(normalizedMessage);
@@ -915,7 +921,7 @@ function getTotalsWithDefaults(totals) {
   const total = normalizeNumber(raw.total);
   const totalRem = Math.max(0, normalizeNumber(raw.totalRem));
   const totalFac = Math.max(0, normalizeNumber(raw.totalFac));
-  const computedConsumo = roundTo(totalRem + totalFac);
+  const computedConsumo = roundTo(totalFac);
   const providedConsumo = raw.totalConsumo != null ? Math.max(0, normalizeNumber(raw.totalConsumo)) : undefined;
   const totalConsumo = providedConsumo != null ? Math.max(providedConsumo, computedConsumo) : computedConsumo;
   const restanteFallback = roundTo(total - totalConsumo);
@@ -1002,12 +1008,12 @@ function buildPoGroups(items = [], selectionDetails = []) {
     const totalFac = normalizeNumber(totals.totalFac);
     const restante = totals.restante != null
       ? normalizeNumber(totals.restante)
-      : Math.max(baseTotal - (totalRem + totalFac), 0);
+      : Math.max(baseTotal - totalFac, 0);
     const normalizedTotals = {
       total: roundTo(baseTotal),
       totalRem: roundTo(totalRem),
       totalFac: roundTo(totalFac),
-      totalConsumo: roundTo(totalRem + totalFac),
+      totalConsumo: roundTo(totalFac),
       restante: roundTo(restante)
     };
     const percentages = computePercentagesFromTotals(normalizedTotals);
@@ -1080,7 +1086,7 @@ function buildPoGroups(items = [], selectionDetails = []) {
       const extensionIds = orderedVariants.filter(id => id !== group.baseId);
       const totalRem = Array.from(group.remisiones.values()).reduce((sum, entry) => sum + entry.monto, 0) + group.remFallback;
       const totalFac = Array.from(group.facturas.values()).reduce((sum, entry) => sum + entry.monto, 0) + group.facFallback;
-      const totalConsumo = totalRem + totalFac;
+      const totalConsumo = totalFac;
       const restante = Math.max(group.total - totalConsumo, 0);
       const totals = {
         total: roundTo(group.total),
@@ -1156,13 +1162,15 @@ const CHART_COLORS = {
 
 const FORMAT_LABEL_MAP = {
   pdf: 'PDF (predeterminado)',
-  csv: 'CSV (hoja de cálculo)',
+  xlsx: 'Excel (.xlsx)',
+  csv: 'CSV (hoja de calculo)',
   json: 'JSON (datos crudos)'
 };
 
 const FORMAT_DESCRIPTION_MAP = {
-  csv: 'Ideal para abrir en Excel u hojas de cálculo.',
-  json: 'Incluye toda la información del resumen en formato estructurado.'
+  csv: 'Ideal para abrir en Excel u hojas de calculo.',
+  xlsx: 'Archivo Excel con tablas y metadatos en hojas separadas.',
+  json: 'Incluye toda la informacion del resumen en formato estructurado.'
 };
 
 function getFormatLabel(format) {
@@ -1173,6 +1181,7 @@ function getFormatLabel(format) {
 function getFormatDescription(format) {
   return FORMAT_DESCRIPTION_MAP[format] || '';
 }
+
 
 async function login(event) {
   event?.preventDefault();
@@ -1208,20 +1217,30 @@ async function login(event) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
+    if (!response.ok) {
+      throw new Error(`No se pudo iniciar sesion (HTTP ${response.status})`);
+    }
     const data = await response.json();
     if (!data.success) {
-      showAlert(data.message || 'Credenciales inválidas', 'danger');
+      showAlert(data.message || 'Credenciales invalidas', 'danger');
       return;
+    }
+    const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
+    if (warnings.length) {
+      saveSession('porpt-login-warnings', warnings);
+    } else {
+      sessionStorage.removeItem('porpt-login-warnings');
     }
     saveSession('porpt-empresas', data.empresas || []);
     saveSession('porpt-is-admin', !!data.isAdmin);
-    showAlert('¡Bienvenido! Selecciona empresa y PO para ver el dashboard.', 'success');
+    showAlert('Bienvenido. Selecciona empresa y PO para ver el dashboard.', 'success');
     window.location.href = 'dashboard.html';
   } catch (error) {
     console.error('Error en login:', error);
-    showAlert('No fue posible iniciar sesión. Verifica la conexión.', 'danger');
+    showAlert(error?.message || 'No fue posible iniciar sesion. Verifica la conexion.', 'danger');
   }
 }
+
 
 function renderEmpresaOptions() {
   const select = document.getElementById('empresaSearch');
@@ -1341,6 +1360,13 @@ async function ensureEmpresasCatalog() {
     if (data.success) {
       state.empresas = data.empresas || [];
       saveSession('porpt-empresas', state.empresas);
+      if (data.warning && !state.empresasWarningShown) {
+        showAlert(data.warning, 'warning', 12000);
+        state.empresasWarningShown = true;
+      }
+    } else if (data.message && !state.empresasWarningShown) {
+      showAlert(data.message, 'warning', 12000);
+      state.empresasWarningShown = true;
     }
   } catch (error) {
     console.error('Error obteniendo empresas:', error);
@@ -2541,7 +2567,6 @@ function setupOverviewSearchEnhancements() {
     focusOverviewRowBySearch(input.value);
   });
 }
-}
 
 function getOverviewAlertInfo(item, context = {}) {
   const totals = context.totals || getTotalsWithDefaults(item?.totals);
@@ -2558,7 +2583,7 @@ function getOverviewAlertInfo(item, context = {}) {
     ? normalizeNumber(context.consumedAmount)
     : totals.totalConsumo != null
       ? normalizeNumber(totals.totalConsumo)
-      : roundTo(totalRem + totalFac);
+      : roundTo(totalFac);
 
   const hasBudget = totalAmount > 0;
   const tolerance = hasBudget ? Math.max(totalAmount * 0.0005, 0.01) : 0;
@@ -2704,7 +2729,7 @@ function renderOverviewTable() {
       const total = normalizeNumber(totals.total || item.total);
       const totalRem = normalizeNumber(totals.totalRem);
       const totalFac = normalizeNumber(totals.totalFac);
-      const consumido = totals.totalConsumo != null ? normalizeNumber(totals.totalConsumo) : roundTo(totalRem + totalFac);
+      const consumido = totals.totalConsumo != null ? normalizeNumber(totals.totalConsumo) : roundTo(totalFac);
       const restante = totals.restante != null ? normalizeNumber(totals.restante) : Math.max(total - consumido, 0);
       const remCount = Array.isArray(item.remisiones) ? item.remisiones.length : 0;
       const facCount = Array.isArray(item.facturas) ? item.facturas.length : 0;
@@ -2807,7 +2832,7 @@ function renderOverviewSummary() {
     badges.innerHTML = '';
     return;
   }
-  const consumido = roundTo(totalRem + totalFac);
+  const consumido = roundTo(totalFac);
   const disponible = Math.max(roundTo(total - consumido), 0);
   badges.innerHTML = `
     <span class="badge text-bg-primary-subtle text-primary-emphasis">Total $${formatCurrency(total)}</span>
@@ -3137,10 +3162,10 @@ function renderSummaryCards(summary) {
   const totalFac = normalizeNumber(rawTotals.totalFac);
   const restante = rawTotals.restante != null
     ? normalizeNumber(rawTotals.restante)
-    : Math.max(total - (totalRem + totalFac), 0);
+    : Math.max(total - totalFac, 0);
   const totalConsumo = rawTotals.totalConsumo != null
     ? normalizeNumber(rawTotals.totalConsumo)
-    : roundTo(totalRem + totalFac);
+    : roundTo(totalFac);
   const totals = {
     ...rawTotals,
     total,
@@ -3208,7 +3233,7 @@ function renderTable(summary) {
         const totalFac = normalizeNumber(totals.totalFac);
         const restante = totals.restante != null
           ? normalizeNumber(totals.restante)
-          : Math.max(totalBase - (totalRem + totalFac), 0);
+          : Math.max(totalBase - totalFac, 0);
         const normalizedTotals = {
           ...totals,
           total: totalBase,
@@ -3219,7 +3244,7 @@ function renderTable(summary) {
         const percentages = computePercentagesFromTotals(normalizedTotals);
         const consumedAmount = totals.totalConsumo != null
           ? normalizeNumber(totals.totalConsumo)
-          : roundTo(normalizedTotals.totalRem + normalizedTotals.totalFac);
+          : roundTo(normalizedTotals.totalFac);
         const alertInfo = getOverviewAlertInfo(item, {
           totals: normalizedTotals,
           totalAmount: totalBase,
@@ -3400,18 +3425,18 @@ function renderCharts(summary) {
   const totalFac = normalizeNumber(totals.totalFac);
   const restante = totals.restante != null
     ? normalizeNumber(totals.restante)
-    : Math.max(total - (totalRem + totalFac), 0);
+    : Math.max(total - totalFac, 0);
   const aggregatedTotals = {
     total,
     totalRem,
     totalFac,
     restante,
-    totalConsumo: roundTo(totalRem + totalFac)
+    totalConsumo: roundTo(totalFac)
   };
   const aggregatedPercentages = computePercentagesFromTotals(aggregatedTotals);
   const combinedScaleBase = aggregatedTotals.total > 0
     ? aggregatedTotals.total
-    : Math.max(roundTo(aggregatedTotals.totalRem + aggregatedTotals.totalFac), 0);
+    : Math.max(roundTo(aggregatedTotals.totalFac), 0);
   const percentageBase = combinedScaleBase > 0 ? combinedScaleBase : 1;
 
   const chartEntries = groups.map(group => {
@@ -3487,10 +3512,10 @@ function renderCharts(summary) {
       containerId: 'chartStackMetrics',
       rows: [
         {
-          label: 'Consumido (Rem + Fac)',
+          label: 'Consumido (solo facturas)',
           className: 'metric-rem',
-          amount: aggregatedTotals.totalRem + aggregatedTotals.totalFac,
-          percentage: roundTo(aggregatedPercentages.rem + aggregatedPercentages.fac)
+          amount: aggregatedTotals.totalFac,
+          percentage: aggregatedPercentages.fac
         },
         {
           label: 'Disponible',
@@ -5507,8 +5532,18 @@ async function handleReportSettingsSubmit(event) {
 function logout() {
   sessionStorage.removeItem('porpt-empresas');
   sessionStorage.removeItem('porpt-is-admin');
+  sessionStorage.removeItem('porpt-login-warnings');
   clearOverviewAutoRefresh();
   window.location.href = 'index.html';
+}
+
+function showDeferredWarnings() {
+  const warnings = readSession('porpt-login-warnings', []);
+  if (Array.isArray(warnings) && warnings.length > 0 && !state.empresasWarningShown) {
+    warnings.forEach(message => showAlert(message, 'warning', 12000));
+    sessionStorage.removeItem('porpt-login-warnings');
+    state.empresasWarningShown = true;
+  }
 }
 
 function setupLoginPage() {
@@ -5522,6 +5557,7 @@ function setupLoginPage() {
 }
 
 async function setupDashboard() {
+  showDeferredWarnings();
   await ensureEmpresasCatalog();
   initializeDashboardPanelControls();
   const empresaSelect = document.getElementById('empresaSearch');
@@ -5652,6 +5688,7 @@ async function setupReportSettings() {
     window.location.href = 'dashboard.html';
     return;
   }
+  showDeferredWarnings();
   await loadReportSettings({ requireAdmin: true });
   document.getElementById('reportSettingsForm')?.addEventListener('submit', handleReportSettingsSubmit);
   document.getElementById('brandingLetterheadEnabled')?.addEventListener('change', event => {
@@ -5667,6 +5704,7 @@ async function setupAdmin() {
     window.location.href = 'dashboard.html';
     return;
   }
+  showDeferredWarnings();
   await ensureEmpresasCatalog();
   resetUserCompanySelection([], { skipValidityUpdate: true });
   await loadUsers();

@@ -16,6 +16,11 @@ function createWindow() {
     }
   });
   mainWindow.loadURL('http://localhost:3000');
+
+  if (!app.isPackaged) {
+    // Abre las DevTools automáticamente en modo desarrollo para depurar login/render.
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 }
 
 async function fileExists(filePath) {

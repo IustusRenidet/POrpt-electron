@@ -4,6 +4,7 @@
     "defaultFormat": "pdf",
     "availableFormats": [
       "pdf",
+      "xlsx",
       "csv",
       "json"
     ]

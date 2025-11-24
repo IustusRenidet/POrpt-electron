@@ -3,13 +3,13 @@ const path = require('path');
 
 const SETTINGS_FILE = path.join(__dirname, 'report-settings.json');
 const ALLOWED_ENGINES = ['simple-pdf'];
-const ALLOWED_FORMATS = ['pdf', 'csv', 'json'];
+const ALLOWED_FORMATS = ['pdf', 'xlsx', 'csv', 'json'];
 
 const defaultSettings = {
   defaultEngine: 'simple-pdf',
   export: {
     defaultFormat: 'pdf',
-    availableFormats: ['pdf', 'csv', 'json']
+    availableFormats: ['pdf', 'xlsx', 'csv', 'json']
   },
   customization: {
     includeCharts: true,
@@ -76,10 +76,10 @@ function sanitizeBrandingConfig(branding = {}) {
 }
 
 function sanitizeExportConfig(exportConfig = {}) {
-  const catalog = Array.isArray(exportConfig.availableFormats)
-    ? exportConfig.availableFormats.filter(format => ALLOWED_FORMATS.includes(format))
-    : defaultSettings.export.availableFormats;
-  const unique = Array.from(new Set(['pdf', ...catalog]));
+  const userFormats = Array.isArray(exportConfig.availableFormats) ? exportConfig.availableFormats : [];
+  const mergedFormats = [...userFormats, ...defaultSettings.export.availableFormats];
+  const catalog = Array.from(new Set(mergedFormats)).filter(format => ALLOWED_FORMATS.includes(format));
+  const unique = catalog.length ? catalog : ['pdf'];
   const defaultFormat = ALLOWED_FORMATS.includes(exportConfig.defaultFormat) ? exportConfig.defaultFormat : unique[0];
   return {
     defaultFormat,

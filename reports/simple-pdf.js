@@ -418,7 +418,7 @@ function computePercentages(totals = {}) {
   const total = Math.max(0, Number(totals.total || 0));
   const totalRem = Math.max(0, Number(totals.totalRem || 0));
   const totalFac = Math.max(0, Number(totals.totalFac || 0));
-  const consumo = Math.max(0, totalRem + totalFac);
+  const consumo = Math.max(0, totalFac);
   const restanteFallback = total - consumo;
   const restanteAmountRaw = totals.restante != null ? Number(totals.restante) : restanteFallback;
   const restanteAmount = Number.isFinite(restanteAmountRaw) ? Math.max(0, restanteAmountRaw) : 0;
@@ -555,7 +555,7 @@ function drawTotalsTable(doc, summary, branding) {
     { label: 'Total autorizado de POs', value: formatCurrency(totals.total), color: branding.accentColor },
     { label: 'Total remisiones', value: formatCurrency(totals.totalRem), color: branding.remColor },
     { label: 'Total facturas', value: formatCurrency(totals.totalFac), color: branding.facColor },
-    { label: 'Total consumido (Rem + Fac)', value: formatCurrency(totals.totalConsumo), color: '#1f2937' },
+    { label: 'Total consumido (solo facturas)', value: formatCurrency(totals.totalConsumo), color: '#1f2937' },
     { label: remainderLabel, value: formatCurrency(totals.restante), color: branding.restanteColor }
   ];
 
@@ -715,7 +715,7 @@ function drawPoSummaryTable(doc, summary, branding) {
         const totalAmount = totals.total;
         const consumido = Number.isFinite(totals.totalConsumo)
           ? totals.totalConsumo
-          : roundTo((totals.totalRem || 0) + (totals.totalFac || 0));
+          : roundTo(totals.totalFac || 0);
         const disponible = Number.isFinite(totals.restante)
           ? totals.restante
           : roundTo(Math.max(totalAmount - consumido, 0));
@@ -784,7 +784,7 @@ function drawPoSummaryTable(doc, summary, branding) {
 
   doc.moveDown(0.4);
   const totals = summary.totals || {};
-  const totalConsumido = roundTo((totals.totalRem || 0) + (totals.totalFac || 0));
+  const totalConsumido = roundTo(totals.totalFac || 0);
   doc.lineWidth(0.5).moveTo(startX, doc.y).lineTo(startX + tableWidth, doc.y).stroke('#d1d5db');
   doc.moveDown(0.3);
   doc
@@ -831,8 +831,8 @@ function drawMovements(doc, summary, branding) {
   const columnWidth = Math.max(0, (bounds.width - gutter) / 2);
   const startX = bounds.left;
   const secondColumnX = columnWidth > 0 ? Math.min(bounds.right - columnWidth, startX + columnWidth + gutter) : startX;
-  const availableHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom - 120;
-  const rowsPerChunk = Math.max(1, Math.floor((availableHeight - 36) / 16));
+  const availableHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom - 80;
+  const rowsPerChunk = Math.max(1, Math.floor((availableHeight - 24) / 16));
   const totalRows = Math.max(rem.movements.length, fac.movements.length);
   const totalChunks = Math.max(1, Math.ceil(totalRows / rowsPerChunk));
 
@@ -843,7 +843,7 @@ function drawMovements(doc, summary, branding) {
     const facSlice = fac.movements.slice(start, end);
     const rowsInChunk = Math.max(remSlice.length, facSlice.length);
     const boxHeight = rowsInChunk * 16 + 36;
-    const requiredHeight = boxHeight + 90;
+    const requiredHeight = Math.max(boxHeight + 36, 96);
     ensureSpace(doc, requiredHeight);
     const top = doc.y;
 
@@ -950,7 +950,7 @@ function drawSummaryBox(doc, summary, branding = {}) {
   const totalAuthorized = Math.max(0, Number(totals.total || 0));
   const totalRem = Math.max(0, Number(totals.totalRem || 0));
   const totalFac = Math.max(0, Number(totals.totalFac || 0));
-  const totalConsumo = roundTo(totalRem + totalFac);
+  const totalConsumo = roundTo(totalFac);
   const consumoPercentage = totalAuthorized > 0 ? roundTo((totalConsumo / totalAuthorized) * 100) : 0;
   const accent = branding.accentColor || '#111827';
   const columnWidth = width / 3;
@@ -1117,18 +1117,18 @@ function normalizeItemTotals(item) {
   const subtotal = Number(item?.subtotal ?? 0);
   const totalRem = Number(totals.totalRem ?? totals.rem ?? 0);
   const totalFac = Number(totals.totalFac ?? totals.fac ?? 0);
-  const restanteRaw = totals.restante != null ? Number(totals.restante) : authorized - (totalRem + totalFac);
+  const restanteRaw = totals.restante != null ? Number(totals.restante) : authorized - totalFac;
   const restante = roundTo(Math.max(restanteRaw, 0));
   const normalized = {
     total: roundTo(authorized),
     subtotal: roundTo(subtotal),
     totalRem: roundTo(totalRem),
     totalFac: roundTo(totalFac),
-    totalConsumo: roundTo(totalRem + totalFac),
+    totalConsumo: roundTo(totalFac),
     restante
   };
   const percentages = computePercentages(normalized);
-  percentages.consumo = clampPercentage(percentages.rem + percentages.fac);
+  percentages.consumo = clampPercentage(percentages.fac);
   return { totals: normalized, percentages };
 }
 
@@ -1218,10 +1218,10 @@ function buildPoGroupDetails(summary) {
         totalRem: roundTo(group.totalRem),
         totalFac: roundTo(group.totalFac)
       };
-      totals.totalConsumo = roundTo(totals.totalRem + totals.totalFac);
-      totals.restante = roundTo(Math.max(totals.total - totals.totalConsumo, 0));
+      totals.totalConsumo = roundTo(totals.totalFac);
+      totals.restante = roundTo(Math.max(totals.total - totals.totalFac, 0));
       const percentages = computePercentages(totals);
-      percentages.consumo = clampPercentage(percentages.rem + percentages.fac);
+      percentages.consumo = clampPercentage(percentages.fac);
       const ids = Array.from(group.ids.values());
       const extensionIds = ids.filter(id => id !== group.baseId);
       return {
@@ -1390,8 +1390,8 @@ function renderObservationBox(doc, notes, options = {}) {
   doc.font('Helvetica').fontSize(12);
   const textWidth = width - 24;
   const contentHeight = bullets.reduce((sum, note) => sum + doc.heightOfString(note, { width: textWidth }), 0);
-  const boxHeight = Math.max(86, contentHeight + 24);
-  ensureSpace(doc, boxHeight + 90);
+  const boxHeight = Math.max(60, contentHeight + 20);
+  ensureSpace(doc, boxHeight + 44);
   doc.lineWidth(0.5).moveTo(startX, doc.y).lineTo(startX + width, doc.y).stroke('#e5e7eb');
   doc.moveDown(0.5);
   doc
@@ -1408,7 +1408,7 @@ function renderObservationBox(doc, notes, options = {}) {
     doc.font('Helvetica').fontSize(12).fillColor('#4b5563').text(note, startX + 12, currentY, { width: textWidth });
     currentY += height + 6;
   });
-  doc.y = boxTop + boxHeight + 18;
+  doc.y = boxTop + boxHeight + 14;
 }
 
 function drawChartsSection(doc, summary, branding) {
