@@ -1039,12 +1039,12 @@ function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
   const { x: startX, width } = clampHorizontalRect(bounds, bounds.left, requestedWidth);
   const barHeight = options.barHeight || 26;
   const title = options.title || 'Consumo combinado';
-  const minFollowingContent = typeof options.minFollowingContent === 'number' ? options.minFollowingContent : 320;
+  const minFollowingContent = typeof options.minFollowingContent === 'number' ? options.minFollowingContent : 240;
   const remainingHeight = doc.page.height - doc.y - doc.page.margins.bottom;
   if (remainingHeight < minFollowingContent) {
     doc.addPage();
   }
-  ensureSpace(doc, barHeight + 80);
+  ensureSpace(doc, barHeight + 60);
   doc
     .font('Helvetica-Bold')
     .fontSize(14)
@@ -1337,10 +1337,12 @@ function drawGroupTable(doc, group, options = {}) {
 function drawGroupSection(doc, group, branding, options = {}) {
   const startX = doc.page.margins.left;
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const rowsEstimate = Math.max(1, Array.isArray(group.items) ? group.items.length : 1);
+  const estimatedHeight = 110 + Math.min(rowsEstimate, 6) * 22;
+  ensureSpace(doc, estimatedHeight);
   const title = group.extensionIds.length
     ? `PO base ${group.baseId} (incluye ${group.extensionIds.length} extensión${group.extensionIds.length === 1 ? '' : 'es'})`
     : `PO ${group.baseId}`;
-  ensureSpace(doc, 60);
   doc
     .font('Helvetica-Bold')
     .fontSize(13)
@@ -1356,8 +1358,7 @@ function drawGroupSection(doc, group, branding, options = {}) {
   doc.moveDown(0.2);
   drawSmallConsumptionBar(doc, group.totals, branding, { startX, width });
   drawGroupTable(doc, group, { startX, width });
-  
-  // SOLUCIÓN: Solo dibuja separador si NO es el último Y NO se agregó una página nueva
+
   if (!options.isLast) {
     const addedPage = ensureSpace(doc, 12);
     if (!addedPage) {

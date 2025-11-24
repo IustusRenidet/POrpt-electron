@@ -1175,6 +1175,17 @@ const FORMAT_DESCRIPTION_MAP = {
   json: 'Incluye toda la informacion del resumen en formato estructurado.'
 };
 
+function configureChartDefaults() {
+  if (!window.Chart || !window.Chart.defaults) return;
+  Chart.defaults.animation = false;
+  Chart.defaults.responsive = true;
+  Chart.defaults.maintainAspectRatio = false;
+  Chart.defaults.plugins = Chart.defaults.plugins || {};
+  Chart.defaults.plugins.legend = Chart.defaults.plugins.legend || {};
+  Chart.defaults.plugins.legend.labels = Chart.defaults.plugins.legend.labels || {};
+  Chart.defaults.plugins.legend.labels.usePointStyle = true;
+}
+
 function getFormatLabel(format) {
   if (!format) return 'Formato';
   return FORMAT_LABEL_MAP[format] || format.toUpperCase();

@@ -153,107 +153,33 @@ function createJson(summary = {}, metadata = {}) {
 
 function createXlsx(summary = {}, options = {}) {
   ensureXlsxAvailable();
-  const customization = options.customization || {};
-  const csvCustomization = customization.csv || {};
-  const includeMovements = customization.includeMovements !== false;
-  const includePoResumen = csvCustomization.includePoResumen !== false;
-  const includeRemisiones = includeMovements && csvCustomization.includeRemisiones !== false;
-  const includeFacturas = includeMovements && csvCustomization.includeFacturas !== false;
-  const includeTotals = csvCustomization.includeTotales !== false;
-  const includeUniverseInfo = csvCustomization.includeUniverseInfo !== false;
-  const includeObservations = customization.includeObservations !== false;
 
   const rows = [];
-  rows.push(['tipo', 'po_id', 'referencia', 'fecha', 'descripcion', 'monto', 'comentarios']);
+  rows.push(['PO', 'Fecha', 'Total', 'Remisiones', 'Facturas', 'Consumido', 'Disponible', 'Alerta', '#Remisiones', '#Facturas']);
   const items = Array.isArray(summary.items) ? summary.items : [];
   items.forEach(item => {
-    if (includePoResumen) {
-      const commentParts = [];
-      if (includeRemisiones) {
-        commentParts.push(`Rem: ${formatCurrency(item.totalRem || item.totals?.totalRem || 0)}`);
-      }
-      if (includeFacturas) {
-        commentParts.push(`Fac: ${formatCurrency(item.totalFac || item.totals?.totalFac || 0)}`);
-      }
-      const subtotal = Number(item.subtotal ?? 0);
-      const total = Number(item.total ?? 0);
-      if (includeTotals) {
-        if (subtotal > 0 && Math.abs(subtotal - total) > 0.009) {
-          commentParts.push(`Sub: ${formatCurrency(subtotal)}`);
-        }
-        const restante = item.restante ?? item.totals?.restante ?? 0;
-        commentParts.push(`Rest: ${formatCurrency(restante)}`);
-      }
-      if (includeObservations && item.alertasTexto) {
-        commentParts.push(item.alertasTexto);
-      }
-      rows.push([
-        'PO',
-        item.id || '',
-        item.baseId || '',
-        item.fecha || '',
-        item.descripcion || item.concepto || '',
-        Number(item.total || 0),
-        commentParts.join(' | ')
-      ]);
-    }
-
-    if (includeRemisiones) {
-      const remisiones = Array.isArray(item.remisiones) ? item.remisiones : [];
-      remisiones.forEach(rem => {
-        rows.push([
-          'REMISION',
-          item.id || '',
-          rem.id || rem.folio || '',
-          rem.fecha || '',
-          rem.descripcion || rem.concepto || '',
-          Number(rem.monto || 0),
-          rem.observaciones || ''
-        ]);
-      });
-    }
-
-    if (includeFacturas) {
-      const facturas = Array.isArray(item.facturas) ? item.facturas : [];
-      facturas.forEach(fac => {
-        rows.push([
-          'FACTURA',
-          item.id || '',
-          fac.id || fac.folio || '',
-          fac.fecha || '',
-          fac.descripcion || fac.concepto || '',
-          Number(fac.monto || fac.total || 0),
-          fac.observaciones || ''
-        ]);
-      });
-    }
-  });
-
-  const totals = summary.totals || {};
-  if (includeTotals) {
-    rows.push(['RESUMEN', '', '', '', 'Total autorizado', Number(totals.total || 0), '']);
-    rows.push(['RESUMEN', '', '', '', 'Total remisiones', Number(totals.totalRem || 0), '']);
-    rows.push(['RESUMEN', '', '', '', 'Total facturas', Number(totals.totalFac || 0), '']);
-    rows.push(['RESUMEN', '', '', '', 'Restante', Number(totals.restante || 0), '']);
-  }
-
-  if (includeUniverseInfo && summary.universe) {
-    const universe = summary.universe;
-    rows.push(['UNIVERSO', '', '', '', 'Filtro seleccionado', universe.label || universe.shortLabel || '', '']);
-    rows.push(['UNIVERSO', '', '', '', 'Descripción', universe.description || '', '']);
-  }
-
-  if (includeTotals || includeUniverseInfo) {
+    const totals = item.totals || {};
+    const total = Number(item.total ?? totals.total ?? 0);
+    const rem = Number(totals.totalRem ?? 0);
+    const fac = Number(totals.totalFac ?? 0);
+    const consumido = totals.totalConsumo != null ? Number(totals.totalConsumo) : rem + fac;
+    const disponible = totals.restante != null ? Number(totals.restante) : Math.max(total - consumido, 0);
+    const alertText = typeof item.alertasTexto === 'string' ? item.alertasTexto : '';
+    const remCount = Array.isArray(item.remisiones) ? item.remisiones.length : 0;
+    const facCount = Array.isArray(item.facturas) ? item.facturas.length : 0;
     rows.push([
-      'UNIVERSO',
-      '',
-      '',
-      '',
-      'Empresa',
-      summary.companyName || summary.empresaLabel || summary.empresa || '',
-      ''
+      item.id || '',
+      item.fecha || '',
+      total,
+      rem,
+      fac,
+      consumido,
+      disponible,
+      alertText,
+      remCount,
+      facCount
     ]);
-  }
+  });
 
   const workbook = XLSX.utils.book_new();
   const sheet = XLSX.utils.aoa_to_sheet(rows);
