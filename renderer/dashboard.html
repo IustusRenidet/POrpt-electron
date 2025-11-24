@@ -13,6 +13,10 @@
 </head>
 <body class="bg-light">
   <div id="alertBanner" class="alert-banner"></div>
+  <div id="dashboardLoading" class="alert alert-info text-center py-2 d-none m-0 rounded-0" role="status">
+    <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+    <span>Generando dashboard, espera un momento...</span>
+  </div>
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
     <div class="container-fluid px-3 px-lg-5">
       <a class="navbar-brand fw-bold" href="#">POrpt</a>
@@ -639,14 +643,14 @@
       <div class="tab-pane fade" id="dashboard-charts" role="tabpanel" aria-labelledby="dashboard-tab-charts">
         <div class="d-flex flex-column flex-xl-row gap-3 align-items-xl-end mb-3">
           <form id="graphSearchForm" class="graph-search-form w-100 w-xl-auto" role="search">
-            <label for="graphSearchInput" class="form-label small text-uppercase text-muted fw-semibold mb-1">Buscar gr�fica por PO</label>
+            <label for="graphSearchInput" class="form-label small text-uppercase text-muted fw-semibold mb-1">Buscar gráfica por PO</label>
             <div class="input-group input-group-sm">
               <span class="input-group-text">PO</span>
               <input
                 type="search"
                 class="form-control"
                 id="graphSearchInput"
-                placeholder="Escribe la PO base o alguna extensi�n"
+                placeholder="Escribe la PO base o alguna extensión"
                 autocomplete="off"
               >
               <button class="btn btn-outline-primary" type="submit" id="graphSearchSubmit">Buscar</button>

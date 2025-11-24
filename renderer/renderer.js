@@ -95,7 +95,8 @@ const state = {
   },
   dashboardActiveTab: 'overview',
   graphSearch: {
-    highlightTimerId: null
+    highlightTimerId: null,
+    index: []
   },
   overviewSearch: {
     highlightTimerId: null
@@ -2094,6 +2095,12 @@ function updateOverviewModeControls() {
   updateOverviewModeVisibility();
 }
 
+
+function setDashboardLoading(isLoading) {
+  const el = document.getElementById('dashboardLoading');
+  if (!el) return;
+  el.classList.toggle('d-none', !isLoading);
+}
 function resetOverviewState(options = {}) {
   const keepFilters = options.keepFilters === true;
   state.overview.items = [];
@@ -3479,7 +3486,7 @@ function renderCharts(summary) {
       const col = document.createElement('div');
       col.className = 'col-12 col-lg-6';
       col.innerHTML = `
-        <div class="card shadow-sm chart-card h-100">
+        <div class="card shadow-sm chart-card h-100" data-po-search="${escapeHtml(entry.id)}" data-po-label="${escapeHtml(entry.label)}">
           <div class="card-header bg-light d-flex justify-content-between align-items-center">
             <span class="fw-semibold">${escapeHtml(entry.label)}</span>
             <span class="badge text-bg-secondary">Total $${formatCurrency(total)}</span>
@@ -3513,15 +3520,25 @@ function renderCharts(summary) {
       }, 0);
     });
     chartsContainer.appendChild(fragment);
+    const cards = getGraphCardElements();
+    state.graphSearch.index = cards
+      .map(card => ({
+        card,
+        normalized: normalizeSearchText(card.dataset.poSearch || card.dataset.poLabel || card.textContent || '')
+      }))
+      .filter(entry => entry.normalized);
+    updateGraphSearchFeedback(GRAPH_SEARCH_HINT_MESSAGE, 'muted');
+    clearGraphSearchHighlight();
+
   }
 }
 
 
 function getGraphCardElements() {
-  const container = document.getElementById('extensionsContainer');
-  if (!container) {
-    return [];
-  }
+  const chartsContainer = document.getElementById('poChartsContainer');
+  const extensionsContainer = document.getElementById('extensionsContainer');
+  const container = chartsContainer || extensionsContainer;
+  if (!container) return [];
   return Array.from(container.querySelectorAll('.chart-card'));
 }
 
@@ -3575,12 +3592,14 @@ function focusGraphCardByTerm(rawTerm) {
     showGraphSearchEmptyState();
     return false;
   }
-  const match = cards.find(card => {
-    const searchField = card.dataset.poSearch || '';
+  const index = Array.isArray(state.graphSearch?.index) ? state.graphSearch.index : [];
+  const matchEntry = index.find(entry => {
+    return tokens.every(token => fieldContainsSearchToken(entry.normalized, token));
+  });
+  const match = matchEntry?.card || cards.find(card => {
+    const searchField = card.dataset.poSearch || card.dataset.poLabel || '';
     const normalizedField = normalizeSearchText(searchField);
-    if (!normalizedField) {
-      return false;
-    }
+    if (!normalizedField) return false;
     return tokens.every(token => fieldContainsSearchToken(normalizedField, token));
   });
   if (!match) {

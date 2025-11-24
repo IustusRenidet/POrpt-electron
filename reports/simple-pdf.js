@@ -22,7 +22,7 @@ try {
   console.log('✓ svg-to-pdfkit cargado correctamente');
 } catch (err) {
   svgToPdfLoadError = err;
-  console.warn('⚠️ No se pudo cargar svg-to-pdfkit. Los íconos vectoriales no estarán disponibles:', err.message);
+  console.warn('⚠� No se pudo cargar svg-to-pdfkit. Los íconos vectoriales no estarán disponibles:', err.message);
 }
 
 const PDF_UNAVAILABLE_MESSAGE =
@@ -369,7 +369,7 @@ function drawAlertCell(doc, value, cellX, cellY, cellWidth, rowHeight) {
     } catch (err) {
       if (!svgRenderErrorLogged) {
         svgRenderErrorLogged = true;
-        console.warn('⚠️ Error dibujando SVG en el PDF:', err.message);
+        console.warn('⚠� Error dibujando SVG en el PDF:', err.message);
       }
       textOffset = 0;
     }
@@ -1039,6 +1039,11 @@ function drawCombinedConsumptionBar(doc, totals, branding, options = {}) {
   const { x: startX, width } = clampHorizontalRect(bounds, bounds.left, requestedWidth);
   const barHeight = options.barHeight || 26;
   const title = options.title || 'Consumo combinado';
+  const minFollowingContent = typeof options.minFollowingContent === 'number' ? options.minFollowingContent : 320;
+  const remainingHeight = doc.page.height - doc.y - doc.page.margins.bottom;
+  if (remainingHeight < minFollowingContent) {
+    doc.addPage();
+  }
   ensureSpace(doc, barHeight + 80);
   doc
     .font('Helvetica-Bold')
